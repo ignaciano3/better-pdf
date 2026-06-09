@@ -1,8 +1,5 @@
 use wasm_bindgen::prelude::*;
 
-// `fill` is exercised by its own `#[cfg(test)]` suite and wired to the wasm
-// boundary in the next task; allow dead_code until that export lands.
-#[allow(dead_code)]
 mod fill;
 mod forms;
 
@@ -17,6 +14,12 @@ pub fn round_trip(data: &[u8]) -> Vec<u8> {
 #[wasm_bindgen]
 pub fn read_fields(data: &[u8]) -> Result<String, JsError> {
     forms::read_fields_json(data).map_err(|e| JsError::new(&e))
+}
+
+/// Apply fill ops (JSON array of {name, value}) to a PDF and return new bytes.
+#[wasm_bindgen]
+pub fn fill_fields(data: &[u8], ops_json: &str) -> Result<Vec<u8>, JsError> {
+    fill::fill_fields_json(data, ops_json).map_err(|e| JsError::new(&e))
 }
 
 #[cfg(test)]

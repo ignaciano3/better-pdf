@@ -10,3 +10,7 @@ export function roundTrip(data: Uint8Array): Uint8Array {
 export function readFields(data: Uint8Array): string {
   return core.read_fields(data);
 }
+
+export function fillFields(data: Uint8Array, opsJson: string): Uint8Array {
+  return core.fill_fields(data, opsJson);
+}
