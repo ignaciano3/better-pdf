@@ -1,5 +1,6 @@
 //! Fill engine: apply {name,value} ops to a PDF and incrementally save.
 
+use crate::appearance;
 use crate::forms::{self};
 use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId};
 use serde::Deserialize;
@@ -22,9 +23,16 @@ pub fn fill_fields_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String> 
         plan.push(resolve(&doc, op)?);
     }
 
+    let touched_appearance = plan
+        .iter()
+        .any(|r| matches!(r.apply, Apply::Text { .. } | Apply::Dropdown { .. }));
+
     let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
     for r in &plan {
         apply(&mut inc, r)?;
+    }
+    if touched_appearance {
+        clear_need_appearances(&mut inc)?;
     }
 
     let mut out = Vec::new();
@@ -38,11 +46,26 @@ struct Resolved {
     apply: Apply,
 }
 
+/// A widget to draw an appearance on: its id and its /Rect [x0 y0 x1 y1].
+struct WidgetBox {
+    id: ObjectId,
+    rect: [f32; 4],
+}
+
+/// Per-field appearance inputs shared by text and choice fields.
+struct ApInputs {
+    da: appearance::Da,
+    q: i64,
+    font_ref: ObjectId,
+    font: String,
+    widgets: Vec<WidgetBox>,
+}
+
 enum Apply {
-    /// Set /V to a string literal.
-    Text(String),
-    /// Set /V to a string literal and, if matched, /I to [index].
-    Dropdown { value: String, index: Option<i64> },
+    /// Set /V to a string literal and draw an appearance on each widget.
+    Text { value: String, ap: ApInputs },
+    /// Set /V (+ /I if matched) and draw an appearance on each widget.
+    Dropdown { value: String, index: Option<i64>, ap: ApInputs },
     /// Set group /V to a Name, and each widget's /AS (on-state name or "Off").
     Button { value: String, widgets: Vec<(ObjectId, bool)> },
 }
@@ -56,7 +79,10 @@ fn resolve(doc: &Document, op: &FillOp) -> Result<Resolved, String> {
     let kind = forms::classify(&ft, ff);
 
     let apply = match kind {
-        "text" => Apply::Text(op.value.clone()),
+        "text" => Apply::Text {
+            value: op.value.clone(),
+            ap: ap_inputs(doc, field_id, dict, &op.name)?,
+        },
         "checkbox" | "radio" => {
             let widgets = button_widgets(doc, field_id, dict, &op.value)?;
             Apply::Button { value: op.value.clone(), widgets }
@@ -66,11 +92,103 @@ fn resolve(doc: &Document, op: &FillOp) -> Result<Resolved, String> {
             if op.value != "Off" && index.is_none() && has_opt(dict) {
                 return Err(format!("'{}' is not a valid option for {}", op.value, op.name));
             }
-            Apply::Dropdown { value: op.value.clone(), index }
+            Apply::Dropdown {
+                value: op.value.clone(),
+                index,
+                ap: ap_inputs(doc, field_id, dict, &op.name)?,
+            }
         }
         other => return Err(format!("cannot fill field {} of type {}", op.name, other)),
     };
     Ok(Resolved { field_id, apply })
+}
+
+/// Gather everything needed to draw a text/choice field's appearance:
+/// effective DA, quadding, the DR font reference, and the widget boxes.
+fn ap_inputs(doc: &Document, field_id: ObjectId, dict: &Dictionary, name: &str) -> Result<ApInputs, String> {
+    let acro = acroform(doc).ok_or_else(|| "no AcroForm".to_string())?;
+    let da_str = effective_da(doc, dict, acro);
+    let da = appearance::parse_da(&da_str);
+    let font_ref = font_ref(doc, acro, &da.font)
+        .ok_or_else(|| format!("DA font '{}' not found in /DR for {}", da.font, name))?;
+    Ok(ApInputs {
+        q: quadding(doc, dict),
+        font: da.font.clone(),
+        da,
+        font_ref,
+        widgets: widget_boxes(doc, field_id, dict),
+    })
+}
+
+/// The AcroForm dictionary (inline or via reference).
+fn acroform(doc: &Document) -> Option<&Dictionary> {
+    let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
+    let cat = doc.get_dictionary(root).ok()?;
+    forms::as_dict(doc, cat.get(b"AcroForm").ok()?).ok()
+}
+
+/// Effective /DA: field's own, else inherited, else AcroForm's, else default.
+fn effective_da(doc: &Document, dict: &Dictionary, acro: &Dictionary) -> String {
+    if let Some(s) = inherited_str(doc, dict, b"DA") {
+        return s;
+    }
+    acro.get(b"DA")
+        .ok()
+        .and_then(da_string)
+        .unwrap_or_else(|| "/Helv 0 Tf 0 g".to_string())
+}
+
+/// A string value on the field or any ancestor (for inheritable keys like /DA).
+fn inherited_str(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<String> {
+    if let Some(s) = dict.get(key).ok().and_then(da_string) {
+        return Some(s);
+    }
+    let mut cur = dict;
+    for _ in 0..forms::MAX_PARENT_DEPTH {
+        let parent = forms::parent_of(doc, cur)?;
+        if let Some(s) = parent.get(key).ok().and_then(da_string) {
+            return Some(s);
+        }
+        cur = parent;
+    }
+    None
+}
+
+fn da_string(o: &Object) -> Option<String> {
+    o.as_str().ok().map(|b| String::from_utf8_lossy(b).into_owned())
+}
+
+/// Resolve `font` (from DA) to its indirect object id via AcroForm /DR/Font.
+fn font_ref(doc: &Document, acro: &Dictionary, font: &str) -> Option<ObjectId> {
+    let dr = forms::as_dict(doc, acro.get(b"DR").ok()?).ok()?;
+    let fonts = forms::as_dict(doc, dr.get(b"Font").ok()?).ok()?;
+    fonts.get(font.as_bytes()).ok()?.as_reference().ok()
+}
+
+/// Collect a field's drawable widgets (id + /Rect). A field with no /Kids is
+/// its own widget.
+fn widget_boxes(doc: &Document, field_id: ObjectId, dict: &Dictionary) -> Vec<WidgetBox> {
+    let ids: Vec<ObjectId> = dict
+        .get(b"Kids")
+        .and_then(|o| o.as_array())
+        .map(|a| a.iter().filter_map(|k| k.as_reference().ok()).collect())
+        .unwrap_or_default();
+    let ids = if ids.is_empty() { vec![field_id] } else { ids };
+    ids.into_iter()
+        .filter_map(|id| {
+            let d = doc.get_dictionary(id).ok()?;
+            let r = d.get(b"Rect").ok()?.as_array().ok()?;
+            let mut rect = [0f32; 4];
+            for (i, v) in r.iter().enumerate().take(4) {
+                rect[i] = v.as_float().unwrap_or(0.0);
+            }
+            Some(WidgetBox { id, rect })
+        })
+        .collect()
+}
+
+fn quadding(doc: &Document, dict: &Dictionary) -> i64 {
+    forms::inherited_int(doc, dict, b"Q").unwrap_or(0)
 }
 
 /// Resolve the button's widget set and validate the requested on-state.
@@ -158,16 +276,20 @@ fn find_field<'a>(doc: &'a Document, name: &str) -> Option<(ObjectId, &'a Dictio
 fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
     inc.opt_clone_object_to_new_document(r.field_id).map_err(|e| e.to_string())?;
     match &r.apply {
-        Apply::Text(value) => {
+        Apply::Text { value, ap } => {
             field_dict_mut(inc, r.field_id)?.set("V", Object::string_literal(value.as_str()));
+            draw_appearances(inc, value, ap)?;
         }
-        Apply::Dropdown { value, index } => {
-            let d = field_dict_mut(inc, r.field_id)?;
-            d.set("V", Object::string_literal(value.as_str()));
-            match index {
-                Some(i) => { d.set("I", Object::Array(vec![Object::Integer(*i)])); }
-                None => { d.remove(b"I"); }
+        Apply::Dropdown { value, index, ap } => {
+            {
+                let d = field_dict_mut(inc, r.field_id)?;
+                d.set("V", Object::string_literal(value.as_str()));
+                match index {
+                    Some(i) => { d.set("I", Object::Array(vec![Object::Integer(*i)])); }
+                    None => { d.remove(b"I"); }
+                }
             }
+            draw_appearances(inc, value, ap)?;
         }
         Apply::Button { value, widgets } => {
             field_dict_mut(inc, r.field_id)?
@@ -190,10 +312,61 @@ fn field_dict_mut(inc: &mut IncrementalDocument, id: ObjectId) -> Result<&mut Di
         .map_err(|e| e.to_string())
 }
 
+/// Build and attach a `/AP/N` appearance stream on each of the field's widgets.
+fn draw_appearances(inc: &mut IncrementalDocument, value: &str, ap: &ApInputs) -> Result<(), String> {
+    let text = appearance::encode_winansi(value);
+    for wb in &ap.widgets {
+        let w = wb.rect[2] - wb.rect[0];
+        let h = wb.rect[3] - wb.rect[1];
+        let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h);
+        let content =
+            appearance::text_appearance_content(&text, size, w, h, ap.q, &ap.da.color, &ap.font);
+        let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, ap.font_ref);
+        let ap_id = inc.new_document.add_object(Object::Stream(xobj));
+
+        inc.opt_clone_object_to_new_document(wb.id).map_err(|e| e.to_string())?;
+        let d = field_dict_mut(inc, wb.id)?;
+        let mut apn = Dictionary::new();
+        apn.set("N", Object::Reference(ap_id));
+        d.set("AP", Object::Dictionary(apn));
+    }
+    Ok(())
+}
+
+/// Set /NeedAppearances false on the AcroForm, cloning whatever object holds it
+/// (the Catalog if AcroForm is inline, else the AcroForm object itself).
+fn clear_need_appearances(inc: &mut IncrementalDocument) -> Result<(), String> {
+    let prev = inc.get_prev_documents();
+    let root = prev
+        .trailer
+        .get(b"Root")
+        .and_then(|o| o.as_reference())
+        .map_err(|e| e.to_string())?;
+    let cat = prev.get_dictionary(root).map_err(|e| e.to_string())?;
+    match cat.get(b"AcroForm") {
+        Ok(Object::Reference(id)) => {
+            let id = *id;
+            inc.opt_clone_object_to_new_document(id).map_err(|e| e.to_string())?;
+            field_dict_mut(inc, id)?.set("NeedAppearances", Object::Boolean(false));
+        }
+        Ok(Object::Dictionary(_)) => {
+            inc.opt_clone_object_to_new_document(root).map_err(|e| e.to_string())?;
+            let cat = field_dict_mut(inc, root)?;
+            let acro = cat
+                .get_mut(b"AcroForm")
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
+            acro.set("NeedAppearances", Object::Boolean(false));
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::fill_fields_json;
-    use lopdf::Document;
+    use lopdf::{Document, Object, ObjectId};
 
     const FICHA: &[u8] =
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
@@ -250,6 +423,72 @@ mod tests {
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Nope"}]"#;
         let err = fill_fields_json(FICHA, ops).unwrap_err();
         assert!(err.contains("on-state"), "got: {err}");
+    }
+
+    /// Read a field's /AP/N stream content as a string, if present.
+    fn ap_content(doc: &Document, field_name: &str) -> Option<String> {
+        let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
+        let cat = doc.get_dictionary(root).ok()?;
+        let acro = match cat.get(b"AcroForm").ok()? {
+            Object::Reference(id) => doc.get_dictionary(*id).ok()?,
+            Object::Dictionary(d) => d,
+            _ => return None,
+        };
+        let mut stack: Vec<ObjectId> = acro
+            .get(b"Fields").ok()?.as_array().ok()?
+            .iter().filter_map(|e| e.as_reference().ok()).collect();
+        while let Some(id) = stack.pop() {
+            let Ok(d) = doc.get_dictionary(id) else { continue };
+            if crate::forms::fully_qualified_name(doc, d) == field_name {
+                let n = d.get(b"AP").ok()?.as_dict().ok()?.get(b"N").ok()?.as_reference().ok()?;
+                let st = doc.get_object(n).ok()?.as_stream().ok()?;
+                return Some(String::from_utf8_lossy(&st.content).into_owned());
+            }
+            if let Ok(kids) = d.get(b"Kids").and_then(|o| o.as_array()) {
+                for k in kids {
+                    if let Ok(r) = k.as_reference() { stack.push(r); }
+                }
+            }
+        }
+        None
+    }
+
+    fn need_appearances(doc: &Document) -> Option<bool> {
+        let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
+        let cat = doc.get_dictionary(root).ok()?;
+        let acro = match cat.get(b"AcroForm").ok()? {
+            Object::Reference(id) => doc.get_dictionary(*id).ok()?,
+            Object::Dictionary(d) => d,
+            _ => return None,
+        };
+        acro.get(b"NeedAppearances").ok().and_then(|o| o.as_bool().ok())
+    }
+
+    #[test]
+    fn text_fill_generates_appearance() {
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA"}]"#;
+        let out = fill_fields_json(FICHA, ops).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let ap = ap_content(&doc, "beneficiario.apellidos_nombres").expect("AP/N present");
+        assert!(ap.contains("(GARCIA) Tj"), "got: {ap}");
+        assert!(ap.contains("Tf"));
+    }
+
+    #[test]
+    fn fill_flips_need_appearances_false() {
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"X"}]"#;
+        let out = fill_fields_json(FICHA, ops).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        assert_eq!(need_appearances(&doc), Some(false));
+    }
+
+    #[test]
+    fn radio_fill_does_not_add_appearance_stream() {
+        // Buttons already have /AP; we must not overwrite with a text stream.
+        let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Titular"}]"#;
+        let out = fill_fields_json(FICHA, ops).unwrap();
+        Document::load_mem(&out).unwrap(); // still valid
+        assert_eq!(reparse_value(&out, "beneficiario.tipo_beneficiario").as_deref(), Some("Titular"));
     }
 
     #[test]

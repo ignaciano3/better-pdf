@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
 
+mod appearance;
 mod fill;
 mod forms;
 
