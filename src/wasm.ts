@@ -6,3 +6,7 @@ import * as core from "../pkg/better_pdf_core.js";
 export function roundTrip(data: Uint8Array): Uint8Array {
   return core.round_trip(data);
 }
+
+export function readFields(data: Uint8Array): string {
+  return core.read_fields(data);
+}
