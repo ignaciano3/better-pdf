@@ -14,3 +14,7 @@ export function readFields(data: Uint8Array): string {
 export function fillFields(data: Uint8Array, opsJson: string): Uint8Array {
   return core.fill_fields(data, opsJson);
 }
+
+export function flattenFields(data: Uint8Array, namesJson: string): Uint8Array {
+  return core.flatten_fields(data, namesJson);
+}
