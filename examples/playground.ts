@@ -57,5 +57,6 @@ if (firstText) {
   writeFileSync(filledPath, filled);
   const check = (await PdfDocument.load(filled)).getForm().getField(firstText.name);
   console.log(`\nFilled '${firstText.name}' → "${check?.value}"`);
+  console.log(`(value now has a baked appearance — /NeedAppearances cleared)`);
   console.log(`Wrote:    ${filledPath} (${filled.length.toLocaleString()} bytes)`);
 }
