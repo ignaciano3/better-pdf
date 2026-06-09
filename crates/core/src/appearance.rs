@@ -192,6 +192,128 @@ pub fn build_appearance_xobject(
     Stream::new(dict, content).with_compression(false)
 }
 
+pub struct JpegInfo {
+    pub width: i64,
+    pub height: i64,
+    pub color_space: &'static str,
+}
+
+/// Read dimensions from a JPEG SOF segment. This deliberately only validates
+/// enough to embed visual signatures as `/DCTDecode` image XObjects.
+pub fn jpeg_info(data: &[u8]) -> Result<JpegInfo, String> {
+    if data.len() < 4 || data[0] != 0xff || data[1] != 0xd8 {
+        return Err("signature image must be a JPEG".to_string());
+    }
+
+    let mut i = 2usize;
+    while i + 3 < data.len() {
+        while i < data.len() && data[i] == 0xff {
+            i += 1;
+        }
+        if i >= data.len() {
+            break;
+        }
+        let marker = data[i];
+        i += 1;
+
+        if marker == 0xd9 || (0xd0..=0xd7).contains(&marker) {
+            continue;
+        }
+        if i + 2 > data.len() {
+            break;
+        }
+        let len = u16::from_be_bytes([data[i], data[i + 1]]) as usize;
+        if len < 2 || i + len > data.len() {
+            break;
+        }
+
+        if is_sof_marker(marker) {
+            if len < 8 {
+                break;
+            }
+            let height = u16::from_be_bytes([data[i + 3], data[i + 4]]) as i64;
+            let width = u16::from_be_bytes([data[i + 5], data[i + 6]]) as i64;
+            let components = data[i + 7];
+            let color_space = if components == 1 {
+                "DeviceGray"
+            } else {
+                "DeviceRGB"
+            };
+            if width > 0 && height > 0 {
+                return Ok(JpegInfo {
+                    width,
+                    height,
+                    color_space,
+                });
+            }
+            break;
+        }
+
+        i += len;
+    }
+
+    Err("could not read JPEG dimensions".to_string())
+}
+
+fn is_sof_marker(marker: u8) -> bool {
+    matches!(
+        marker,
+        0xc0 | 0xc1 | 0xc2 | 0xc3 | 0xc5 | 0xc6 | 0xc7 | 0xc9 | 0xca | 0xcb | 0xcd | 0xce | 0xcf
+    )
+}
+
+pub fn build_jpeg_image_xobject(data: Vec<u8>, info: &JpegInfo) -> Stream {
+    let mut dict = Dictionary::new();
+    dict.set("Type", Object::Name(b"XObject".to_vec()));
+    dict.set("Subtype", Object::Name(b"Image".to_vec()));
+    dict.set("Width", Object::Integer(info.width));
+    dict.set("Height", Object::Integer(info.height));
+    dict.set(
+        "ColorSpace",
+        Object::Name(info.color_space.as_bytes().to_vec()),
+    );
+    dict.set("BitsPerComponent", Object::Integer(8));
+    dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
+    Stream::new(dict, data).with_compression(false)
+}
+
+pub fn build_signature_appearance_xobject(
+    image_ref: lopdf::ObjectId,
+    image_w: f32,
+    image_h: f32,
+    box_w: f32,
+    box_h: f32,
+) -> Stream {
+    let scale = (box_w / image_w).min(box_h / image_h);
+    let draw_w = image_w * scale;
+    let draw_h = image_h * scale;
+    let tx = (box_w - draw_w) / 2.0;
+    let ty = (box_h - draw_h) / 2.0;
+    let content =
+        format!("q {draw_w:.2} 0 0 {draw_h:.2} {tx:.2} {ty:.2} cm /SigImg Do Q").into_bytes();
+
+    let mut xobjects = Dictionary::new();
+    xobjects.set("SigImg", Object::Reference(image_ref));
+    let mut resources = Dictionary::new();
+    resources.set("XObject", Object::Dictionary(xobjects));
+
+    let mut dict = Dictionary::new();
+    dict.set("Type", Object::Name(b"XObject".to_vec()));
+    dict.set("Subtype", Object::Name(b"Form".to_vec()));
+    dict.set("FormType", Object::Integer(1));
+    dict.set(
+        "BBox",
+        Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Real(box_w),
+            Object::Real(box_h),
+        ]),
+    );
+    dict.set("Resources", Object::Dictionary(resources));
+    Stream::new(dict, content).with_compression(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,7 +321,10 @@ mod tests {
     #[test]
     fn encodes_spanish_to_winansi() {
         // á=0xE1, í=0xED, ñ=0xF1
-        assert_eq!(encode_winansi("García"), vec![b'G', b'a', b'r', b'c', 0xED, b'a']);
+        assert_eq!(
+            encode_winansi("García"),
+            vec![b'G', b'a', b'r', b'c', 0xED, b'a']
+        );
         assert_eq!(encode_winansi("ñ"), vec![0xF1]);
     }
 
@@ -256,5 +381,17 @@ mod tests {
     fn content_escapes_text() {
         let c = text_appearance_content(b"a(b)", 10.0, 100.0, 14.0, 0, "0 g", "Helv");
         assert!(String::from_utf8(c).unwrap().contains("(a\\(b\\)) Tj"));
+    }
+
+    #[test]
+    fn reads_jpeg_dimensions() {
+        let jpg = [
+            0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00,
+            0x02, 0x00, 0x03, 0x03, 0x00, 0xff, 0xd9,
+        ];
+        let info = jpeg_info(&jpg).unwrap();
+        assert_eq!(info.width, 3);
+        assert_eq!(info.height, 2);
+        assert_eq!(info.color_space, "DeviceRGB");
     }
 }

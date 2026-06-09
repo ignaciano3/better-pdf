@@ -30,7 +30,8 @@ pub fn flatten_fields_json(data: &[u8], names_json: &str) -> Result<Vec<u8>, Str
     let mut field_ids: Vec<ObjectId> = Vec::new();
     let mut stamps: Vec<WidgetStamp> = Vec::new();
     for name in &names {
-        let (field_id, dict) = find_field(&doc, name).ok_or_else(|| format!("no such field: {name}"))?;
+        let (field_id, dict) =
+            find_field(&doc, name).ok_or_else(|| format!("no such field: {name}"))?;
         field_ids.push(field_id);
         for w in field_widgets(&doc, field_id, dict) {
             stamps.push(resolve_stamp(&doc, w));
@@ -97,16 +98,25 @@ fn find_page_of_annot(doc: &Document, annot: ObjectId) -> Option<ObjectId> {
 
 /// Resolve the appearance stream (id + BBox) a widget currently shows.
 fn resolve_stamp(doc: &Document, w: RawWidget) -> WidgetStamp {
-    let ap = doc.get_dictionary(w.id).ok().and_then(|d| appearance_stream_id(doc, d)).map(|id| {
-        let bbox = doc
-            .get_object(id)
-            .ok()
-            .and_then(|o| o.as_stream().ok())
-            .and_then(|s| read_rect(&s.dict))
-            .unwrap_or([0.0, 0.0, w.rect[2] - w.rect[0], w.rect[3] - w.rect[1]]);
-        (id, bbox)
-    });
-    WidgetStamp { widget_id: w.id, page_id: w.page_id, rect: w.rect, ap }
+    let ap = doc
+        .get_dictionary(w.id)
+        .ok()
+        .and_then(|d| appearance_stream_id(doc, d))
+        .map(|id| {
+            let bbox = doc
+                .get_object(id)
+                .ok()
+                .and_then(|o| o.as_stream().ok())
+                .and_then(|s| read_rect(&s.dict))
+                .unwrap_or([0.0, 0.0, w.rect[2] - w.rect[0], w.rect[3] - w.rect[1]]);
+            (id, bbox)
+        });
+    WidgetStamp {
+        widget_id: w.id,
+        page_id: w.page_id,
+        rect: w.rect,
+        ap,
+    }
 }
 
 /// The id of the appearance stream a widget currently shows.
@@ -124,7 +134,11 @@ fn appearance_stream_id(doc: &Document, widget: &Dictionary) -> Option<ObjectId>
 }
 
 /// Stamp one widget's appearance onto its page.
-fn stamp_widget(inc: &mut IncrementalDocument, s: &WidgetStamp, counter: &mut usize) -> Result<(), String> {
+fn stamp_widget(
+    inc: &mut IncrementalDocument,
+    s: &WidgetStamp,
+    counter: &mut usize,
+) -> Result<(), String> {
     let Some((ap_id, bbox)) = s.ap else {
         return Ok(()); // nothing to draw
     };
@@ -137,8 +151,16 @@ fn stamp_widget(inc: &mut IncrementalDocument, s: &WidgetStamp, counter: &mut us
 
     // 2) append a draw stream to the page contents (BBox -> Rect transform).
     let (bw, bh) = (bbox[2] - bbox[0], bbox[3] - bbox[1]);
-    let sx = if bw != 0.0 { (s.rect[2] - s.rect[0]) / bw } else { 1.0 };
-    let sy = if bh != 0.0 { (s.rect[3] - s.rect[1]) / bh } else { 1.0 };
+    let sx = if bw != 0.0 {
+        (s.rect[2] - s.rect[0]) / bw
+    } else {
+        1.0
+    };
+    let sy = if bh != 0.0 {
+        (s.rect[3] - s.rect[1]) / bh
+    } else {
+        1.0
+    };
     let tx = s.rect[0] - bbox[0] * sx;
     let ty = s.rect[1] - bbox[1] * sy;
     let draw = format!("q {sx:.4} 0 0 {sy:.4} {tx:.2} {ty:.2} cm /{name} Do Q");
@@ -146,7 +168,8 @@ fn stamp_widget(inc: &mut IncrementalDocument, s: &WidgetStamp, counter: &mut us
         Stream::new(Dictionary::new(), draw.into_bytes()).with_compression(false),
     ));
 
-    inc.opt_clone_object_to_new_document(s.page_id).map_err(|e| e.to_string())?;
+    inc.opt_clone_object_to_new_document(s.page_id)
+        .map_err(|e| e.to_string())?;
     let page = dict_mut(inc, s.page_id)?;
     let contents = page.get(b"Contents").map_err(|e| e.to_string())?.clone();
     let arr = match contents {
@@ -161,8 +184,13 @@ fn stamp_widget(inc: &mut IncrementalDocument, s: &WidgetStamp, counter: &mut us
 }
 
 /// Remove a widget reference from a page's /Annots.
-fn remove_annot(inc: &mut IncrementalDocument, page_id: ObjectId, widget: ObjectId) -> Result<(), String> {
-    inc.opt_clone_object_to_new_document(page_id).map_err(|e| e.to_string())?;
+fn remove_annot(
+    inc: &mut IncrementalDocument,
+    page_id: ObjectId,
+    widget: ObjectId,
+) -> Result<(), String> {
+    inc.opt_clone_object_to_new_document(page_id)
+        .map_err(|e| e.to_string())?;
     let page = dict_mut(inc, page_id)?;
     if let Ok(annots) = page.get(b"Annots").and_then(|o| o.as_array()) {
         let kept: Vec<Object> = annots
@@ -178,18 +206,27 @@ fn remove_annot(inc: &mut IncrementalDocument, page_id: ObjectId, widget: Object
 /// Remove fields from the AcroForm /Fields (AcroForm inline in Catalog, or a ref).
 fn remove_fields(inc: &mut IncrementalDocument, field_ids: &[ObjectId]) -> Result<(), String> {
     let prev = inc.get_prev_documents();
-    let root = prev.trailer.get(b"Root").and_then(|o| o.as_reference()).map_err(|e| e.to_string())?;
+    let root = prev
+        .trailer
+        .get(b"Root")
+        .and_then(|o| o.as_reference())
+        .map_err(|e| e.to_string())?;
     let cat = prev.get_dictionary(root).map_err(|e| e.to_string())?;
     match cat.get(b"AcroForm") {
         Ok(Object::Reference(id)) => {
             let id = *id;
-            inc.opt_clone_object_to_new_document(id).map_err(|e| e.to_string())?;
+            inc.opt_clone_object_to_new_document(id)
+                .map_err(|e| e.to_string())?;
             filter_fields(dict_mut(inc, id)?, field_ids);
         }
         Ok(Object::Dictionary(_)) => {
-            inc.opt_clone_object_to_new_document(root).map_err(|e| e.to_string())?;
+            inc.opt_clone_object_to_new_document(root)
+                .map_err(|e| e.to_string())?;
             let cat = dict_mut(inc, root)?;
-            let acro = cat.get_mut(b"AcroForm").and_then(Object::as_dict_mut).map_err(|e| e.to_string())?;
+            let acro = cat
+                .get_mut(b"AcroForm")
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
             filter_fields(acro, field_ids);
         }
         _ => {}
@@ -201,7 +238,12 @@ fn filter_fields(acro: &mut Dictionary, field_ids: &[ObjectId]) {
     if let Ok(fields) = acro.get(b"Fields").and_then(|o| o.as_array()) {
         let kept: Vec<Object> = fields
             .iter()
-            .filter(|o| o.as_reference().ok().map(|id| !field_ids.contains(&id)).unwrap_or(true))
+            .filter(|o| {
+                o.as_reference()
+                    .ok()
+                    .map(|id| !field_ids.contains(&id))
+                    .unwrap_or(true)
+            })
             .cloned()
             .collect();
         acro.set("Fields", Object::Array(kept));
@@ -217,14 +259,16 @@ fn register_xobject(
     name: &str,
     ap_id: ObjectId,
 ) -> Result<(), String> {
-    inc.opt_clone_object_to_new_document(page_id).map_err(|e| e.to_string())?;
+    inc.opt_clone_object_to_new_document(page_id)
+        .map_err(|e| e.to_string())?;
     let res_ref = match dict_mut(inc, page_id)?.get(b"Resources") {
         Ok(Object::Reference(id)) => Some(*id),
         _ => None,
     };
     match res_ref {
         Some(id) => {
-            inc.opt_clone_object_to_new_document(id).map_err(|e| e.to_string())?;
+            inc.opt_clone_object_to_new_document(id)
+                .map_err(|e| e.to_string())?;
             set_xobject(dict_mut(inc, id)?, name, ap_id);
         }
         None => {
@@ -232,7 +276,10 @@ fn register_xobject(
             if !page.has(b"Resources") {
                 page.set("Resources", Object::Dictionary(Dictionary::new()));
             }
-            let res = page.get_mut(b"Resources").and_then(Object::as_dict_mut).map_err(|e| e.to_string())?;
+            let res = page
+                .get_mut(b"Resources")
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
             set_xobject(res, name, ap_id);
         }
     }
@@ -249,7 +296,10 @@ fn set_xobject(res: &mut Dictionary, name: &str, ap_id: ObjectId) {
 }
 
 fn dict_mut(inc: &mut IncrementalDocument, id: ObjectId) -> Result<&mut Dictionary, String> {
-    inc.new_document.get_object_mut(id).and_then(Object::as_dict_mut).map_err(|e| e.to_string())
+    inc.new_document
+        .get_object_mut(id)
+        .and_then(Object::as_dict_mut)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -264,7 +314,11 @@ mod tests {
     fn field_names(bytes: &[u8]) -> Vec<String> {
         let json = crate::forms::read_fields_json(bytes).unwrap();
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-        v.as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap().to_string()).collect()
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["name"].as_str().unwrap().to_string())
+            .collect()
     }
 
     #[test]
@@ -282,7 +336,10 @@ mod tests {
 
         // Field is gone from the AcroForm.
         let names = field_names(&out);
-        assert!(!names.iter().any(|n| n == "beneficiario.apellidos_nombres"), "field still present: {names:?}");
+        assert!(
+            !names.iter().any(|n| n == "beneficiario.apellidos_nombres"),
+            "field still present: {names:?}"
+        );
 
         // Page /Contents is now an array; still a valid PDF.
         let doc = Document::load_mem(&out).unwrap();

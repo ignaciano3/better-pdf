@@ -26,7 +26,10 @@ fn collect_fields(doc: &Document) -> Result<Vec<FieldInfo>, String> {
         Ok(o) => as_dict(doc, o)?,
         Err(_) => return Ok(Vec::new()),
     };
-    let entries = acroform.get(b"Fields").and_then(|o| o.as_array()).map_err(|e| e.to_string())?;
+    let entries = acroform
+        .get(b"Fields")
+        .and_then(|o| o.as_array())
+        .map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for entry in entries {
         let d = as_dict(doc, entry)?;
@@ -52,21 +55,41 @@ fn describe_field(doc: &Document, d: &Dictionary) -> FieldInfo {
         }
     }
 
-    let options = d.get(b"Opt").and_then(|o| o.as_array())
-        .map(|a| a.iter().map(opt_export).collect()).unwrap_or_default();
+    let options = d
+        .get(b"Opt")
+        .and_then(|o| o.as_array())
+        .map(|a| a.iter().map(opt_export).collect())
+        .unwrap_or_default();
 
-    FieldInfo { name, field_type, value, states, options, read_only: ff & 1 != 0 }
+    FieldInfo {
+        name,
+        field_type,
+        value,
+        states,
+        options,
+        read_only: ff & 1 != 0,
+    }
 }
 
 pub(crate) fn classify(ft: &str, ff: i64) -> &'static str {
     match ft {
         "Tx" => "text",
         "Btn" => {
-            if ff & (1 << 16) != 0 { "pushbutton" }
-            else if ff & (1 << 15) != 0 { "radio" }
-            else { "checkbox" }
+            if ff & (1 << 16) != 0 {
+                "pushbutton"
+            } else if ff & (1 << 15) != 0 {
+                "radio"
+            } else {
+                "checkbox"
+            }
         }
-        "Ch" => { if ff & (1 << 17) != 0 { "dropdown" } else { "listbox" } }
+        "Ch" => {
+            if ff & (1 << 17) != 0 {
+                "dropdown"
+            } else {
+                "listbox"
+            }
+        }
         "Sig" => "signature",
         _ => "unknown",
     }
@@ -85,7 +108,10 @@ pub(crate) fn as_dict<'a>(doc: &'a Document, o: &'a Object) -> Result<&'a Dictio
 pub(crate) const MAX_PARENT_DEPTH: usize = 128;
 
 pub(crate) fn name_part(d: &Dictionary) -> Option<String> {
-    d.get(b"T").ok().and_then(|o| o.as_str().ok()).map(|s| String::from_utf8_lossy(s).into_owned())
+    d.get(b"T")
+        .ok()
+        .and_then(|o| o.as_str().ok())
+        .map(|s| String::from_utf8_lossy(s).into_owned())
 }
 
 /// Resolve a dictionary's /Parent to a dictionary, if present and well-formed.
@@ -95,11 +121,17 @@ pub(crate) fn parent_of<'a>(doc: &'a Document, d: &'a Dictionary) -> Option<&'a 
 
 pub(crate) fn fully_qualified_name(doc: &Document, d: &Dictionary) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(p) = name_part(d) { parts.push(p); }
+    if let Some(p) = name_part(d) {
+        parts.push(p);
+    }
     let mut cur = d;
     for _ in 0..MAX_PARENT_DEPTH {
-        let Some(parent) = parent_of(doc, cur) else { break };
-        if let Some(p) = name_part(parent) { parts.push(p); }
+        let Some(parent) = parent_of(doc, cur) else {
+            break;
+        };
+        if let Some(p) = name_part(parent) {
+            parts.push(p);
+        }
         cur = parent;
     }
     parts.reverse();
@@ -107,17 +139,25 @@ pub(crate) fn fully_qualified_name(doc: &Document, d: &Dictionary) -> String {
 }
 
 pub(crate) fn inherited_name(doc: &Document, d: &Dictionary, key: &[u8]) -> Option<String> {
-    inherited(doc, d, key).and_then(|o| o.as_name().ok().map(|n| String::from_utf8_lossy(n).into_owned()))
+    inherited(doc, d, key).and_then(|o| {
+        o.as_name()
+            .ok()
+            .map(|n| String::from_utf8_lossy(n).into_owned())
+    })
 }
 pub(crate) fn inherited_int(doc: &Document, d: &Dictionary, key: &[u8]) -> Option<i64> {
     inherited(doc, d, key).and_then(|o| o.as_i64().ok())
 }
 fn inherited<'a>(doc: &'a Document, d: &'a Dictionary, key: &[u8]) -> Option<&'a Object> {
-    if let Ok(o) = d.get(key) { return Some(o); }
+    if let Ok(o) = d.get(key) {
+        return Some(o);
+    }
     let mut cur = d;
     for _ in 0..MAX_PARENT_DEPTH {
         let parent = parent_of(doc, cur)?;
-        if let Ok(o) = parent.get(key) { return Some(o); }
+        if let Ok(o) = parent.get(key) {
+            return Some(o);
+        }
         cur = parent;
     }
     None
@@ -132,11 +172,17 @@ fn value_to_string(o: &Object) -> Option<String> {
 }
 
 pub(crate) fn collect_on_states(doc: &Document, widget: &Dictionary, out: &mut Vec<String>) {
-    let Some(ap) = widget.get(b"AP").ok().and_then(|o| as_dict(doc, o).ok()) else { return };
-    let Some(n) = ap.get(b"N").ok().and_then(|o| as_dict(doc, o).ok()) else { return };
+    let Some(ap) = widget.get(b"AP").ok().and_then(|o| as_dict(doc, o).ok()) else {
+        return;
+    };
+    let Some(n) = ap.get(b"N").ok().and_then(|o| as_dict(doc, o).ok()) else {
+        return;
+    };
     for (k, _) in n.iter() {
         let s = String::from_utf8_lossy(k).into_owned();
-        if s != "Off" && !out.contains(&s) { out.push(s); }
+        if s != "Off" && !out.contains(&s) {
+            out.push(s);
+        }
     }
 }
 
@@ -155,8 +201,9 @@ mod tests {
         serde_json::from_str(&read_fields_json(bytes).unwrap()).unwrap()
     }
 
-    const VIAJERO: &[u8] =
-        include_bytes!("../../../tests/fixtures/Asistencia al Viajero/Formulario asistencia al viajero 1.pdf");
+    const VIAJERO: &[u8] = include_bytes!(
+        "../../../tests/fixtures/Asistencia al Viajero/Formulario asistencia al viajero 1.pdf"
+    );
     const FICHA: &[u8] =
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
 
@@ -171,20 +218,38 @@ mod tests {
     #[test]
     fn classifies_radio_with_export_states() {
         let f = fields(FICHA);
-        let radio = f.as_array().unwrap().iter()
-            .find(|x| x["name"] == "beneficiario.tipo_beneficiario").unwrap();
+        let radio = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "beneficiario.tipo_beneficiario")
+            .unwrap();
         assert_eq!(radio["type"], "radio");
-        let states: Vec<&str> = radio["states"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+        let states: Vec<&str> = radio["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str().unwrap())
+            .collect();
         assert!(states.contains(&"Titular") && states.contains(&"Familiar"));
     }
 
     #[test]
     fn classifies_dropdown_with_options() {
         let f = fields(FICHA);
-        let dd = f.as_array().unwrap().iter()
-            .find(|x| x["name"] == "beneficiario.estado_civil").unwrap();
+        let dd = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "beneficiario.estado_civil")
+            .unwrap();
         assert_eq!(dd["type"], "dropdown");
-        let opts: Vec<&str> = dd["options"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+        let opts: Vec<&str> = dd["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str().unwrap())
+            .collect();
         assert!(opts.contains(&"Soltero"));
     }
 }

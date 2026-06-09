@@ -5,6 +5,7 @@ import {
   PdfCheckBox,
   PdfRadioGroup,
   PdfDropdown,
+  PdfSignature,
 } from "./fields.ts";
 
 export type FieldType =
@@ -65,6 +66,9 @@ export class PdfForm {
   }
   getDropdown(name: string): PdfDropdown {
     return new PdfDropdown(this.require(name, "dropdown"), this.queue);
+  }
+  getSignature(name: string): PdfSignature {
+    return new PdfSignature(this.require(name, "signature"), this.queue);
   }
 
   /** Queue a single field to be flattened on save. */

@@ -1,10 +1,13 @@
 import type { FieldInfo } from "./form.ts";
 
-/** One queued mutation: set field `name` to `value`. */
-export interface FillOp {
+/** One queued mutation: set field `name` to a value or visual signature image. */
+export type FillOp = {
   name: string;
   value: string;
-}
+} | {
+  name: string;
+  image: number[];
+};
 
 /** Shared, ordered list of pending mutations for a document. */
 export class FillQueue {
@@ -81,5 +84,15 @@ export class PdfDropdown {
       );
     }
     this.queue.push({ name: this.info.name, value });
+  }
+}
+
+/** A visual signature field. This does not perform cryptographic signing. */
+export class PdfSignature {
+  /** @internal */
+  constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
+  /** Set the signature's visual image. JPEG bytes are supported in this milestone. */
+  setImage(bytes: Uint8Array): void {
+    this.queue.push({ name: this.info.name, image: Array.from(bytes) });
   }
 }

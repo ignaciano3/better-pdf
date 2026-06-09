@@ -56,4 +56,5 @@ export {
   PdfCheckBox,
   PdfRadioGroup,
   PdfDropdown,
+  PdfSignature,
 } from "./fields.ts";
