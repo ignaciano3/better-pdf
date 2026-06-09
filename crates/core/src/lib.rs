@@ -1,10 +1,18 @@
 use wasm_bindgen::prelude::*;
 
+mod forms;
+
 /// Returns the input bytes unchanged. Placeholder operation for Milestone 1;
 /// later milestones replace the body with real parse/serialize.
 #[wasm_bindgen]
 pub fn round_trip(data: &[u8]) -> Vec<u8> {
     data.to_vec()
+}
+
+/// Read the AcroForm fields of a PDF, returned as a JSON array string.
+#[wasm_bindgen]
+pub fn read_fields(data: &[u8]) -> Result<String, JsError> {
+    forms::read_fields_json(data).map_err(|e| JsError::new(&e))
 }
 
 #[cfg(test)]
