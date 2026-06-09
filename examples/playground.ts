@@ -36,3 +36,14 @@ const identical =
 writeFileSync(outputPath, saved);
 console.log(`Saved:    ${outputPath} (${saved.length.toLocaleString()} bytes)`);
 console.log(`Round-trip byte-identical: ${identical ? "yes ✅" : "no ❌"}`);
+
+const form = doc.getForm();
+const fields = form.getFields();
+console.log(`\nAcroForm fields: ${fields.length}`);
+for (const f of fields.slice(0, 15)) {
+  const extra =
+    f.states.length ? ` states=${JSON.stringify(f.states)}` :
+    f.options.length ? ` options=${JSON.stringify(f.options)}` : "";
+  console.log(`  ${f.type.padEnd(10)} ${f.name}${extra}`);
+}
+if (fields.length > 15) console.log(`  ... and ${fields.length - 15} more`);
