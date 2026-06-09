@@ -1,4 +1,5 @@
 import { roundTrip } from "./wasm.ts";
+import { PdfForm } from "./form.ts";
 
 /**
  * A loaded PDF document. In Milestone 1 it simply holds the original bytes and
@@ -22,4 +23,12 @@ export class PdfDocument {
   async save(): Promise<Uint8Array> {
     return roundTrip(this.bytes);
   }
+
+  /** Read the document's AcroForm fields. */
+  getForm(): PdfForm {
+    return new PdfForm(this.bytes);
+  }
 }
+
+export { PdfForm } from "./form.ts";
+export type { FieldInfo, FieldType } from "./form.ts";
