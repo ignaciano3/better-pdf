@@ -9,7 +9,8 @@
   "scripts": {
     "build:wasm": "wasm-pack build crates/core --target nodejs --out-dir ../../pkg --out-name better_pdf_core",
     "build": "bun run build:wasm",
-    "test": "bun test"
+    "test": "bun test",
+    "play": "bun run examples/playground.ts"
   },
   "license": "MIT",
   "devDependencies": {
