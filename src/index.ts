@@ -1,12 +1,13 @@
-import { roundTrip } from "./wasm.ts";
+import { roundTrip, fillFields } from "./wasm.ts";
 import { PdfForm } from "./form.ts";
 
 /**
- * A loaded PDF document. In Milestone 1 it simply holds the original bytes and
- * round-trips them through the Rust/WASM core. Later milestones add a parsed
- * document model and form operations.
+ * A loaded PDF document. Holds the source bytes, exposes the AcroForm, and
+ * persists queued field mutations on `save()` via an incremental update.
  */
 export class PdfDocument {
+  private form?: PdfForm;
+
   /** @internal */
   private constructor(private readonly bytes: Uint8Array) {}
 
@@ -19,16 +20,30 @@ export class PdfDocument {
     return new PdfDocument(bytes);
   }
 
-  /** Serialize the document back to PDF bytes. */
+  /** Serialize back to PDF bytes, applying any queued fills (incremental). */
   async save(): Promise<Uint8Array> {
+    const form = this.form;
+    if (form && form.queue.length > 0) {
+      return fillFields(this.bytes, form.queue.toJSON());
+    }
     return roundTrip(this.bytes);
   }
 
-  /** Read the document's AcroForm fields. */
+  /**
+   * The document's AcroForm. The same instance is returned each call, so queued
+   * mutations accumulate until `save()`.
+   */
   getForm(): PdfForm {
-    return new PdfForm(this.bytes);
+    if (!this.form) this.form = new PdfForm(this.bytes);
+    return this.form;
   }
 }
 
 export { PdfForm } from "./form.ts";
 export type { FieldInfo, FieldType } from "./form.ts";
+export {
+  PdfTextField,
+  PdfCheckBox,
+  PdfRadioGroup,
+  PdfDropdown,
+} from "./fields.ts";

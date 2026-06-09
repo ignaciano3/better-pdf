@@ -1,4 +1,11 @@
 import { readFields } from "./wasm.ts";
+import {
+  FillQueue,
+  PdfTextField,
+  PdfCheckBox,
+  PdfRadioGroup,
+  PdfDropdown,
+} from "./fields.ts";
 
 export type FieldType =
   | "text" | "checkbox" | "radio" | "dropdown"
@@ -17,9 +24,11 @@ export interface FieldInfo {
   readOnly: boolean;
 }
 
-/** Read-only view over a PDF's AcroForm fields. */
+/** A view over a PDF's AcroForm fields, with typed mutation accessors. */
 export class PdfForm {
   private readonly fields: FieldInfo[];
+  /** @internal — shared with PdfDocument so save() can flush pending ops. */
+  readonly queue = new FillQueue();
 
   /** @internal */
   constructor(bytes: Uint8Array) {
@@ -32,5 +41,27 @@ export class PdfForm {
 
   getField(name: string): FieldInfo | undefined {
     return this.fields.find((f) => f.name === name);
+  }
+
+  private require(name: string, type: FieldType): FieldInfo {
+    const f = this.getField(name);
+    if (!f) throw new Error(`no such field: ${name}`);
+    if (f.type !== type) {
+      throw new Error(`field '${name}' is a ${f.type}, not a ${type}`);
+    }
+    return f;
+  }
+
+  getTextField(name: string): PdfTextField {
+    return new PdfTextField(this.require(name, "text"), this.queue);
+  }
+  getCheckBox(name: string): PdfCheckBox {
+    return new PdfCheckBox(this.require(name, "checkbox"), this.queue);
+  }
+  getRadioGroup(name: string): PdfRadioGroup {
+    return new PdfRadioGroup(this.require(name, "radio"), this.queue);
+  }
+  getDropdown(name: string): PdfDropdown {
+    return new PdfDropdown(this.require(name, "dropdown"), this.queue);
   }
 }

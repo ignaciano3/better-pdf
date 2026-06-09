@@ -58,7 +58,7 @@ fn describe_field(doc: &Document, d: &Dictionary) -> FieldInfo {
     FieldInfo { name, field_type, value, states, options, read_only: ff & 1 != 0 }
 }
 
-fn classify(ft: &str, ff: i64) -> &'static str {
+pub(crate) fn classify(ft: &str, ff: i64) -> &'static str {
     match ft {
         "Tx" => "text",
         "Btn" => {
@@ -72,7 +72,7 @@ fn classify(ft: &str, ff: i64) -> &'static str {
     }
 }
 
-fn as_dict<'a>(doc: &'a Document, o: &'a Object) -> Result<&'a Dictionary, String> {
+pub(crate) fn as_dict<'a>(doc: &'a Document, o: &'a Object) -> Result<&'a Dictionary, String> {
     match o {
         Object::Reference(id) => doc.get_dictionary(*id).map_err(|e| e.to_string()),
         Object::Dictionary(d) => Ok(d),
@@ -82,18 +82,18 @@ fn as_dict<'a>(doc: &'a Document, o: &'a Object) -> Result<&'a Dictionary, Strin
 
 /// Upper bound on the /Parent chain walk, so a cyclic or malformed PDF
 /// (e.g. a field whose /Parent points back to itself) cannot loop forever.
-const MAX_PARENT_DEPTH: usize = 128;
+pub(crate) const MAX_PARENT_DEPTH: usize = 128;
 
-fn name_part(d: &Dictionary) -> Option<String> {
+pub(crate) fn name_part(d: &Dictionary) -> Option<String> {
     d.get(b"T").ok().and_then(|o| o.as_str().ok()).map(|s| String::from_utf8_lossy(s).into_owned())
 }
 
 /// Resolve a dictionary's /Parent to a dictionary, if present and well-formed.
-fn parent_of<'a>(doc: &'a Document, d: &'a Dictionary) -> Option<&'a Dictionary> {
+pub(crate) fn parent_of<'a>(doc: &'a Document, d: &'a Dictionary) -> Option<&'a Dictionary> {
     as_dict(doc, d.get(b"Parent").ok()?).ok()
 }
 
-fn fully_qualified_name(doc: &Document, d: &Dictionary) -> String {
+pub(crate) fn fully_qualified_name(doc: &Document, d: &Dictionary) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(p) = name_part(d) { parts.push(p); }
     let mut cur = d;
@@ -106,10 +106,10 @@ fn fully_qualified_name(doc: &Document, d: &Dictionary) -> String {
     parts.join(".")
 }
 
-fn inherited_name(doc: &Document, d: &Dictionary, key: &[u8]) -> Option<String> {
+pub(crate) fn inherited_name(doc: &Document, d: &Dictionary, key: &[u8]) -> Option<String> {
     inherited(doc, d, key).and_then(|o| o.as_name().ok().map(|n| String::from_utf8_lossy(n).into_owned()))
 }
-fn inherited_int(doc: &Document, d: &Dictionary, key: &[u8]) -> Option<i64> {
+pub(crate) fn inherited_int(doc: &Document, d: &Dictionary, key: &[u8]) -> Option<i64> {
     inherited(doc, d, key).and_then(|o| o.as_i64().ok())
 }
 fn inherited<'a>(doc: &'a Document, d: &'a Dictionary, key: &[u8]) -> Option<&'a Object> {
@@ -131,7 +131,7 @@ fn value_to_string(o: &Object) -> Option<String> {
     }
 }
 
-fn collect_on_states(doc: &Document, widget: &Dictionary, out: &mut Vec<String>) {
+pub(crate) fn collect_on_states(doc: &Document, widget: &Dictionary, out: &mut Vec<String>) {
     let Some(ap) = widget.get(b"AP").ok().and_then(|o| as_dict(doc, o).ok()) else { return };
     let Some(n) = ap.get(b"N").ok().and_then(|o| as_dict(doc, o).ok()) else { return };
     for (k, _) in n.iter() {
@@ -140,7 +140,7 @@ fn collect_on_states(doc: &Document, widget: &Dictionary, out: &mut Vec<String>)
     }
 }
 
-fn opt_export(o: &Object) -> String {
+pub(crate) fn opt_export(o: &Object) -> String {
     match o {
         Object::Array(a) => a.first().and_then(value_to_string).unwrap_or_default(),
         other => value_to_string(other).unwrap_or_default(),
