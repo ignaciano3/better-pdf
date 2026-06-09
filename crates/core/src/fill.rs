@@ -245,7 +245,7 @@ fn dropdown_index(dict: &Dictionary, value: &str) -> Option<i64> {
 
 /// Walk /AcroForm/Fields (and /Kids) to find the field whose fully-qualified
 /// name equals `name`. Only reference-addressable fields are considered.
-fn find_field<'a>(doc: &'a Document, name: &str) -> Option<(ObjectId, &'a Dictionary)> {
+pub(crate) fn find_field<'a>(doc: &'a Document, name: &str) -> Option<(ObjectId, &'a Dictionary)> {
     let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
     let catalog = doc.get_dictionary(root).ok()?;
     let acro = forms::as_dict(doc, catalog.get(b"AcroForm").ok()?).ok()?;

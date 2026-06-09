@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 
 mod appearance;
 mod fill;
+mod flatten;
 mod forms;
 
 /// Returns the input bytes unchanged. Placeholder operation for Milestone 1;
@@ -21,6 +22,12 @@ pub fn read_fields(data: &[u8]) -> Result<String, JsError> {
 #[wasm_bindgen]
 pub fn fill_fields(data: &[u8], ops_json: &str) -> Result<Vec<u8>, JsError> {
     fill::fill_fields_json(data, ops_json).map_err(|e| JsError::new(&e))
+}
+
+/// Flatten the named fields (JSON array of names) and return new PDF bytes.
+#[wasm_bindgen]
+pub fn flatten_fields(data: &[u8], names_json: &str) -> Result<Vec<u8>, JsError> {
+    flatten::flatten_fields_json(data, names_json).map_err(|e| JsError::new(&e))
 }
 
 #[cfg(test)]
