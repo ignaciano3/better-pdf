@@ -60,4 +60,14 @@ The first release operates on **existing** PDFs only: load → fill/flatten → 
 - It should be tree-shakeable
 - It should be as typed as possible
 - Check for usefull skills on https://www.skills.sh/
+
+### For later milestone
+
 - Add benchmarks comparing to pdf-lib and other relevant libraries
+- Add a tool to generate pdf types so we can be 100% typed
+    - It should generate a file that documents the pdf form fields
+    - If we use that type then we will 100% be sure we are not filling inexistent fields
+    - It should narrow the operations on the field. For example:
+        - We should not be able to get options from a textarea.
+        - Options from a dropdown should be typed
+    - It should optimistically fill the field without checking which type it is.
