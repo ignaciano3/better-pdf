@@ -29,6 +29,8 @@ export class PdfForm {
   private readonly fields: FieldInfo[];
   /** @internal — shared with PdfDocument so save() can flush pending ops. */
   readonly queue = new FillQueue();
+  /** @internal — fully-qualified names queued for flattening on save. */
+  readonly flattenQueue: string[] = [];
 
   /** @internal */
   constructor(bytes: Uint8Array) {
@@ -63,5 +65,18 @@ export class PdfForm {
   }
   getDropdown(name: string): PdfDropdown {
     return new PdfDropdown(this.require(name, "dropdown"), this.queue);
+  }
+
+  /** Queue a single field to be flattened on save. */
+  flattenField(name: string): void {
+    if (!this.getField(name)) throw new Error(`no such field: ${name}`);
+    if (!this.flattenQueue.includes(name)) this.flattenQueue.push(name);
+  }
+
+  /** Queue all fields to be flattened on save. */
+  flatten(): void {
+    for (const f of this.fields) {
+      if (!this.flattenQueue.includes(f.name)) this.flattenQueue.push(f.name);
+    }
   }
 }

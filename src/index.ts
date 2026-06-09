@@ -1,4 +1,4 @@
-import { roundTrip, fillFields } from "./wasm.ts";
+import { roundTrip, fillFields, flattenFields } from "./wasm.ts";
 import { PdfForm } from "./form.ts";
 
 /**
@@ -20,13 +20,23 @@ export class PdfDocument {
     return new PdfDocument(bytes);
   }
 
-  /** Serialize back to PDF bytes, applying any queued fills (incremental). */
+  /**
+   * Serialize back to PDF bytes, applying queued fills then flattens as
+   * incremental updates. With nothing queued, returns a byte-exact round-trip.
+   */
   async save(): Promise<Uint8Array> {
     const form = this.form;
+    let bytes = this.bytes;
     if (form && form.queue.length > 0) {
-      return fillFields(this.bytes, form.queue.toJSON());
+      bytes = fillFields(bytes, form.queue.toJSON());
     }
-    return roundTrip(this.bytes);
+    if (form && form.flattenQueue.length > 0) {
+      bytes = flattenFields(bytes, JSON.stringify(form.flattenQueue));
+    }
+    if (bytes === this.bytes) {
+      return roundTrip(this.bytes);
+    }
+    return bytes;
   }
 
   /**
