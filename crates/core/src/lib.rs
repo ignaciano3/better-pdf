@@ -1,5 +1,9 @@
 use wasm_bindgen::prelude::*;
 
+// `fill` is exercised by its own `#[cfg(test)]` suite and wired to the wasm
+// boundary in the next task; allow dead_code until that export lands.
+#[allow(dead_code)]
+mod fill;
 mod forms;
 
 /// Returns the input bytes unchanged. Placeholder operation for Milestone 1;
