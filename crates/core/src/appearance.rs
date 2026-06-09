@@ -1,9 +1,5 @@
 //! Appearance engine: Helvetica metrics, WinAnsi encoding, and Form-XObject
 //! construction for filled text/choice fields.
-//!
-//! Module-level `dead_code` allow is removed once `fill.rs` consumes these in
-//! Milestone 4 Task 3.
-#![allow(dead_code)]
 
 use lopdf::{Dictionary, Object, Stream};
 
@@ -241,7 +237,7 @@ mod tests {
         assert!((auto_size(0.0, b"AB", 300.0, 14.0) - 12.0).abs() < 0.01);
         // Narrow box forces shrink below the height cap.
         let s = auto_size(0.0, b"WWWWWWWWWW", 30.0, 14.0);
-        assert!(s < 12.0 && s >= 4.0, "got {s}");
+        assert!((4.0..12.0).contains(&s), "got {s}");
         // Explicit DA size is honored as-is.
         assert_eq!(auto_size(9.0, b"x", 300.0, 50.0), 9.0);
     }
