@@ -80,20 +80,26 @@ fn as_dict<'a>(doc: &'a Document, o: &'a Object) -> Result<&'a Dictionary, Strin
     }
 }
 
-fn name_part(_doc: &Document, d: &Dictionary) -> Option<String> {
+/// Upper bound on the /Parent chain walk, so a cyclic or malformed PDF
+/// (e.g. a field whose /Parent points back to itself) cannot loop forever.
+const MAX_PARENT_DEPTH: usize = 128;
+
+fn name_part(d: &Dictionary) -> Option<String> {
     d.get(b"T").ok().and_then(|o| o.as_str().ok()).map(|s| String::from_utf8_lossy(s).into_owned())
+}
+
+/// Resolve a dictionary's /Parent to a dictionary, if present and well-formed.
+fn parent_of<'a>(doc: &'a Document, d: &'a Dictionary) -> Option<&'a Dictionary> {
+    as_dict(doc, d.get(b"Parent").ok()?).ok()
 }
 
 fn fully_qualified_name(doc: &Document, d: &Dictionary) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(p) = name_part(doc, d) { parts.push(p); }
+    if let Some(p) = name_part(d) { parts.push(p); }
     let mut cur = d;
-    while let Ok(parent) = cur.get(b"Parent").and_then(|o| {
-        if let Object::Reference(id) = o { doc.get_dictionary(*id) }
-        else if let Object::Dictionary(pd) = o { Ok(pd) }
-        else { Err(lopdf::Error::Unimplemented("Parent is neither reference nor dict")) }
-    }) {
-        if let Some(p) = name_part(doc, parent) { parts.push(p); }
+    for _ in 0..MAX_PARENT_DEPTH {
+        let Some(parent) = parent_of(doc, cur) else { break };
+        if let Some(p) = name_part(parent) { parts.push(p); }
         cur = parent;
     }
     parts.reverse();
@@ -109,10 +115,10 @@ fn inherited_int(doc: &Document, d: &Dictionary, key: &[u8]) -> Option<i64> {
 fn inherited<'a>(doc: &'a Document, d: &'a Dictionary, key: &[u8]) -> Option<&'a Object> {
     if let Ok(o) = d.get(key) { return Some(o); }
     let mut cur = d;
-    while let Ok(parent) = cur.get(b"Parent") {
-        let pd = as_dict(doc, parent).ok()?;
-        if let Ok(o) = pd.get(key) { return Some(o); }
-        cur = pd;
+    for _ in 0..MAX_PARENT_DEPTH {
+        let parent = parent_of(doc, cur)?;
+        if let Ok(o) = parent.get(key) { return Some(o); }
+        cur = parent;
     }
     None
 }
