@@ -1,7 +1,9 @@
 //! Appearance engine: Helvetica metrics, WinAnsi encoding, and Form-XObject
 //! construction for filled text/choice fields.
 
+use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use lopdf::{Dictionary, Object, Stream};
+use std::io::{Read, Write};
 
 /// Helvetica AFM advance widths (units / 1000 em) for WinAnsi codes 32..=126.
 /// Index 0 == code 32 (space). Accented Latin-1 letters approximate to their
@@ -198,6 +200,45 @@ pub struct JpegInfo {
     pub color_space: &'static str,
 }
 
+#[derive(Clone, Debug)]
+pub enum SignatureImage {
+    Jpeg { data: Vec<u8>, info: ImageInfo },
+    Raw { data: Vec<u8>, info: ImageInfo },
+}
+
+#[derive(Clone, Debug)]
+pub struct ImageInfo {
+    pub width: i64,
+    pub height: i64,
+    pub color_space: &'static str,
+}
+
+impl SignatureImage {
+    pub fn info(&self) -> &ImageInfo {
+        match self {
+            SignatureImage::Jpeg { info, .. } | SignatureImage::Raw { info, .. } => info,
+        }
+    }
+}
+
+pub fn signature_image(data: &[u8]) -> Result<SignatureImage, String> {
+    if data.starts_with(&[0xff, 0xd8]) {
+        let info = jpeg_info(data)?;
+        return Ok(SignatureImage::Jpeg {
+            data: data.to_vec(),
+            info: ImageInfo {
+                width: info.width,
+                height: info.height,
+                color_space: info.color_space,
+            },
+        });
+    }
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return png_image(data);
+    }
+    Err("signature image must be a JPEG or supported PNG".to_string())
+}
+
 /// Read dimensions from a JPEG SOF segment. This deliberately only validates
 /// enough to embed visual signatures as `/DCTDecode` image XObjects.
 pub fn jpeg_info(data: &[u8]) -> Result<JpegInfo, String> {
@@ -275,6 +316,198 @@ pub fn build_jpeg_image_xobject(data: Vec<u8>, info: &JpegInfo) -> Stream {
     dict.set("BitsPerComponent", Object::Integer(8));
     dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
     Stream::new(dict, data).with_compression(false)
+}
+
+pub fn build_signature_image_xobject(image: SignatureImage) -> Stream {
+    match image {
+        SignatureImage::Jpeg { data, info } => build_jpeg_image_xobject(
+            data,
+            &JpegInfo {
+                width: info.width,
+                height: info.height,
+                color_space: info.color_space,
+            },
+        ),
+        SignatureImage::Raw { data, info } => build_raw_image_xobject(data, &info),
+    }
+}
+
+fn build_raw_image_xobject(data: Vec<u8>, info: &ImageInfo) -> Stream {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&data).expect("Vec writes cannot fail");
+    let compressed = encoder.finish().expect("zlib finish cannot fail for Vec");
+
+    let mut dict = Dictionary::new();
+    dict.set("Type", Object::Name(b"XObject".to_vec()));
+    dict.set("Subtype", Object::Name(b"Image".to_vec()));
+    dict.set("Width", Object::Integer(info.width));
+    dict.set("Height", Object::Integer(info.height));
+    dict.set(
+        "ColorSpace",
+        Object::Name(info.color_space.as_bytes().to_vec()),
+    );
+    dict.set("BitsPerComponent", Object::Integer(8));
+    dict.set("Filter", Object::Name(b"FlateDecode".to_vec()));
+    Stream::new(dict, compressed).with_compression(false)
+}
+
+fn png_image(data: &[u8]) -> Result<SignatureImage, String> {
+    let mut pos = 8usize;
+    let mut width = 0usize;
+    let mut height = 0usize;
+    let mut bit_depth = 0u8;
+    let mut color_type = 0u8;
+    let mut interlace = 0u8;
+    let mut idat = Vec::new();
+
+    while pos + 12 <= data.len() {
+        let len =
+            u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        pos += 4;
+        if pos + 4 + len + 4 > data.len() {
+            return Err("truncated PNG chunk".to_string());
+        }
+        let kind = &data[pos..pos + 4];
+        pos += 4;
+        let chunk = &data[pos..pos + len];
+        pos += len;
+        pos += 4; // CRC; decoding is structural only for v1.
+
+        match kind {
+            b"IHDR" => {
+                if chunk.len() != 13 {
+                    return Err("invalid PNG IHDR".to_string());
+                }
+                width = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
+                height = u32::from_be_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as usize;
+                bit_depth = chunk[8];
+                color_type = chunk[9];
+                interlace = chunk[12];
+            }
+            b"IDAT" => idat.extend_from_slice(chunk),
+            b"IEND" => break,
+            _ => {}
+        }
+    }
+
+    if width == 0 || height == 0 {
+        return Err("invalid PNG dimensions".to_string());
+    }
+    if bit_depth != 8 {
+        return Err("only 8-bit PNG signatures are supported".to_string());
+    }
+    if interlace != 0 {
+        return Err("interlaced PNG signatures are not supported".to_string());
+    }
+
+    let (src_components, out_components, color_space) = match color_type {
+        0 => (1usize, 1usize, "DeviceGray"),
+        2 => (3usize, 3usize, "DeviceRGB"),
+        4 => (2usize, 1usize, "DeviceGray"),
+        6 => (4usize, 3usize, "DeviceRGB"),
+        _ => return Err("unsupported PNG color type for signatures".to_string()),
+    };
+
+    let mut decoder = ZlibDecoder::new(idat.as_slice());
+    let mut inflated = Vec::new();
+    decoder
+        .read_to_end(&mut inflated)
+        .map_err(|e| e.to_string())?;
+
+    let stride = width
+        .checked_mul(src_components)
+        .ok_or_else(|| "PNG row is too wide".to_string())?;
+    let expected = height
+        .checked_mul(stride + 1)
+        .ok_or_else(|| "PNG image is too large".to_string())?;
+    if inflated.len() < expected {
+        return Err("truncated PNG image data".to_string());
+    }
+
+    let mut prev = vec![0u8; stride];
+    let mut cur = vec![0u8; stride];
+    let mut out = Vec::with_capacity(width * height * out_components);
+    let mut offset = 0usize;
+    for _ in 0..height {
+        let filter = inflated[offset];
+        offset += 1;
+        cur.copy_from_slice(&inflated[offset..offset + stride]);
+        offset += stride;
+        unfilter_png_row(filter, &mut cur, &prev, src_components)?;
+        push_png_output_row(&cur, src_components, out_components, &mut out);
+        std::mem::swap(&mut prev, &mut cur);
+    }
+
+    Ok(SignatureImage::Raw {
+        data: out,
+        info: ImageInfo {
+            width: width as i64,
+            height: height as i64,
+            color_space,
+        },
+    })
+}
+
+fn unfilter_png_row(filter: u8, row: &mut [u8], prev: &[u8], bpp: usize) -> Result<(), String> {
+    match filter {
+        0 => {}
+        1 => {
+            for i in 0..row.len() {
+                let left = if i >= bpp { row[i - bpp] } else { 0 };
+                row[i] = row[i].wrapping_add(left);
+            }
+        }
+        2 => {
+            for i in 0..row.len() {
+                row[i] = row[i].wrapping_add(prev[i]);
+            }
+        }
+        3 => {
+            for i in 0..row.len() {
+                let left = if i >= bpp { row[i - bpp] } else { 0 };
+                let up = prev[i];
+                row[i] = row[i].wrapping_add(((left as u16 + up as u16) / 2) as u8);
+            }
+        }
+        4 => {
+            for i in 0..row.len() {
+                let a = if i >= bpp { row[i - bpp] } else { 0 };
+                let b = prev[i];
+                let c = if i >= bpp { prev[i - bpp] } else { 0 };
+                row[i] = row[i].wrapping_add(paeth(a, b, c));
+            }
+        }
+        _ => return Err("unsupported PNG row filter".to_string()),
+    }
+    Ok(())
+}
+
+fn paeth(a: u8, b: u8, c: u8) -> u8 {
+    let a = a as i32;
+    let b = b as i32;
+    let c = c as i32;
+    let p = a + b - c;
+    let pa = (p - a).abs();
+    let pb = (p - b).abs();
+    let pc = (p - c).abs();
+    if pa <= pb && pa <= pc {
+        a as u8
+    } else if pb <= pc {
+        b as u8
+    } else {
+        c as u8
+    }
+}
+
+fn push_png_output_row(
+    row: &[u8],
+    src_components: usize,
+    out_components: usize,
+    out: &mut Vec<u8>,
+) {
+    for px in row.chunks_exact(src_components) {
+        out.extend_from_slice(&px[..out_components]);
+    }
 }
 
 pub fn build_signature_appearance_xobject(
@@ -399,7 +632,39 @@ mod tests {
     fn signature_appearance_covers_the_field_box() {
         let s = build_signature_appearance_xobject((99, 0), 1254.0, 741.0, 500.0, 25.0);
         let content = String::from_utf8(s.content).unwrap();
-        assert!(content.starts_with("q 500.00 0 0 295.45 "), "got: {content}");
+        assert!(
+            content.starts_with("q 500.00 0 0 295.45 "),
+            "got: {content}"
+        );
         assert!(content.contains(" cm /SigImg Do Q"), "got: {content}");
+    }
+
+    #[test]
+    fn reads_png_signature_image() {
+        let img = signature_image(tiny_rgba_png()).unwrap();
+        let info = img.info();
+        assert_eq!(info.width, 1);
+        assert_eq!(info.height, 1);
+        assert_eq!(info.color_space, "DeviceRGB");
+        match img {
+            SignatureImage::Raw { data, .. } => assert_eq!(data, vec![255, 0, 0]),
+            SignatureImage::Jpeg { .. } => panic!("expected raw PNG image"),
+        }
+    }
+
+    #[test]
+    fn rejects_non_image_signature_data() {
+        let err = signature_image(b"not an image").unwrap_err();
+        assert!(err.contains("JPEG or supported PNG"), "got: {err}");
+    }
+
+    fn tiny_rgba_png() -> &'static [u8] {
+        &[
+            0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, b'I', b'H',
+            b'D', b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, b'I', b'D', b'A', b'T', 0x78,
+            0xda, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
+            0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
+        ]
     }
 }

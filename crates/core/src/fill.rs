@@ -79,9 +79,9 @@ enum Apply {
         value: String,
         widgets: Vec<(ObjectId, bool)>,
     },
-    /// Draw a visual-only JPEG signature appearance on each widget.
+    /// Draw a visual-only signature image appearance on each widget.
     Signature {
-        image: Vec<u8>,
+        image: appearance::SignatureImage,
         widgets: Vec<WidgetBox>,
     },
 }
@@ -107,9 +107,9 @@ fn resolve(doc: &Document, op: &FillOp) -> Result<Resolved, String> {
                 op.name, kind
             ));
         }
-        appearance::jpeg_info(image)?;
+        let image = appearance::signature_image(image)?;
         Apply::Signature {
-            image: image.clone(),
+            image,
             widgets: widget_boxes(doc, field_id, dict),
         }
     } else {
@@ -419,15 +419,14 @@ fn draw_appearances(
 /// Build and attach a visual signature `/AP/N` on each signature widget.
 fn draw_signature_appearances(
     inc: &mut IncrementalDocument,
-    image: &[u8],
+    image: &appearance::SignatureImage,
     widgets: &[WidgetBox],
 ) -> Result<(), String> {
-    let info = appearance::jpeg_info(image)?;
+    let info = image.info();
     let image_id =
         inc.new_document
-            .add_object(Object::Stream(appearance::build_jpeg_image_xobject(
-                image.to_vec(),
-                &info,
+            .add_object(Object::Stream(appearance::build_signature_image_xobject(
+                image.clone(),
             )));
 
     for wb in widgets {
