@@ -59,4 +59,13 @@ if (firstText) {
   console.log(`\nFilled '${firstText.name}' → "${check?.value}"`);
   console.log(`(value now has a baked appearance — /NeedAppearances cleared)`);
   console.log(`Wrote:    ${filledPath} (${filled.length.toLocaleString()} bytes)`);
+
+  // --- Milestone 5 demo: flatten that field so it becomes page graphics. ---
+  doc.getForm().flattenField(firstText.name);
+  const flat = await doc.save();
+  const flatPath = join(import.meta.dir, `flat-${basename(inputPath)}`);
+  writeFileSync(flatPath, flat);
+  const stillThere = (await PdfDocument.load(flat)).getForm().getField(firstText.name);
+  console.log(`Flattened '${firstText.name}' → field present after flatten: ${stillThere ? "yes" : "no"}`);
+  console.log(`Wrote:    ${flatPath} (${flat.length.toLocaleString()} bytes)`);
 }

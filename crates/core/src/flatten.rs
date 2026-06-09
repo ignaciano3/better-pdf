@@ -131,17 +131,9 @@ fn stamp_widget(inc: &mut IncrementalDocument, s: &WidgetStamp, counter: &mut us
     let name = format!("bpdfAp{counter}");
     *counter += 1;
 
-    // 1) register the appearance stream as an XObject in the page resources.
-    let res_id = page_resources_id(inc, s.page_id)?;
-    inc.opt_clone_object_to_new_document(res_id).map_err(|e| e.to_string())?;
-    {
-        let res = dict_mut(inc, res_id)?;
-        if !res.has(b"XObject") {
-            res.set("XObject", Object::Dictionary(Dictionary::new()));
-        }
-        let xobj = res.get_mut(b"XObject").and_then(Object::as_dict_mut).map_err(|e| e.to_string())?;
-        xobj.set(name.as_bytes().to_vec(), Object::Reference(ap_id));
-    }
+    // 1) register the appearance stream as an XObject in the page resources
+    //    (handles both a /Resources reference and inline /Resources).
+    register_xobject(inc, s.page_id, &name, ap_id)?;
 
     // 2) append a draw stream to the page contents (BBox -> Rect transform).
     let (bw, bh) = (bbox[2] - bbox[0], bbox[3] - bbox[1]);
@@ -216,14 +208,43 @@ fn filter_fields(acro: &mut Dictionary, field_ids: &[ObjectId]) {
     }
 }
 
-/// The id of the object holding a page's /Resources (corpus uses a reference;
-/// inline page resources are unsupported in v1 and error clearly).
-fn page_resources_id(inc: &mut IncrementalDocument, page_id: ObjectId) -> Result<ObjectId, String> {
-    let prev = inc.get_prev_documents();
-    let page = prev.get_dictionary(page_id).map_err(|e| e.to_string())?;
-    match page.get(b"Resources") {
-        Ok(Object::Reference(id)) => Ok(*id),
-        _ => Err("page /Resources is not a reference (inline resources unsupported in v1)".into()),
+/// Register `name -> ap_id` under the page's /Resources/XObject, whether
+/// /Resources is a reference to a shared object or an inline dictionary on the
+/// page. If the page has no /Resources, an inline one is created.
+fn register_xobject(
+    inc: &mut IncrementalDocument,
+    page_id: ObjectId,
+    name: &str,
+    ap_id: ObjectId,
+) -> Result<(), String> {
+    inc.opt_clone_object_to_new_document(page_id).map_err(|e| e.to_string())?;
+    let res_ref = match dict_mut(inc, page_id)?.get(b"Resources") {
+        Ok(Object::Reference(id)) => Some(*id),
+        _ => None,
+    };
+    match res_ref {
+        Some(id) => {
+            inc.opt_clone_object_to_new_document(id).map_err(|e| e.to_string())?;
+            set_xobject(dict_mut(inc, id)?, name, ap_id);
+        }
+        None => {
+            let page = dict_mut(inc, page_id)?;
+            if !page.has(b"Resources") {
+                page.set("Resources", Object::Dictionary(Dictionary::new()));
+            }
+            let res = page.get_mut(b"Resources").and_then(Object::as_dict_mut).map_err(|e| e.to_string())?;
+            set_xobject(res, name, ap_id);
+        }
+    }
+    Ok(())
+}
+
+fn set_xobject(res: &mut Dictionary, name: &str, ap_id: ObjectId) {
+    if !res.has(b"XObject") {
+        res.set("XObject", Object::Dictionary(Dictionary::new()));
+    }
+    if let Ok(xobj) = res.get_mut(b"XObject").and_then(Object::as_dict_mut) {
+        xobj.set(name.as_bytes().to_vec(), Object::Reference(ap_id));
     }
 }
 
