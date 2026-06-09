@@ -52,7 +52,7 @@ This milestone creates the project skeleton. Each file has one responsibility:
   },
   "license": "MIT",
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "typescript": "^6"
   }
 }
 ```
