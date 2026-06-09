@@ -4,6 +4,5 @@ target/
 dist/
 *.wasm
 .DS_Store
-examples/out-*.pdf
-examples/filled-*.pdf
-examples/flat-*.pdf
+examples/
+!examples/playground.ts

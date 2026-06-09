@@ -284,7 +284,7 @@ pub fn build_signature_appearance_xobject(
     box_w: f32,
     box_h: f32,
 ) -> Stream {
-    let scale = (box_w / image_w).min(box_h / image_h);
+    let scale = (box_w / image_w).max(box_h / image_h);
     let draw_w = image_w * scale;
     let draw_h = image_h * scale;
     let tx = (box_w - draw_w) / 2.0;
@@ -393,5 +393,13 @@ mod tests {
         assert_eq!(info.width, 3);
         assert_eq!(info.height, 2);
         assert_eq!(info.color_space, "DeviceRGB");
+    }
+
+    #[test]
+    fn signature_appearance_covers_the_field_box() {
+        let s = build_signature_appearance_xobject((99, 0), 1254.0, 741.0, 500.0, 25.0);
+        let content = String::from_utf8(s.content).unwrap();
+        assert!(content.starts_with("q 500.00 0 0 295.45 "), "got: {content}");
+        assert!(content.contains(" cm /SigImg Do Q"), "got: {content}");
     }
 }

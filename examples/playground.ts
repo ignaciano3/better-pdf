@@ -3,12 +3,12 @@
  *
  * Run it with bun:
  *
- *   bun run play                       # uses a bundled fixture
- *   bun run play path/to/your.pdf      # uses your own PDF
+ *   bun run play                                  # uses bundled fixtures
+ *   bun run play path/to/your.pdf                 # uses your own PDF
+ *   bun run play path/to/your.pdf signature.jpg   # also tests visual signature image
  *
- * What it currently does (Milestone 1): loads a PDF through the Rust/WASM core
- * and saves it back out, proving a byte-exact round-trip. As later milestones
- * land (read fields, fill, flatten, sign), extend this file to play with them.
+ * It exercises the main load -> inspect -> fill -> flatten -> visual-signature
+ * flow and writes scratch PDFs next to this file.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -18,9 +18,18 @@ const DEFAULT_FIXTURE = join(
   import.meta.dir,
   "../tests/fixtures/Asistencia al Viajero/Formulario asistencia al viajero 1.pdf",
 );
+const SIGNATURE_FIXTURE = join(
+  import.meta.dir,
+  "../tests/fixtures/Discapacidad/Anexo-3-sssalud.pdf",
+);
+const TINY_JPEG = new Uint8Array([
+  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00,
+  0x02, 0x00, 0x03, 0x03, 0x00, 0xff, 0xd9,
+]);
 
 // First CLI arg is an optional path to your own PDF.
 const inputPath = process.argv[2] ?? DEFAULT_FIXTURE;
+const signatureImagePath = process.argv[3] ?? process.env.SIGNATURE_JPEG;
 const outputPath = join(import.meta.dir, `out-${basename(inputPath)}`);
 
 const original = new Uint8Array(readFileSync(inputPath));
@@ -68,4 +77,40 @@ if (firstText) {
   const stillThere = (await PdfDocument.load(flat)).getForm().getField(firstText.name);
   console.log(`Flattened '${firstText.name}' → field present after flatten: ${stillThere ? "yes" : "no"}`);
   console.log(`Wrote:    ${flatPath} (${flat.length.toLocaleString()} bytes)`);
+}
+
+// --- Milestone 6 demo: place a visual-only JPEG signature image. ---
+const signatureInputPath = fields.some((f) => f.type === "signature") ? inputPath : SIGNATURE_FIXTURE;
+const signatureOriginal = new Uint8Array(readFileSync(signatureInputPath));
+const signatureDoc = await PdfDocument.load(signatureOriginal);
+const signatureForm = signatureDoc.getForm();
+const firstSignature = signatureForm.getFields().find((f) => f.type === "signature" && !f.readOnly);
+
+if (firstSignature) {
+  const signatureImage = signatureImagePath
+    ? new Uint8Array(readFileSync(signatureImagePath))
+    : TINY_JPEG;
+
+  signatureForm.getSignature(firstSignature.name).setImage(signatureImage);
+  const signed = await signatureDoc.save();
+  const signedPath = join(import.meta.dir, `signed-${basename(signatureInputPath)}`);
+  writeFileSync(signedPath, signed);
+
+  const reloaded = await PdfDocument.load(signed);
+  const stillSignature = reloaded.getForm().getField(firstSignature.name);
+  console.log(`\nSigned '${firstSignature.name}' with ${signatureImagePath ?? "embedded tiny JPEG"}`);
+  console.log(`(visual only — no cryptographic signature dictionary is created)`);
+  console.log(`Field still present before flatten: ${stillSignature ? "yes" : "no"}`);
+  console.log(`Wrote:    ${signedPath} (${signed.length.toLocaleString()} bytes)`);
+
+  signatureForm.flattenField(firstSignature.name);
+  const signedFlat = await signatureDoc.save();
+  const signedFlatPath = join(import.meta.dir, `signed-flat-${basename(signatureInputPath)}`);
+  writeFileSync(signedFlatPath, signedFlat);
+  const flattenedSignature = (await PdfDocument.load(signedFlat)).getForm().getField(firstSignature.name);
+  console.log(`Flattened signed field → field present after flatten: ${flattenedSignature ? "yes" : "no"}`);
+  console.log(`Wrote:    ${signedFlatPath} (${signedFlat.length.toLocaleString()} bytes)`);
+  if (!signatureImagePath) {
+    console.log(`Tip: pass a JPEG path after the PDF path, or set SIGNATURE_JPEG=/path/to/signature.jpg`);
+  }
 }
