@@ -47,3 +47,15 @@ for (const f of fields.slice(0, 15)) {
   console.log(`  ${f.type.padEnd(10)} ${f.name}${extra}`);
 }
 if (fields.length > 15) console.log(`  ... and ${fields.length - 15} more`);
+
+// --- Milestone 3 demo: fill the first writable text field and re-read it. ---
+const firstText = fields.find((f) => f.type === "text" && !f.readOnly);
+if (firstText) {
+  doc.getForm().getTextField(firstText.name).setText("better-pdf was here");
+  const filled = await doc.save();
+  const filledPath = join(import.meta.dir, `filled-${basename(inputPath)}`);
+  writeFileSync(filledPath, filled);
+  const check = (await PdfDocument.load(filled)).getForm().getField(firstText.name);
+  console.log(`\nFilled '${firstText.name}' → "${check?.value}"`);
+  console.log(`Wrote:    ${filledPath} (${filled.length.toLocaleString()} bytes)`);
+}

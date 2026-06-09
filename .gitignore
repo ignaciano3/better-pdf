@@ -5,3 +5,4 @@ dist/
 *.wasm
 .DS_Store
 examples/out-*.pdf
+examples/filled-*.pdf
