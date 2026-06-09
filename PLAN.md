@@ -52,3 +52,12 @@ The first release operates on **existing** PDFs only: load → fill/flatten → 
 - It has to be fast
 - It should have minimal external dependencies — only the ones that are truly required (zero npm/runtime dependencies on the JS side; Rust crates allowed as build-time dependencies, kept to the minimum needed, e.g. for PDF parsing)
 - Everything should be documented to later create a docs page
+
+## New
+
+- It should be AI agents ready
+    - Decide if adding a skill for using this package is useful or not
+- It should be tree-shakeable
+- It should be as typed as possible
+- Check for usefull skills on https://www.skills.sh/
+- Add benchmarks comparing to pdf-lib and other relevant libraries
