@@ -16,6 +16,12 @@ While the version is `0.x`, the public API may change between minor releases.
   `FieldTypeError`, `InvalidOptionError`, and `MissingOnStateError`, all
   exported from the package root and browser entry.
 
+### Changed
+
+- Tooling: TypeDoc API reference (`bun run docs`), a real headless-Chromium
+  browser test (`bun run test:browser`) wired into CI, and a `LICENSE` shipped
+  with the published WASM package.
+
 ## [0.1.0]
 
 First public pre-release. Fill and flatten AcroForm fields in existing PDFs,

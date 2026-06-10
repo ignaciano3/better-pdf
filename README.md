@@ -215,6 +215,7 @@ bun install
 bun run build      # compile Rust core to pkg/ + pkg-web/ and TypeScript API to dist/
 bun test           # run TS API tests
 bun run test:browser-entry
+bun run test:browser  # load the web build in headless Chromium (needs `bunx playwright install chromium`)
 bun run typecheck  # run TypeScript checks
 npm pack --dry-run # inspect package contents
 ```
@@ -237,4 +238,10 @@ Benchmarks against `pdf-lib`:
 
 ```bash
 bun run bench
+```
+
+API reference (TypeDoc → `docs/api`):
+
+```bash
+bun run docs
 ```

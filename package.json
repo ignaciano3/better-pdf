@@ -76,15 +76,20 @@
     "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
     "test:browser-entry": "bun run build && bun run scripts/browser-entry-smoke.ts",
+    "test:browser": "bun run build && bun run scripts/browser-real-test.ts",
     "test": "bun test",
     "play": "bun run examples/playground.ts",
-    "bench": "bun run bench/bench.ts"
+    "bench": "bun run bench/bench.ts",
+    "docs": "typedoc"
   },
   "license": "MIT",
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "latest",
     "pdf-lib": "^1.17.1",
+    "playwright": "^1.60.0",
+    "typedoc": "^0.28.19",
+    "typedoc-plugin-markdown": "^4.12.0",
     "typescript": "^6"
   }
 }

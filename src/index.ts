@@ -77,6 +77,7 @@ export {
 export { generateFormTypes } from "./typegen.js";
 export type { GenerateFormTypesOptions } from "./typegen.js";
 export type {
+  FieldMeta,
   FormSchema,
   FieldNameOf,
   NameOfType,
