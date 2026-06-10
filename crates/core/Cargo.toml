@@ -9,8 +9,14 @@ repository = "https://github.com/ignaciano3/better-pdf"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+# Let wasm-pack run its own bundled wasm-opt (no system Binaryen / PATH needed).
+# --enable-bulk-memory is required because the edition-2024 toolchain emits
+# memory.copy; -Oz does the real size reduction on the final binary.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-Oz', '--enable-bulk-memory']
+
 [profile.release]
-opt-level = "z"
+opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"

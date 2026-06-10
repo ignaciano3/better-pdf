@@ -186,7 +186,7 @@ hallucinated field names and invalid values into compile errors.
 `better-pdf` is consistently faster than `pdf-lib` on end-to-end mutation
 workloads, thanks to its Rust/WebAssembly core and append-only incremental
 saves. Indicative results from `bun run bench` on the bundled fixture corpus
-(25 iterations after warmup):
+(50 iterations after warmup):
 
 ### Small mixed form
 
@@ -194,11 +194,11 @@ saves. Indicative results from `bun run bench` on the bundled fixture corpus
 
 | Scenario | better-pdf | pdf-lib | speedup |
 | --- | ---: | ---: | ---: |
-| load + save unchanged | 0.03 ms | 1.39 ms | 45.2× |
-| load + read fields | 1.43 ms | 0.82 ms | 0.6× |
-| fill 24 text fields + save | 3.07 ms | 6.13 ms | 2.0× |
-| fill 2 choice fields + save | 2.64 ms | 4.91 ms | 1.9× |
-| flatten all + save | 2.79 ms | 5.03 ms | 1.8× |
+| load + save unchanged | 0.02 ms | 1.29 ms | 58.4× |
+| load + read fields | 0.48 ms | 0.79 ms | 1.7× |
+| fill 24 text fields + save | 1.10 ms | 5.86 ms | 5.3× |
+| fill 2 choice fields + save | 0.80 ms | 4.57 ms | 5.7× |
+| flatten all + save | 0.89 ms | 4.83 ms | 5.5× |
 
 ### Medium dense form
 
@@ -206,13 +206,13 @@ saves. Indicative results from `bun run bench` on the bundled fixture corpus
 
 | Scenario | better-pdf | pdf-lib | speedup |
 | --- | ---: | ---: | ---: |
-| load + save unchanged | 0.08 ms | 13.77 ms | 163.0× |
-| load + read fields | 5.52 ms | 5.62 ms | 1.0× |
-| fill 24 text fields + save | 11.67 ms | 26.76 ms | 2.3× |
-| fill 19 choice fields + save | 11.70 ms | 27.24 ms | 2.3× |
-| stamp 2 signature images + save | 16.98 ms | n/a | n/a |
-| stamp first signature + flatten it | 19.31 ms | n/a | n/a |
-| flatten all + save | 13.18 ms | error | n/a |
+| load + save unchanged | 0.07 ms | 13.89 ms | 186.4× |
+| load + read fields | 1.70 ms | 5.57 ms | 3.3× |
+| fill 24 text fields + save | 3.87 ms | 26.43 ms | 6.8× |
+| fill 19 choice fields + save | 3.77 ms | 27.03 ms | 7.2× |
+| stamp 2 signature images + save | 8.31 ms | n/a | n/a |
+| stamp first signature + flatten it | 7.49 ms | n/a | n/a |
+| flatten all + save | 4.68 ms | error | n/a |
 
 ### Large signature form
 
@@ -220,12 +220,12 @@ saves. Indicative results from `bun run bench` on the bundled fixture corpus
 
 | Scenario | better-pdf | pdf-lib | speedup |
 | --- | ---: | ---: | ---: |
-| load + save unchanged | 0.26 ms | 1.39 ms | 5.3× |
-| load + read fields | 1.19 ms | 0.74 ms | 0.6× |
-| fill 20 text fields + save | 2.88 ms | 4.25 ms | 1.5× |
-| stamp 2 signature images + save | 8.36 ms | n/a | n/a |
-| stamp first signature + flatten it | 6.80 ms | n/a | n/a |
-| flatten all + save | 2.62 ms | error | n/a |
+| load + save unchanged | 0.24 ms | 1.33 ms | 5.5× |
+| load + read fields | 0.36 ms | 0.78 ms | 2.1× |
+| fill 20 text fields + save | 1.02 ms | 4.36 ms | 4.3× |
+| stamp 2 signature images + save | 5.94 ms | n/a | n/a |
+| stamp first signature + flatten it | 3.81 ms | n/a | n/a |
+| flatten all + save | 0.96 ms | error | n/a |
 
 In the two `error` rows, `pdf-lib` threw `Unexpected N type: undefined` while
 flattening real-world fixtures. Absolute timings vary by machine; reproduce
@@ -246,13 +246,11 @@ count).
 
 ## Develop
 
-Prerequisites: `bun`, the Rust toolchain, the `wasm32-unknown-unknown` target, `wasm-pack`, and `wasm-opt` from Binaryen.
+Prerequisites: `bun`, the Rust toolchain, the `wasm32-unknown-unknown` target, and `wasm-pack` (it downloads and runs its own `wasm-opt`, so no system Binaryen is needed).
 
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
-# macOS: brew install binaryen
-# Linux: install the binaryen package for your distro
 bun install
 bun run build      # compile Rust core to pkg/ + pkg-web/ and TypeScript API to dist/
 bun test           # run TS API tests

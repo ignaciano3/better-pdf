@@ -68,10 +68,9 @@
     "pdf-lib"
   ],
   "scripts": {
-    "build:wasm:node": "wasm-pack build crates/core --target nodejs --out-dir ../../pkg --out-name better_pdf_core --no-opt",
-    "build:wasm:browser": "wasm-pack build crates/core --target web --out-dir ../../pkg-web --out-name better_pdf_core --no-opt",
-    "optimize:wasm": "wasm-opt --enable-bulk-memory -Oz pkg/better_pdf_core_bg.wasm -o pkg/better_pdf_core_bg.wasm.tmp && mv pkg/better_pdf_core_bg.wasm.tmp pkg/better_pdf_core_bg.wasm && wasm-opt --enable-bulk-memory -Oz pkg-web/better_pdf_core_bg.wasm -o pkg-web/better_pdf_core_bg.wasm.tmp && mv pkg-web/better_pdf_core_bg.wasm.tmp pkg-web/better_pdf_core_bg.wasm",
-    "build:wasm": "bun run build:wasm:node && bun run build:wasm:browser && bun run optimize:wasm",
+    "build:wasm:node": "wasm-pack build crates/core --target nodejs --out-dir ../../pkg --out-name better_pdf_core",
+    "build:wasm:browser": "wasm-pack build crates/core --target web --out-dir ../../pkg-web --out-name better_pdf_core",
+    "build:wasm": "bun run build:wasm:node && bun run build:wasm:browser",
     "build:js": "tsc -p tsconfig.build.json",
     "build": "bun run build:wasm && bun run build:js",
     "prepack": "bun run build",
