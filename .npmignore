@@ -5,8 +5,8 @@
 !LICENSE
 !README.md
 !package.json
-!src/
-!src/**
+!dist/
+!dist/**
 !pkg/
 !pkg/package.json
 !pkg/better_pdf_core.js

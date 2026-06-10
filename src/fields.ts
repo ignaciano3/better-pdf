@@ -1,4 +1,4 @@
-import type { FieldInfo } from "./form.ts";
+import type { FieldInfo } from "./form.js";
 
 /** One queued mutation: set field `name` to a value or visual signature image. */
 export type FillOp = {

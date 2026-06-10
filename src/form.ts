@@ -1,4 +1,4 @@
-import { readFields } from "./wasm.ts";
+import { readFields } from "./wasm.js";
 import {
   FillQueue,
   PdfTextField,
@@ -6,7 +6,7 @@ import {
   PdfRadioGroup,
   PdfDropdown,
   PdfSignature,
-} from "./fields.ts";
+} from "./fields.js";
 
 export type FieldType =
   | "text" | "checkbox" | "radio" | "dropdown"

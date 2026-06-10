@@ -1,5 +1,5 @@
-import { roundTrip, fillFields, flattenFields } from "./wasm.ts";
-import { PdfForm } from "./form.ts";
+import { roundTrip, fillFields, flattenFields } from "./wasm.js";
+import { PdfForm } from "./form.js";
 
 /**
  * A loaded PDF document. Holds the source bytes, exposes the AcroForm, and
@@ -49,12 +49,12 @@ export class PdfDocument {
   }
 }
 
-export { PdfForm } from "./form.ts";
-export type { FieldInfo, FieldType } from "./form.ts";
+export { PdfForm } from "./form.js";
+export type { FieldInfo, FieldType } from "./form.js";
 export {
   PdfTextField,
   PdfCheckBox,
   PdfRadioGroup,
   PdfDropdown,
   PdfSignature,
-} from "./fields.ts";
+} from "./fields.js";

@@ -112,9 +112,10 @@ Prerequisites: `bun`, the Rust toolchain, the `wasm32-unknown-unknown` target, a
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
 bun install
-bun run build      # compile Rust core to pkg/
+bun run build      # compile Rust core to pkg/ and TypeScript API to dist/
 bun test           # run TS API tests
 bun run typecheck  # run TypeScript checks
+npm pack --dry-run # inspect package contents
 ```
 
 Rust checks:
