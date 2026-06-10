@@ -99,8 +99,10 @@ const output = await doc.save();
 - `form.flatten()`
 
 Each `FieldInfo` carries `name`, `type`, `value`, `states`, `options`, `readOnly`,
-`required`, and `widgets` — one entry per widget annotation giving its 0-based
-`page` index and `rect` (`[x0, y0, x1, y1]` in PDF points, origin bottom-left).
+`required`, `exported` (false when the field has the `NoExport` flag), `maxLength`
+(a text field's `/MaxLen`, or `null`), and `widgets` — one entry per widget
+annotation giving its 0-based `page` index and `rect` (`[x0, y0, x1, y1]` in PDF
+points, origin bottom-left). `setText()` throws if its value exceeds `maxLength`.
 
 List boxes are single-select in this version.
 
@@ -114,6 +116,8 @@ whole family or a specific case:
   text field (`.field`, `.actual`, `.expected`).
 - `InvalidOptionError` — selecting a value that is not one of the field's options
   (`.field`, `.fieldType`, `.value`, `.options`).
+- `MaxLengthExceededError` — `setText()` value longer than the field's `/MaxLen`
+  (`.field`, `.maxLength`, `.actualLength`).
 - `MissingOnStateError` — checking a checkbox with no declared on-state (`.field`).
 
 ```ts

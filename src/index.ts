@@ -72,6 +72,7 @@ export {
   UnknownFieldError,
   FieldTypeError,
   InvalidOptionError,
+  MaxLengthExceededError,
   MissingOnStateError,
 } from "./errors.js";
 export { generateFormTypes } from "./typegen.js";

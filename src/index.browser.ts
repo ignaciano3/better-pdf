@@ -78,6 +78,7 @@ export {
   UnknownFieldError,
   FieldTypeError,
   InvalidOptionError,
+  MaxLengthExceededError,
   MissingOnStateError,
 } from "./errors.js";
 export { initializeWasm } from "./wasm-browser.js";

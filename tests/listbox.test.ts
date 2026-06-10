@@ -12,6 +12,8 @@ function listboxInfo(): FieldInfo {
     options: ["ES", "EN", "PT"],
     readOnly: false,
     required: false,
+    exported: true,
+    maxLength: null,
     widgets: [],
   };
 }

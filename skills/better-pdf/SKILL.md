@@ -32,7 +32,7 @@ const out = await doc.save();                      // Promise<Uint8Array>
 2. **Existing PDFs only.** No creation from scratch / arbitrary drawing. Load → fill/flatten → save.
 3. **Signatures are visual only** — an embedded image/appearance, NOT cryptographic/PAdES signing. `getSignature(name).setImage(jpegOrPngBytes)`.
 4. **`save()` is an incremental (append-only) update** — output begins with the original bytes verbatim. With nothing queued it returns a byte-identical round-trip.
-5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save. Errors subclass `PdfError`: `UnknownFieldError`, `FieldTypeError`, `InvalidOptionError`, `MissingOnStateError`.
+5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save. Errors subclass `PdfError`: `UnknownFieldError`, `FieldTypeError`, `InvalidOptionError`, `MaxLengthExceededError`, `MissingOnStateError`.
 
 ## Typed filling (recommended workflow)
 
@@ -79,7 +79,7 @@ Flattened fields are stamped onto the page and removed from the AcroForm (no lon
 | `form.flattenField(name)` / `form.flatten()` | Flatten one / all fields |
 | `generateFormTypes(fields, { typeName })` | Emit a typed `…Fields` module (string) |
 
-`FieldInfo = { name, type, value, states, options, readOnly, required, widgets }`, where `widgets: { page, rect: [x0,y0,x1,y1] }[]` gives each widget's 0-based page index and `/Rect` in PDF points (origin bottom-left). `type` ∈ `text | checkbox | radio | dropdown | listbox | signature | pushbutton | unknown`.
+`FieldInfo = { name, type, value, states, options, readOnly, required, exported, maxLength, widgets }`, where `exported` is false only when the `NoExport` flag is set, `maxLength` is a text field's `/MaxLen` (or null), and `widgets: { page, rect: [x0,y0,x1,y1] }[]` gives each widget's 0-based page index and `/Rect` in PDF points (origin bottom-left). `setText` throws if longer than `maxLength`. `type` ∈ `text | checkbox | radio | dropdown | listbox | signature | pushbutton | unknown`.
 
 ## Browser
 
