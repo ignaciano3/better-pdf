@@ -46,6 +46,7 @@ export function generateFormTypes(
     lines.push(`  ${quote(field.name)}: {`);
     lines.push(`    type: ${quote(field.type)},`);
     lines.push(`    readOnly: ${field.readOnly ? "true" : "false"},`);
+    lines.push(`    required: ${field.required ? "true" : "false"},`);
     lines.push(`    value: ${field.value === null ? "null" : quote(field.value)},`);
     lines.push(`    states: ${readonlyTuple(field.states)},`);
     lines.push(`    options: ${readonlyTuple(field.options)},`);

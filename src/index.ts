@@ -58,7 +58,7 @@ export class PdfDocument {
 }
 
 export { PdfForm } from "./form.js";
-export type { FieldInfo, FieldType } from "./form.js";
+export type { FieldInfo, FieldType, FieldWidget } from "./form.js";
 export {
   PdfTextField,
   PdfCheckBox,
