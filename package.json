@@ -5,10 +5,34 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "files": ["src", "pkg"],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "src",
+    "pkg/package.json",
+    "pkg/better_pdf_core.js",
+    "pkg/better_pdf_core.d.ts",
+    "pkg/better_pdf_core_bg.wasm",
+    "pkg/better_pdf_core_bg.wasm.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pdf",
+    "acroform",
+    "forms",
+    "wasm",
+    "pdf-lib"
+  ],
   "scripts": {
     "build:wasm": "wasm-pack build crates/core --target nodejs --out-dir ../../pkg --out-name better_pdf_core",
     "build": "bun run build:wasm",
+    "typecheck": "tsc --noEmit",
     "test": "bun test",
     "play": "bun run examples/playground.ts"
   },

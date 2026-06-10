@@ -1,0 +1,15 @@
+# package.json `files` is the source of truth. Keep this file so npm does not
+# fall back to .gitignore, which ignores generated pkg/ artifacts locally.
+
+*
+!LICENSE
+!README.md
+!package.json
+!src/
+!src/**
+!pkg/
+!pkg/package.json
+!pkg/better_pdf_core.js
+!pkg/better_pdf_core.d.ts
+!pkg/better_pdf_core_bg.wasm
+!pkg/better_pdf_core_bg.wasm.d.ts
