@@ -22,6 +22,8 @@ const fields: FieldInfo[] = [
     options: [],
     readOnly: false,
     required: false,
+    exported: true,
+    maxLength: 40,
     widgets: [],
   },
   {
@@ -32,6 +34,8 @@ const fields: FieldInfo[] = [
     options: ["Soltero", "Casado"],
     readOnly: false,
     required: false,
+    exported: true,
+    maxLength: null,
     widgets: [],
   },
   {
@@ -42,6 +46,8 @@ const fields: FieldInfo[] = [
     options: [],
     readOnly: false,
     required: false,
+    exported: true,
+    maxLength: null,
     widgets: [],
   },
 ];
@@ -56,6 +62,9 @@ test("generates field name and typed metadata declarations", () => {
   );
   expect(source).toContain('export type AnexoFormTextFieldName = AnexoFormFieldNameByType<"text">;');
   expect(source).toContain("required: false,");
+  expect(source).toContain("exported: true,");
+  expect(source).toContain("maxLength: 40,");
+  expect(source).toContain("maxLength: null,");
   expect(source).toContain('options: ["Soltero", "Casado"] as const');
   expect(source).toContain('states: ["Titular", "Familiar"] as const');
   expect(source).toContain(

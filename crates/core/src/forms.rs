@@ -14,6 +14,11 @@ pub struct FieldInfo {
     #[serde(rename = "readOnly")]
     pub read_only: bool,
     pub required: bool,
+    /// True unless the field's `NoExport` flag is set.
+    pub exported: bool,
+    /// Text field `/MaxLen`, if declared; `null` for other fields or when unset.
+    #[serde(rename = "maxLength")]
+    pub max_length: Option<u32>,
     /// One entry per widget annotation: its page index (0-based) and `/Rect`
     /// `[x0, y0, x1, y1]` in PDF points (origin bottom-left). Most fields have
     /// one; radio groups and fields repeated across pages have several.
@@ -90,6 +95,15 @@ fn describe_field(
         .map(|a| a.iter().map(opt_export).collect())
         .unwrap_or_default();
 
+    // `/MaxLen` is a text-field property; ignore it for other field types.
+    let max_length = if field_type == "text" {
+        inherited_int(doc, d, b"MaxLen")
+            .filter(|&n| n >= 0)
+            .map(|n| n as u32)
+    } else {
+        None
+    };
+
     let widgets = field_id
         .map(|id| {
             field_widgets(doc, id, d)
@@ -112,6 +126,8 @@ fn describe_field(
         options,
         read_only: ff & 1 != 0,
         required: ff & 2 != 0,
+        exported: ff & 4 == 0,
+        max_length,
         widgets,
     }
 }
@@ -284,6 +300,10 @@ mod tests {
         let f = fields(VIAJERO);
         let first = &f[0];
         assert!(first["required"].is_boolean());
+        // Fields with no NoExport flag report exported = true.
+        assert_eq!(first["exported"], true);
+        // maxLength is present (null when undeclared, an integer when set).
+        assert!(first["maxLength"].is_null() || first["maxLength"].is_u64());
         let widgets = first["widgets"].as_array().unwrap();
         assert!(!widgets.is_empty());
         assert_eq!(widgets[0]["page"], 0);

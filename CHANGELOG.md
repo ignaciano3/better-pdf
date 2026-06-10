@@ -10,11 +10,14 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ### Added
 
+- `FieldInfo.maxLength` (text field `/MaxLen`) and `FieldInfo.exported`
+  (false when the `NoExport` flag is set); both also emitted by the type
+  generator. `setText()` now throws `MaxLengthExceededError` past `/MaxLen`.
 - `getListBox(name).select(value)` write accessor for single-select list-box
   fields, including the typed `doc.getForm<typeof schema>()` overlay.
 - Typed error classes: `PdfError` base plus `UnknownFieldError`,
-  `FieldTypeError`, `InvalidOptionError`, and `MissingOnStateError`, all
-  exported from the package root and browser entry.
+  `FieldTypeError`, `InvalidOptionError`, `MaxLengthExceededError`, and
+  `MissingOnStateError`, all exported from the package root and browser entry.
 
 ### Changed
 

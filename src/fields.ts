@@ -1,5 +1,9 @@
 import type { FieldInfo } from "./form.js";
-import { InvalidOptionError, MissingOnStateError } from "./errors.js";
+import {
+  InvalidOptionError,
+  MaxLengthExceededError,
+  MissingOnStateError,
+} from "./errors.js";
 
 /** One queued mutation: set field `name` to a value or visual signature image. */
 export type FillOp = {
@@ -28,8 +32,12 @@ export class FillQueue {
 export class PdfTextField {
   /** @internal */
   constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
-  /** Set the field's text value. */
+  /** Set the field's text value. Throws if it exceeds the field's `/MaxLen`. */
   setText(value: string): void {
+    const max = this.info.maxLength;
+    if (max !== null && value.length > max) {
+      throw new MaxLengthExceededError(this.info.name, max, value.length);
+    }
     this.queue.push({ name: this.info.name, value });
   }
 }

@@ -33,6 +33,10 @@ export interface FieldInfo {
   readOnly: boolean;
   /** True if the field has the Required flag set. */
   required: boolean;
+  /** False if the field has the NoExport flag set; true otherwise. */
+  exported: boolean;
+  /** Text field `/MaxLen`, or null for non-text fields / when undeclared. */
+  maxLength: number | null;
   /** One entry per widget annotation (page + position). Usually one; radio
    * groups and fields repeated across pages have several. */
   widgets: FieldWidget[];

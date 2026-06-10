@@ -45,6 +45,19 @@ export class InvalidOptionError extends PdfError {
   }
 }
 
+/** Thrown when setting text longer than a field's declared `/MaxLen`. */
+export class MaxLengthExceededError extends PdfError {
+  constructor(
+    readonly field: string,
+    readonly maxLength: number,
+    readonly actualLength: number,
+  ) {
+    super(
+      `text for '${field}' is ${actualLength} chars, exceeding its max length of ${maxLength}`,
+    );
+  }
+}
+
 /** Thrown when checking a checkbox that declares no on-state in its widgets. */
 export class MissingOnStateError extends PdfError {
   constructor(readonly field: string) {
