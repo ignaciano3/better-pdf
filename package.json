@@ -3,6 +3,22 @@
   "version": "0.1.0",
   "description": "A maintained, fast alternative to pdf-lib for filling and flattening PDF AcroForms.",
   "type": "module",
+  "author": "Ignacio Garcia P <ignaciogp08@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ignaciano3/better-pdf.git"
+  },
+  "homepage": "https://github.com/ignaciano3/better-pdf#readme",
+  "bugs": {
+    "url": "https://github.com/ignaciano3/better-pdf/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -41,6 +57,7 @@
     "pkg-web/better_pdf_core_bg.wasm.d.ts",
     "README.md",
     "LICENSE",
+    "CHANGELOG.md",
     "skills/better-pdf/SKILL.md"
   ],
   "keywords": [
