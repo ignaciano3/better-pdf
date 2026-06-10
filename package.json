@@ -64,6 +64,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/node": "latest",
     "typescript": "^6"
   }
 }

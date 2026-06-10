@@ -115,8 +115,8 @@ if (firstSignature) {
   }
 }
 
-const formTypes = generateFormTypes(signatureForm.getFields(), { typeName: "MyFormFields" });
-// save to a file
-const typesPath = join(import.meta.dir, `typegen-${basename(inputPath, ".pdf")}.d.ts`);
+// --- Milestone 11 demo: generate a typed module from the form's fields. ---
+const formTypes = generateFormTypes(signatureForm.getFields(), { typeName: "MyForm" });
+const typesPath = join(import.meta.dir, `types-${basename(inputPath, ".pdf")}.ts`);
 writeFileSync(typesPath, formTypes);
-console.log(`Wrote:    ${typesPath}`);
+console.log(`\nWrote:    ${typesPath} (${formTypes.split("\n").length} lines of types)`);

@@ -13,4 +13,3 @@ signature.jpg
 signature.jpeg
 examples/
 !examples/playground.ts
-.env

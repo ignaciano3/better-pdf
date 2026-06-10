@@ -55,7 +55,10 @@ export function generateFormTypes(
   lines.push("");
   lines.push(`export type ${fieldNameType} = ${literalUnion(names)};`);
   lines.push(`export type ${fieldMapName} = typeof ${metadataName};`);
-  lines.push(`export type ${typeName}FieldType = ${fieldMapName}[keyof ${fieldMapName}]["type"];`);
+  // The full field-type union (not just the types present in this form), so the
+  // per-type name aliases below always satisfy the constraint and resolve to
+  // `never` for types this form happens not to use.
+  lines.push(`export type ${typeName}FieldType = ${literalUnion(Object.keys(TYPE_SUFFIXES))};`);
   lines.push(`export type ${byTypeName}<TType extends ${typeName}FieldType> = {`);
   lines.push(
     `  [TName in ${fieldNameType}]: ${fieldMapName}[TName]["type"] extends TType ? TName : never;`,

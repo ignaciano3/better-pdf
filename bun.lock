@@ -6,6 +6,7 @@
       "name": "better-pdf",
       "devDependencies": {
         "@types/bun": "latest",
+        "@types/node": "latest",
         "typescript": "^6",
       },
     },

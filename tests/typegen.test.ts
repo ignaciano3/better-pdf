@@ -44,6 +44,18 @@ test("generates field name and typed metadata declarations", () => {
   );
 });
 
+test("FieldType covers every field type, not only the ones present", () => {
+  // Regression: the per-type name aliases (e.g. AnexoFormCheckBoxFieldName) use
+  // FieldType as their constraint. If FieldType were narrowed to the types this
+  // form happens to contain, aliases for absent types would fail to compile.
+  const source = generateFormTypes(fields, { typeName: "AnexoForm" });
+
+  expect(source).toContain(
+    'export type AnexoFormFieldType = "text" | "checkbox" | "radio" | "dropdown" | "listbox" | "signature" | "pushbutton" | "unknown";',
+  );
+  expect(source).toContain('export type AnexoFormCheckBoxFieldName = AnexoFormFieldNameByType<"checkbox">;');
+});
+
 test("rejects invalid generated type names", () => {
   expect(() => generateFormTypes(fields, { typeName: "bad-name" })).toThrow(
     /valid TypeScript identifier/,
