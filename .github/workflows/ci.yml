@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/core
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Rust tests
+        run: cargo test --manifest-path crates/core/Cargo.toml
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path crates/core/Cargo.toml --all-targets -- -D warnings
+
+      - name: Build WASM (node + browser targets)
+        run: bun run build:wasm
+
+      - name: TypeScript type check
+        run: bun run typecheck
+
+      - name: TypeScript tests
+        run: bun test
+
+      - name: Build JS dist
+        run: bun run build:js

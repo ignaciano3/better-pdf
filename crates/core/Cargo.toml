@@ -1,8 +1,10 @@
 [package]
 name = "better-pdf-core"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "Rust/WebAssembly core for better-pdf: fill and flatten PDF AcroForms."
+repository = "https://github.com/ignaciano3/better-pdf"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
