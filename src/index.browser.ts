@@ -1,4 +1,10 @@
-import { roundTrip, readFields, fillFields, flattenFields } from "./wasm.js";
+import {
+  initializeWasm,
+  roundTrip,
+  readFields,
+  fillFields,
+  flattenFields,
+} from "./wasm-browser.js";
 import { PdfForm } from "./form.js";
 
 /**
@@ -12,10 +18,10 @@ export class PdfDocument {
   private constructor(private readonly bytes: Uint8Array) {}
 
   /**
-   * Load a PDF from bytes. Async because later milestones (and the browser build)
-   * initialize the WASM module asynchronously; callers should always `await`.
+   * Load a PDF from bytes. Initializes the browser WASM module on first use.
    */
   static async load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument> {
+    await initializeWasm();
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     return new PdfDocument(bytes);
   }
@@ -58,3 +64,4 @@ export {
   PdfDropdown,
   PdfSignature,
 } from "./fields.js";
+export { initializeWasm } from "./wasm-browser.js";

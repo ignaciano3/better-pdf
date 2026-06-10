@@ -7,8 +7,16 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "browser": {
+        "types": "./dist/index.browser.d.ts",
+        "import": "./dist/index.browser.js"
+      },
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/index.browser.d.ts",
+      "import": "./dist/index.browser.js"
     }
   },
   "sideEffects": false,
@@ -19,6 +27,11 @@
     "pkg/better_pdf_core.d.ts",
     "pkg/better_pdf_core_bg.wasm",
     "pkg/better_pdf_core_bg.wasm.d.ts",
+    "pkg-web/package.json",
+    "pkg-web/better_pdf_core.js",
+    "pkg-web/better_pdf_core.d.ts",
+    "pkg-web/better_pdf_core_bg.wasm",
+    "pkg-web/better_pdf_core_bg.wasm.d.ts",
     "README.md",
     "LICENSE"
   ],
@@ -30,11 +43,14 @@
     "pdf-lib"
   ],
   "scripts": {
-    "build:wasm": "wasm-pack build crates/core --target nodejs --out-dir ../../pkg --out-name better_pdf_core",
+    "build:wasm:node": "wasm-pack build crates/core --target nodejs --out-dir ../../pkg --out-name better_pdf_core",
+    "build:wasm:browser": "wasm-pack build crates/core --target web --out-dir ../../pkg-web --out-name better_pdf_core",
+    "build:wasm": "bun run build:wasm:node && bun run build:wasm:browser",
     "build:js": "tsc -p tsconfig.build.json",
     "build": "bun run build:wasm && bun run build:js",
     "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
+    "test:browser-entry": "bun run build && bun run scripts/browser-entry-smoke.ts",
     "test": "bun test",
     "play": "bun run examples/playground.ts"
   },

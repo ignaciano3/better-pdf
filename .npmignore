@@ -13,3 +13,9 @@
 !pkg/better_pdf_core.d.ts
 !pkg/better_pdf_core_bg.wasm
 !pkg/better_pdf_core_bg.wasm.d.ts
+!pkg-web/
+!pkg-web/package.json
+!pkg-web/better_pdf_core.js
+!pkg-web/better_pdf_core.d.ts
+!pkg-web/better_pdf_core_bg.wasm
+!pkg-web/better_pdf_core_bg.wasm.d.ts

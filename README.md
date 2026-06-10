@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for filling and flattening existing 
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. The current package focuses on existing PDFs: load bytes, inspect form fields, queue field mutations, flatten fields, and save an incremental PDF update.
 
-> Status: pre-alpha. The core AcroForm workflows are implemented for the bundled PDF 1.3 fixture corpus. Browser-specific packaging and generated form types are still future milestones.
+> Status: pre-alpha. The core AcroForm workflows are implemented for the bundled PDF 1.3 fixture corpus. Generated form types are still a future milestone.
 
 ## Features
 
@@ -57,6 +57,20 @@ const output = await doc.save();
 await Bun.write("filled.pdf", output);
 ```
 
+Browser bundlers can import the explicit browser entry, or use the package root
+when the bundler honors the `browser` export condition:
+
+```ts
+import { PdfDocument } from "better-pdf/browser";
+
+const input = new Uint8Array(await file.arrayBuffer());
+const doc = await PdfDocument.load(input);
+const fields = doc.getForm().getFields();
+const output = await doc.save();
+```
+
+`PdfDocument.load()` initializes the browser WASM module on first use.
+
 ## API
 
 ### `PdfDocument`
@@ -102,7 +116,8 @@ PNG alpha is currently dropped rather than preserved as a PDF soft mask.
 - No lenient recovery for malformed PDFs.
 - No cryptographic signing.
 - Primary test coverage is classic-xref PDF 1.3 forms from the bundled fixture corpus.
-- Browser-specific package initialization is still a future milestone.
+- Browser support expects a modern bundler/runtime that can serve the packaged
+  `.wasm` asset referenced from the browser entry.
 
 ## Develop
 
@@ -112,8 +127,9 @@ Prerequisites: `bun`, the Rust toolchain, the `wasm32-unknown-unknown` target, a
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
 bun install
-bun run build      # compile Rust core to pkg/ and TypeScript API to dist/
+bun run build      # compile Rust core to pkg/ + pkg-web/ and TypeScript API to dist/
 bun test           # run TS API tests
+bun run test:browser-entry
 bun run typecheck  # run TypeScript checks
 npm pack --dry-run # inspect package contents
 ```

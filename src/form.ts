@@ -1,4 +1,3 @@
-import { readFields } from "./wasm.js";
 import {
   FillQueue,
   PdfTextField,
@@ -25,6 +24,8 @@ export interface FieldInfo {
   readOnly: boolean;
 }
 
+export type ReadFields = (bytes: Uint8Array) => string;
+
 /** A view over a PDF's AcroForm fields, with typed mutation accessors. */
 export class PdfForm {
   private readonly fields: FieldInfo[];
@@ -34,7 +35,7 @@ export class PdfForm {
   readonly flattenQueue: string[] = [];
 
   /** @internal */
-  constructor(bytes: Uint8Array) {
+  constructor(bytes: Uint8Array, readFields: ReadFields) {
     this.fields = JSON.parse(readFields(bytes)) as FieldInfo[];
   }
 
