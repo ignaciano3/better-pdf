@@ -136,6 +136,19 @@ Supported image inputs:
 
 PNG alpha is currently dropped rather than preserved as a PDF soft mask.
 
+## For AI agents
+
+better-pdf ships an [agent skill](skills/better-pdf/SKILL.md) — procedural
+knowledge for driving the library correctly (the load → inspect → generate
+types → fill/flatten/sign → save workflow, plus the non-obvious rules: use a
+field's *real* export values, never assume `Yes`/`On`; visual signatures are not
+cryptographic; `save()` is an incremental update). It installs into 20+ agents
+via [skills.sh](https://www.skills.sh).
+
+The strongest agent-readiness feature is the typed workflow above: generate a
+types module from the PDF and `doc.getForm<typeof myFormFields>()` turns
+hallucinated field names and invalid values into compile errors.
+
 ## Limitations
 
 - Existing PDFs only. Creating PDFs from scratch is out of scope for v1.
