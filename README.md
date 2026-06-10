@@ -249,3 +249,16 @@ API reference (TypeDoc → `docs/api`):
 ```bash
 bun run docs
 ```
+
+### Releasing
+
+Publishing is automated by `.github/workflows/release.yml`: push a `vX.Y.Z` tag
+that matches `package.json`'s `version` and it builds and runs
+`npm publish --provenance`. It needs an `NPM_TOKEN` repo secret (an npm
+automation token). Provenance is attached via OIDC, so publishing only works from
+CI — a local `npm publish` fails because `publishConfig.provenance` is `true`.
+
+```bash
+npm version patch   # or minor / major — bumps package.json + creates the tag
+git push --follow-tags
+```

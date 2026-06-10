@@ -1,0 +1,59 @@
+name: Release
+
+# Publishes to npm when a v* tag is pushed (e.g. `git tag v0.1.0 && git push --tags`).
+# Requires an NPM_TOKEN repo secret (an npm automation token). Provenance is
+# attached via OIDC, so this only works from CI — a local `npm publish` would fail
+# with `publishConfig.provenance: true`.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Node (with npm registry auth)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "tag v$TAG does not match package.json version $PKG" >&2
+            exit 1
+          fi
+
+      - name: Build (Rust/WASM + JS dist)
+        run: bun run build
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
