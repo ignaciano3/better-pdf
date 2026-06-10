@@ -40,7 +40,8 @@
     "pkg-web/better_pdf_core_bg.wasm",
     "pkg-web/better_pdf_core_bg.wasm.d.ts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "skills/better-pdf/SKILL.md"
   ],
   "keywords": [
     "pdf",

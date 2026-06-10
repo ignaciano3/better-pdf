@@ -1,6 +1,17 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { FieldInfo } from "../src/form.ts";
 import { generateFormTypes } from "../src/typegen.ts";
+
+test("typegen entry stays runtime-dependency-free (tree-shakeable)", () => {
+  // The `better-pdf/typegen` subpath must not pull in the WASM core. Guard it by
+  // requiring every import in the module to be type-only (erased at build).
+  const src = readFileSync(join(import.meta.dir, "../src/typegen.ts"), "utf8");
+  const imports = src.match(/^\s*import\b.*$/gm) ?? [];
+  const runtimeImports = imports.filter((line) => !/^\s*import\s+type\b/.test(line));
+  expect(runtimeImports).toEqual([]);
+});
 
 const fields: FieldInfo[] = [
   {
