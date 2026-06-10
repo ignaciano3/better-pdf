@@ -110,6 +110,21 @@ The generated module exports field-name unions and literal metadata for field
 types, dropdown/listbox options, radio states, read-only flags, and current
 values.
 
+Then pass the generated metadata as a type argument to get a fully-narrowed
+form — unknown field names, wrong-type access, and invalid option/state values
+become compile errors, at zero runtime cost (the schema is referenced only via
+`typeof`):
+
+```ts
+import { myFormFields } from "./form-types.js";
+
+const form = doc.getForm<typeof myFormFields>();
+form.getTextField("beneficiario.apellidos_nombres").setText("GARCIA");
+form.getDropdown("beneficiario.estado_civil").select("Casado"); // only valid options compile
+```
+
+The untyped `doc.getForm()` keeps working unchanged.
+
 ### Signature Images
 
 Visual signatures are appearances only. They do not create cryptographic/PAdES signatures.

@@ -1,5 +1,6 @@
 import { roundTrip, readFields, fillFields, flattenFields } from "./wasm.js";
 import { PdfForm } from "./form.js";
+import type { FormSchema, TypedPdfForm } from "./schema.js";
 
 /**
  * A loaded PDF document. Holds the source bytes, exposes the AcroForm, and
@@ -43,6 +44,13 @@ export class PdfDocument {
    * The document's AcroForm. The same instance is returned each call, so queued
    * mutations accumulate until `save()`.
    */
+  getForm(): PdfForm;
+  /**
+   * A compile-time-narrowed view of the form. Pass a generated schema as the
+   * type argument: `doc.getForm<typeof myFormFields>()`. Type-only — the runtime
+   * object is identical to the untyped `getForm()`.
+   */
+  getForm<S extends FormSchema>(): TypedPdfForm<S>;
   getForm(): PdfForm {
     if (!this.form) this.form = new PdfForm(this.bytes, readFields);
     return this.form;
@@ -60,3 +68,10 @@ export {
 } from "./fields.js";
 export { generateFormTypes } from "./typegen.js";
 export type { GenerateFormTypesOptions } from "./typegen.js";
+export type {
+  FormSchema,
+  FieldNameOf,
+  NameOfType,
+  OptionsOf,
+  TypedPdfForm,
+} from "./schema.js";
