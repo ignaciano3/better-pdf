@@ -96,6 +96,10 @@ const output = await doc.save();
 - `form.flattenField(name)`
 - `form.flatten()`
 
+Each `FieldInfo` carries `name`, `type`, `value`, `states`, `options`, `readOnly`,
+`required`, and `widgets` — one entry per widget annotation giving its 0-based
+`page` index and `rect` (`[x0, y0, x1, y1]` in PDF points, origin bottom-left).
+
 Wrong-type access throws a clear error, for example calling `getDropdown()` on a text field.
 
 ### Generate Form Types

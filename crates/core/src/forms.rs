@@ -1,5 +1,7 @@
-use lopdf::{Dictionary, Document, Object};
+use crate::flatten::field_widgets;
+use lopdf::{Dictionary, Document, Object, ObjectId};
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Serialize)]
 pub struct FieldInfo {
@@ -11,6 +13,17 @@ pub struct FieldInfo {
     pub options: Vec<String>,
     #[serde(rename = "readOnly")]
     pub read_only: bool,
+    pub required: bool,
+    /// One entry per widget annotation: its page index (0-based) and `/Rect`
+    /// `[x0, y0, x1, y1]` in PDF points (origin bottom-left). Most fields have
+    /// one; radio groups and fields repeated across pages have several.
+    pub widgets: Vec<Widget>,
+}
+
+#[derive(Serialize)]
+pub struct Widget {
+    pub page: usize,
+    pub rect: [f32; 4],
 }
 
 /// Parse `data` and return its AcroForm fields as a JSON array string.
@@ -30,15 +43,31 @@ fn collect_fields(doc: &Document) -> Result<Vec<FieldInfo>, String> {
         .get(b"Fields")
         .and_then(|o| o.as_array())
         .map_err(|e| e.to_string())?;
+    let pages = page_index_map(doc);
     let mut out = Vec::new();
     for entry in entries {
+        let id = entry.as_reference().ok();
         let d = as_dict(doc, entry)?;
-        out.push(describe_field(doc, d));
+        out.push(describe_field(doc, id, d, &pages));
     }
     Ok(out)
 }
 
-fn describe_field(doc: &Document, d: &Dictionary) -> FieldInfo {
+/// Map each page's object id to its 0-based index, in page order.
+fn page_index_map(doc: &Document) -> HashMap<ObjectId, usize> {
+    doc.get_pages()
+        .values()
+        .enumerate()
+        .map(|(i, &id)| (id, i))
+        .collect()
+}
+
+fn describe_field(
+    doc: &Document,
+    field_id: Option<ObjectId>,
+    d: &Dictionary,
+    pages: &HashMap<ObjectId, usize>,
+) -> FieldInfo {
     let name = fully_qualified_name(doc, d);
     let ft = inherited_name(doc, d, b"FT").unwrap_or_default();
     let ff = inherited_int(doc, d, b"Ff").unwrap_or(0);
@@ -61,6 +90,20 @@ fn describe_field(doc: &Document, d: &Dictionary) -> FieldInfo {
         .map(|a| a.iter().map(opt_export).collect())
         .unwrap_or_default();
 
+    let widgets = field_id
+        .map(|id| {
+            field_widgets(doc, id, d)
+                .into_iter()
+                .filter_map(|w| {
+                    pages.get(&w.page_id).map(|&page| Widget {
+                        page,
+                        rect: w.rect,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     FieldInfo {
         name,
         field_type,
@@ -68,6 +111,8 @@ fn describe_field(doc: &Document, d: &Dictionary) -> FieldInfo {
         states,
         options,
         read_only: ff & 1 != 0,
+        required: ff & 2 != 0,
+        widgets,
     }
 }
 
@@ -232,6 +277,17 @@ mod tests {
             .map(|s| s.as_str().unwrap())
             .collect();
         assert!(states.contains(&"Titular") && states.contains(&"Familiar"));
+    }
+
+    #[test]
+    fn reports_required_flag_and_widget_layout() {
+        let f = fields(VIAJERO);
+        let first = &f[0];
+        assert!(first["required"].is_boolean());
+        let widgets = first["widgets"].as_array().unwrap();
+        assert!(!widgets.is_empty());
+        assert_eq!(widgets[0]["page"], 0);
+        assert_eq!(widgets[0]["rect"].as_array().unwrap().len(), 4);
     }
 
     #[test]

@@ -11,6 +11,13 @@ export type FieldType =
   | "text" | "checkbox" | "radio" | "dropdown"
   | "listbox" | "signature" | "pushbutton" | "unknown";
 
+export interface FieldWidget {
+  /** 0-based page index the widget is on. */
+  page: number;
+  /** `/Rect` `[x0, y0, x1, y1]` in PDF points (origin bottom-left). */
+  rect: [number, number, number, number];
+}
+
 export interface FieldInfo {
   /** Fully-qualified field name (ancestor /T joined by "."). */
   name: string;
@@ -22,6 +29,11 @@ export interface FieldInfo {
   /** Option export values for dropdown/listbox; empty otherwise. */
   options: string[];
   readOnly: boolean;
+  /** True if the field has the Required flag set. */
+  required: boolean;
+  /** One entry per widget annotation (page + position). Usually one; radio
+   * groups and fields repeated across pages have several. */
+  widgets: FieldWidget[];
 }
 
 export type ReadFields = (bytes: Uint8Array) => string;

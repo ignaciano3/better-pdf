@@ -21,6 +21,8 @@ const fields: FieldInfo[] = [
     states: [],
     options: [],
     readOnly: false,
+    required: false,
+    widgets: [],
   },
   {
     name: "beneficiario.estado_civil",
@@ -29,6 +31,8 @@ const fields: FieldInfo[] = [
     states: [],
     options: ["Soltero", "Casado"],
     readOnly: false,
+    required: false,
+    widgets: [],
   },
   {
     name: "beneficiario.tipo_beneficiario",
@@ -37,6 +41,8 @@ const fields: FieldInfo[] = [
     states: ["Titular", "Familiar"],
     options: [],
     readOnly: false,
+    required: false,
+    widgets: [],
   },
 ];
 
@@ -49,6 +55,7 @@ test("generates field name and typed metadata declarations", () => {
     'export type AnexoFormFieldName = "beneficiario.apellidos_nombres" | "beneficiario.estado_civil" | "beneficiario.tipo_beneficiario";',
   );
   expect(source).toContain('export type AnexoFormTextFieldName = AnexoFormFieldNameByType<"text">;');
+  expect(source).toContain("required: false,");
   expect(source).toContain('options: ["Soltero", "Casado"] as const');
   expect(source).toContain('states: ["Titular", "Familiar"] as const');
   expect(source).toContain(

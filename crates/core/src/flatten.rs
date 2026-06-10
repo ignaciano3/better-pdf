@@ -16,10 +16,10 @@ struct WidgetStamp {
 }
 
 /// (widget_id, page_id, rect) for one of a field's widgets.
-struct RawWidget {
-    id: ObjectId,
-    page_id: ObjectId,
-    rect: [f32; 4],
+pub(crate) struct RawWidget {
+    pub(crate) id: ObjectId,
+    pub(crate) page_id: ObjectId,
+    pub(crate) rect: [f32; 4],
 }
 
 pub fn flatten_fields_json(data: &[u8], names_json: &str) -> Result<Vec<u8>, String> {
@@ -52,7 +52,7 @@ pub fn flatten_fields_json(data: &[u8], names_json: &str) -> Result<Vec<u8>, Str
 }
 
 /// A field's widgets (id + page + rect). A field with no /Kids is its own widget.
-fn field_widgets(doc: &Document, field_id: ObjectId, dict: &Dictionary) -> Vec<RawWidget> {
+pub(crate) fn field_widgets(doc: &Document, field_id: ObjectId, dict: &Dictionary) -> Vec<RawWidget> {
     let ids: Vec<ObjectId> = dict
         .get(b"Kids")
         .and_then(|o| o.as_array())
