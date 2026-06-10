@@ -1,6 +1,6 @@
 {
   "name": "better-pdf",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A maintained, fast alternative to pdf-lib for filling and flattening PDF AcroForms.",
   "type": "module",
   "main": "./dist/index.js",

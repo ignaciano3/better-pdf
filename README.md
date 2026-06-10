@@ -212,3 +212,25 @@ Benchmarks against `pdf-lib`:
 ```bash
 bun run bench
 ```
+
+## Release hygiene (real blockers for credible v1)
+
+1. version still 0.0.0 → set real semver. Recommend 0.1.0 (0.x = API still settling), not 1.0.0.
+2. Missing npm metadata — no repository, homepage, bugs, author, engines, publishConfig. Needed for npmjs links + npm publish --provenance. Same for crates/core/Cargo.toml (no description/repository — wasm-pack warns).
+3. No CI (.github/). Add Actions: cargo test+clippy, bun test, typecheck, build on PR. Stops regressions.
+4. No CHANGELOG.md.
+5. README says "pre-alpha" — reword for release.
+
+Functional gap (one real inconsistency)
+
+6. No getListBox(). listbox is a FieldType and is readable, but there's no write accessor — getDropdown() on a listbox throws. Either add getListBox().select() (listbox /V can be multi-select → bit more work) or explicitly document listbox as read-only in v1. Corpus has ~no listboxes, so documenting is defensible.
+
+Optional (post-v1 fine)
+
+7. Typed error classes (10 sites throw bare Error) — nicer catch.
+8. Multi-line text wrapping (deferred) + PNG-alpha drop — confirm both are in Limitations.
+9. Real browser test (only smoke today) / typedoc API page.
+
+My rec: do 1–5 (hygiene) now — they're cheap and genuinely gate a professional release. For 6, document listbox as read-only unless you expect listbox forms. Defer 7–9.
+
+Want me to do the hygiene set (1–5) + document listbox?
