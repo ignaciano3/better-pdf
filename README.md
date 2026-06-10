@@ -98,6 +98,18 @@ const output = await doc.save();
 
 Wrong-type access throws a clear error, for example calling `getDropdown()` on a text field.
 
+### Generate Form Types
+
+Generate a TypeScript module from an existing PDF:
+
+```bash
+better-pdf-generate-types form.pdf src/form-types.ts --name EnrollmentForm
+```
+
+The generated module exports field-name unions and literal metadata for field
+types, dropdown/listbox options, radio states, read-only flags, and current
+values.
+
 ### Signature Images
 
 Visual signatures are appearances only. They do not create cryptographic/PAdES signatures.

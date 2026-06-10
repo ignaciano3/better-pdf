@@ -65,3 +65,5 @@ export {
   PdfSignature,
 } from "./fields.js";
 export { initializeWasm } from "./wasm-browser.js";
+export { generateFormTypes } from "./typegen.js";
+export type { GenerateFormTypesOptions } from "./typegen.js";

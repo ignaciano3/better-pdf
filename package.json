@@ -17,7 +17,14 @@
     "./browser": {
       "types": "./dist/index.browser.d.ts",
       "import": "./dist/index.browser.js"
+    },
+    "./typegen": {
+      "types": "./dist/typegen.d.ts",
+      "import": "./dist/typegen.js"
     }
+  },
+  "bin": {
+    "better-pdf-generate-types": "./dist/bin/generate-types.js"
   },
   "sideEffects": false,
   "files": [

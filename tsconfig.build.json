@@ -9,7 +9,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "sourceMap": true,
-    "types": []
+    "types": ["bun"]
   },
   "include": ["src"]
 }

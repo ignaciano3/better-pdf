@@ -58,3 +58,5 @@ export {
   PdfDropdown,
   PdfSignature,
 } from "./fields.js";
+export { generateFormTypes } from "./typegen.js";
+export type { GenerateFormTypesOptions } from "./typegen.js";

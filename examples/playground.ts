@@ -12,7 +12,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { PdfDocument } from "../src/index.ts";
+import { generateFormTypes, PdfDocument } from "../src/index.ts";
 
 const DEFAULT_FIXTURE = join(
   import.meta.dir,
@@ -114,3 +114,9 @@ if (firstSignature) {
     console.log(`Tip: pass a JPEG path after the PDF path, or set SIGNATURE_JPEG=/path/to/signature.jpg`);
   }
 }
+
+const formTypes = generateFormTypes(signatureForm.getFields(), { typeName: "MyFormFields" });
+// save to a file
+const typesPath = join(import.meta.dir, `typegen-${basename(inputPath, ".pdf")}.d.ts`);
+writeFileSync(typesPath, formTypes);
+console.log(`Wrote:    ${typesPath}`);
