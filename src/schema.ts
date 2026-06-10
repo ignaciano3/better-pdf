@@ -4,6 +4,7 @@ import type {
   PdfCheckBox,
   PdfRadioGroup,
   PdfDropdown,
+  PdfListBox,
   PdfSignature,
 } from "./fields.js";
 
@@ -45,6 +46,7 @@ export interface TypedPdfForm<S extends FormSchema> {
   getCheckBox(name: NameOfType<S, "checkbox">): PdfCheckBox;
   getRadioGroup<N extends NameOfType<S, "radio">>(name: N): PdfRadioGroup<OptionsOf<S, N>>;
   getDropdown<N extends NameOfType<S, "dropdown">>(name: N): PdfDropdown<OptionsOf<S, N>>;
+  getListBox<N extends NameOfType<S, "listbox">>(name: N): PdfListBox<OptionsOf<S, N>>;
   getSignature(name: NameOfType<S, "signature">): PdfSignature;
   flattenField(name: FieldNameOf<S>): void;
   flatten(): void;

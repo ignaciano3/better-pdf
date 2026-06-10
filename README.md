@@ -12,8 +12,7 @@ A maintained, fast alternative to `pdf-lib` for filling and flattening existing 
 - Fill text fields and text areas.
 - Check/uncheck checkboxes using the real on-state value.
 - Select radio options using real export values.
-- Select dropdown options.
-- Read list-box fields (selecting list-box values is read-only in v1).
+- Select dropdown and list-box options.
 - Add visual-only signature images from JPEG or supported PNG bytes.
 - Flatten one field or all fields after filling.
 - Save append-only incremental PDF updates.
@@ -93,6 +92,8 @@ const output = await doc.save();
 - `form.getRadioGroup(name).select(value)`
 - `form.getDropdown(name).options`
 - `form.getDropdown(name).select(value)`
+- `form.getListBox(name).options`
+- `form.getListBox(name).select(value)`
 - `form.getSignature(name).setImage(bytes)`
 - `form.flattenField(name)`
 - `form.flatten()`
@@ -101,7 +102,29 @@ Each `FieldInfo` carries `name`, `type`, `value`, `states`, `options`, `readOnly
 `required`, and `widgets` — one entry per widget annotation giving its 0-based
 `page` index and `rect` (`[x0, y0, x1, y1]` in PDF points, origin bottom-left).
 
-Wrong-type access throws a clear error, for example calling `getDropdown()` on a text field.
+List boxes are single-select in this version.
+
+### Errors
+
+Every error thrown by the form API subclasses `PdfError`, so you can catch the
+whole family or a specific case:
+
+- `UnknownFieldError` — no field with that name (`.field`).
+- `FieldTypeError` — field accessed as the wrong type, e.g. `getDropdown()` on a
+  text field (`.field`, `.actual`, `.expected`).
+- `InvalidOptionError` — selecting a value that is not one of the field's options
+  (`.field`, `.fieldType`, `.value`, `.options`).
+- `MissingOnStateError` — checking a checkbox with no declared on-state (`.field`).
+
+```ts
+import { FieldTypeError } from "better-pdf";
+
+try {
+  form.getDropdown("some.text.field");
+} catch (e) {
+  if (e instanceof FieldTypeError) console.log(e.actual, e.expected);
+}
+```
 
 ### Generate Form Types
 
@@ -175,8 +198,7 @@ Absolute timings vary by machine; reproduce them on yours with `bun run bench`
 - No encrypted PDF support.
 - No lenient recovery for malformed PDFs.
 - No cryptographic signing.
-- List-box fields are read-only: their values appear in `FieldInfo`, but there is
-  no typed write accessor (use a dropdown for editable single-select).
+- List boxes are single-select; multi-select list boxes are not yet supported.
 - Text fields are single-line; multi-line wrapping is not yet generated.
 - Primary test coverage is classic-xref PDF 1.3 forms from the bundled fixture corpus.
 - Browser support expects a modern bundler/runtime that can serve the packaged

@@ -9,6 +9,7 @@ const schema = {
   "applicant.name": { type: "text", readOnly: false, value: "", states: [] as const, options: [] as const },
   "applicant.status": { type: "dropdown", readOnly: false, value: "Single", states: [] as const, options: ["Single", "Married"] as const },
   "applicant.kind": { type: "radio", readOnly: false, value: "Primary", states: ["Primary", "Dependent"] as const, options: [] as const },
+  "applicant.lang": { type: "listbox", readOnly: false, value: "ES", states: [] as const, options: ["ES", "EN"] as const },
   "applicant.signature": { type: "signature", readOnly: false, value: "", states: [] as const, options: [] as const },
 } as const;
 
@@ -19,6 +20,7 @@ const form = doc.getForm<typeof schema>();
 form.getTextField("applicant.name").setText("Ada");
 form.getDropdown("applicant.status").select("Married");
 form.getRadioGroup("applicant.kind").select("Primary");
+form.getListBox("applicant.lang").select("EN");
 form.getSignature("applicant.signature");
 form.flattenField("applicant.name");
 
@@ -31,6 +33,10 @@ form.getTextField("applicant.status");
 form.getDropdown("applicant.status").select("Widowed");
 // @ts-expect-error invalid radio state
 form.getRadioGroup("applicant.kind").select("Other");
+// @ts-expect-error invalid listbox option
+form.getListBox("applicant.lang").select("DE");
+// @ts-expect-error wrong field type (lang is a listbox, not a dropdown)
+form.getDropdown("applicant.lang");
 // @ts-expect-error unknown field name for flatten
 form.flattenField("nope");
 

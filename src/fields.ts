@@ -1,4 +1,5 @@
 import type { FieldInfo } from "./form.js";
+import { InvalidOptionError, MissingOnStateError } from "./errors.js";
 
 /** One queued mutation: set field `name` to a value or visual signature image. */
 export type FillOp = {
@@ -40,7 +41,7 @@ export class PdfCheckBox {
   /** Check the box using its real on-state export value. */
   check(): void {
     const on = this.info.states[0];
-    if (!on) throw new Error(`checkbox '${this.info.name}' has no on-state`);
+    if (!on) throw new MissingOnStateError(this.info.name);
     this.queue.push({ name: this.info.name, value: on });
   }
   /** Uncheck the box. */
@@ -60,9 +61,7 @@ export class PdfRadioGroup<Opt extends string = string> {
   /** Select an option by its real export value. */
   select(value: Opt): void {
     if (!this.info.states.includes(value)) {
-      throw new Error(
-        `'${value}' is not a valid option for radio '${this.info.name}' (valid: ${this.info.states.join(", ")})`,
-      );
+      throw new InvalidOptionError(this.info.name, "radio", value, this.info.states);
     }
     this.queue.push({ name: this.info.name, value });
   }
@@ -79,9 +78,27 @@ export class PdfDropdown<Opt extends string = string> {
   /** Select an option by its real export value. */
   select(value: Opt): void {
     if (this.info.options.length && !this.info.options.includes(value)) {
-      throw new Error(
-        `'${value}' is not a valid option for dropdown '${this.info.name}' (valid: ${this.info.options.join(", ")})`,
-      );
+      throw new InvalidOptionError(this.info.name, "dropdown", value, this.info.options);
+    }
+    this.queue.push({ name: this.info.name, value });
+  }
+}
+
+/**
+ * A list-box (choice) field. `Opt` is its set of valid option values. Like a
+ * dropdown but rendered as a scrolling list; single-select only in this version.
+ */
+export class PdfListBox<Opt extends string = string> {
+  /** @internal */
+  constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
+  /** Valid option export values. */
+  get options(): string[] {
+    return this.info.options;
+  }
+  /** Select an option by its real export value. */
+  select(value: Opt): void {
+    if (this.info.options.length && !this.info.options.includes(value)) {
+      throw new InvalidOptionError(this.info.name, "listbox", value, this.info.options);
     }
     this.queue.push({ name: this.info.name, value });
   }
