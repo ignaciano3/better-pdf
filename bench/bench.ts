@@ -1,109 +1,275 @@
 /**
- * Benchmarks better-pdf against pdf-lib on the same operations and fixture.
+ * Benchmarks better-pdf against pdf-lib on representative AcroForm work.
  *
- *   bun run bench                 # default 50 iterations
- *   BENCH_ITER=200 bun run bench  # more iterations
+ *   bun run bench                 # default 25 iterations
+ *   BENCH_ITER=100 bun run bench  # more stable numbers
  *
- * Each scenario runs a full load -> mutate -> save cycle per iteration so the
- * two libraries are compared on identical, end-to-end work.
+ * Each scenario runs a full load -> mutate -> save cycle per iteration where
+ * both libraries expose the same operation. better-pdf-only scenarios exercise
+ * features pdf-lib does not directly match, such as visual signature image
+ * stamping through this package's high-level API.
  */
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { PdfDocument } from "../src/index.ts";
 import { PDFDocument } from "pdf-lib";
+import type { FieldInfo, FieldType } from "../src/form.ts";
 
-const FIXTURE = join(
-  import.meta.dir,
-  "../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf",
-);
-const bytes = new Uint8Array(readFileSync(FIXTURE));
+const ITER = Number(process.env.BENCH_ITER ?? 25);
+const WARMUP = Number(process.env.BENCH_WARMUP ?? 3);
 
-const ITER = Number(process.env.BENCH_ITER ?? 50);
-const WARMUP = 5;
+const fixtures = [
+  {
+    label: "small mixed form",
+    path: join(
+      import.meta.dir,
+      "../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf",
+    ),
+  },
+  {
+    label: "medium dense form",
+    path: join(import.meta.dir, "../tests/fixtures/Medicamentos/Modulo-de-Diabetes.pdf"),
+  },
+  {
+    label: "large signature form",
+    path: join(
+      import.meta.dir,
+      "../tests/fixtures/Discapacidad/Convenio-OSFATUN-Discapacidad-2022.pdf",
+    ),
+  },
+];
 
-async function mean(fn: () => Promise<void>): Promise<number> {
+const signatureImage = new Uint8Array(readFileSync(join(import.meta.dir, "../signature.jpg")));
+let sink = 0;
+
+type BenchFn = () => Promise<void>;
+
+interface Scenario {
+  name: string;
+  better: BenchFn;
+  pdflib?: BenchFn;
+}
+
+interface FixtureBench {
+  label: string;
+  file: string;
+  bytes: Uint8Array;
+  fields: FieldInfo[];
+  textNames: string[];
+  radioOps: { name: string; value: string }[];
+  checkboxNames: string[];
+  dropdownOps: { name: string; value: string }[];
+  signatureNames: string[];
+}
+
+async function mean(fn: BenchFn): Promise<number> {
   for (let i = 0; i < WARMUP; i++) await fn();
   const t0 = performance.now();
   for (let i = 0; i < ITER; i++) await fn();
   return (performance.now() - t0) / ITER;
 }
 
-// Pick text fields both libraries agree are writable text fields.
-const probe = await PdfDocument.load(bytes);
-const candidates = probe
-  .getForm()
-  .getFields()
-  .filter((f) => f.type === "text" && !f.readOnly)
-  .map((f) => f.name);
-
-const pdflibForm = (await PDFDocument.load(bytes)).getForm();
-const textNames = candidates
-  .filter((name) => {
-    try {
-      pdflibForm.getTextField(name);
-      return true;
-    } catch {
-      return false;
-    }
-  })
-  .slice(0, 10);
-
-interface Scenario {
-  name: string;
-  better: () => Promise<void>;
-  pdflib: () => Promise<void>;
+async function tryMean(fn: BenchFn): Promise<number | Error> {
+  try {
+    return await mean(fn);
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
 }
 
-const scenarios: Scenario[] = [
-  {
-    name: "load + read fields",
-    better: async () => {
-      (await PdfDocument.load(bytes)).getForm().getFields();
+function countByType(fields: FieldInfo[]): string {
+  const counts = new Map<FieldType, number>();
+  for (const field of fields) counts.set(field.type, (counts.get(field.type) ?? 0) + 1);
+  return [...counts.entries()].map(([type, count]) => `${type}:${count}`).join(", ");
+}
+
+function remember(bytes: Uint8Array): void {
+  sink ^= bytes.length;
+}
+
+async function canUsePdfLibText(bytes: Uint8Array, name: string): Promise<boolean> {
+  try {
+    (await PDFDocument.load(bytes)).getForm().getTextField(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function inspectFixture(label: string, path: string): Promise<FixtureBench> {
+  const bytes = new Uint8Array(readFileSync(path));
+  const form = (await PdfDocument.load(bytes)).getForm();
+  const fields = form.getFields().filter((field) => !field.readOnly);
+  const textNames: string[] = [];
+
+  for (const field of fields.filter((field) => field.type === "text")) {
+    if (await canUsePdfLibText(bytes, field.name)) textNames.push(field.name);
+    if (textNames.length >= 24) break;
+  }
+
+  return {
+    label,
+    file: basename(path),
+    bytes,
+    fields,
+    textNames,
+    radioOps: fields
+      .filter((field) => field.type === "radio" && field.states.length > 0)
+      .slice(0, 4)
+      .map((field) => ({ name: field.name, value: field.states[0]! })),
+    checkboxNames: fields.filter((field) => field.type === "checkbox").slice(0, 12).map((f) => f.name),
+    dropdownOps: fields
+      .filter((field) => field.type === "dropdown" && field.options.length > 0)
+      .slice(0, 4)
+      .map((field) => ({ name: field.name, value: field.options[0]! })),
+    signatureNames: fields.filter((field) => field.type === "signature").slice(0, 2).map((f) => f.name),
+  };
+}
+
+function scenarioList(fixture: FixtureBench): Scenario[] {
+  const scenarios: Scenario[] = [
+    {
+      name: "load + save unchanged",
+      better: async () => {
+        remember(await (await PdfDocument.load(fixture.bytes)).save());
+      },
+      pdflib: async () => {
+        remember(await (await PDFDocument.load(fixture.bytes)).save());
+      },
     },
-    pdflib: async () => {
-      (await PDFDocument.load(bytes)).getForm().getFields();
+    {
+      name: "load + read fields",
+      better: async () => {
+        sink ^= (await PdfDocument.load(fixture.bytes)).getForm().getFields().length;
+      },
+      pdflib: async () => {
+        sink ^= (await PDFDocument.load(fixture.bytes)).getForm().getFields().length;
+      },
     },
-  },
-  {
-    name: `fill ${textNames.length} text fields + save`,
-    better: async () => {
-      const doc = await PdfDocument.load(bytes);
-      const form = doc.getForm();
-      for (const name of textNames) form.getTextField(name).setText("GARCIA");
-      await doc.save();
-    },
-    pdflib: async () => {
-      const doc = await PDFDocument.load(bytes);
-      const form = doc.getForm();
-      for (const name of textNames) form.getTextField(name).setText("GARCIA");
-      await doc.save();
-    },
-  },
-  {
+  ];
+
+  if (fixture.textNames.length > 0) {
+    scenarios.push({
+      name: `fill ${fixture.textNames.length} text fields + save`,
+      better: async () => {
+        const doc = await PdfDocument.load(fixture.bytes);
+        const form = doc.getForm();
+        for (const name of fixture.textNames) form.getTextField(name).setText("X");
+        remember(await doc.save());
+      },
+      pdflib: async () => {
+        const doc = await PDFDocument.load(fixture.bytes);
+        const form = doc.getForm();
+        for (const name of fixture.textNames) form.getTextField(name).setText("X");
+        remember(await doc.save());
+      },
+    });
+  }
+
+  if (
+    fixture.radioOps.length > 0 ||
+    fixture.checkboxNames.length > 0 ||
+    fixture.dropdownOps.length > 0
+  ) {
+    const opCount =
+      fixture.radioOps.length + fixture.checkboxNames.length + fixture.dropdownOps.length;
+    scenarios.push({
+      name: `fill ${opCount} choice fields + save`,
+      better: async () => {
+        const doc = await PdfDocument.load(fixture.bytes);
+        const form = doc.getForm();
+        for (const op of fixture.radioOps) form.getRadioGroup(op.name).select(op.value);
+        for (const name of fixture.checkboxNames) form.getCheckBox(name).check();
+        for (const op of fixture.dropdownOps) form.getDropdown(op.name).select(op.value);
+        remember(await doc.save());
+      },
+      pdflib: async () => {
+        const doc = await PDFDocument.load(fixture.bytes);
+        const form = doc.getForm();
+        for (const op of fixture.radioOps) form.getRadioGroup(op.name).select(op.value);
+        for (const name of fixture.checkboxNames) form.getCheckBox(name).check();
+        for (const op of fixture.dropdownOps) form.getDropdown(op.name).select(op.value);
+        remember(await doc.save());
+      },
+    });
+  }
+
+  if (fixture.signatureNames.length > 0) {
+    scenarios.push({
+      name: `stamp ${fixture.signatureNames.length} signature image(s) + save`,
+      better: async () => {
+        const doc = await PdfDocument.load(fixture.bytes);
+        const form = doc.getForm();
+        for (const name of fixture.signatureNames) form.getSignature(name).setImage(signatureImage);
+        remember(await doc.save());
+      },
+    });
+
+    scenarios.push({
+      name: "stamp first signature + flatten it",
+      better: async () => {
+        const doc = await PdfDocument.load(fixture.bytes);
+        const form = doc.getForm();
+        const name = fixture.signatureNames[0]!;
+        form.getSignature(name).setImage(signatureImage);
+        form.flattenField(name);
+        remember(await doc.save());
+      },
+    });
+  }
+
+  scenarios.push({
     name: "flatten all + save",
     better: async () => {
-      const doc = await PdfDocument.load(bytes);
+      const doc = await PdfDocument.load(fixture.bytes);
       doc.getForm().flatten();
-      await doc.save();
+      remember(await doc.save());
     },
     pdflib: async () => {
-      const doc = await PDFDocument.load(bytes);
+      const doc = await PDFDocument.load(fixture.bytes);
       doc.getForm().flatten();
-      await doc.save();
+      remember(await doc.save());
     },
-  },
-];
+  });
 
-console.log(`Fixture: Form.-D.P.-2.4.1-Ficha-personal.pdf (${bytes.length.toLocaleString()} bytes)`);
-console.log(`Iterations: ${ITER} (after ${WARMUP} warmup)\n`);
-console.log("| Scenario | better-pdf | pdf-lib | speedup |");
-console.log("| --- | ---: | ---: | ---: |");
-
-for (const s of scenarios) {
-  const b = await mean(s.better);
-  const p = await mean(s.pdflib);
-  const speedup = `${(p / b).toFixed(1)}×`;
-  console.log(
-    `| ${s.name} | ${b.toFixed(2)} ms | ${p.toFixed(2)} ms | ${speedup} |`,
-  );
+  return scenarios;
 }
+
+console.log(`Iterations: ${ITER} (after ${WARMUP} warmup)\n`);
+
+for (const fixtureInfo of fixtures) {
+  const fixture = await inspectFixture(fixtureInfo.label, fixtureInfo.path);
+  console.log(`### ${fixture.label}`);
+  console.log(
+    `${fixture.file} (${fixture.bytes.length.toLocaleString()} bytes, ${fixture.fields.length} fields: ${countByType(fixture.fields)})\n`,
+  );
+  console.log("| Scenario | better-pdf | pdf-lib | speedup |");
+  console.log("| --- | ---: | ---: | ---: |");
+
+  for (const scenario of scenarioList(fixture)) {
+    const better = await tryMean(scenario.better);
+    if (better instanceof Error) {
+      console.log(`| ${scenario.name} | error: ${better.message} | n/a | n/a |`);
+      continue;
+    }
+
+    if (!scenario.pdflib) {
+      console.log(`| ${scenario.name} | ${better.toFixed(2)} ms | n/a | n/a |`);
+      continue;
+    }
+
+    const pdflib = await tryMean(scenario.pdflib);
+    if (pdflib instanceof Error) {
+      console.log(`| ${scenario.name} | ${better.toFixed(2)} ms | error: ${pdflib.message} | n/a |`);
+      continue;
+    }
+
+    console.log(
+      `| ${scenario.name} | ${better.toFixed(2)} ms | ${pdflib.toFixed(2)} ms | ${(pdflib / better).toFixed(1)}x |`,
+    );
+  }
+
+  console.log("");
+}
+
+if (sink === Number.MIN_SAFE_INTEGER) console.log("ignore", sink);

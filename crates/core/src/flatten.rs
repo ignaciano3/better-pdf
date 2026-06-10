@@ -85,12 +85,11 @@ fn read_rect(d: &Dictionary) -> Option<[f32; 4]> {
 /// Find the page whose /Annots contains `annot` (fallback when /P is absent).
 fn find_page_of_annot(doc: &Document, annot: ObjectId) -> Option<ObjectId> {
     for (_, &pid) in doc.get_pages().iter() {
-        if let Ok(page) = doc.get_dictionary(pid) {
-            if let Ok(annots) = page.get(b"Annots").and_then(|o| o.as_array()) {
-                if annots.iter().any(|o| o.as_reference().ok() == Some(annot)) {
-                    return Some(pid);
-                }
-            }
+        if let Ok(page) = doc.get_dictionary(pid)
+            && let Ok(annots) = page.get(b"Annots").and_then(|o| o.as_array())
+            && annots.iter().any(|o| o.as_reference().ok() == Some(annot))
+        {
+            return Some(pid);
         }
     }
     None
