@@ -49,8 +49,8 @@ export class PdfCheckBox {
   }
 }
 
-/** A radio-button group. */
-export class PdfRadioGroup {
+/** A radio-button group. `Opt` is its set of valid export values. */
+export class PdfRadioGroup<Opt extends string = string> {
   /** @internal */
   constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
   /** Valid export values for this group. */
@@ -58,7 +58,7 @@ export class PdfRadioGroup {
     return this.info.states;
   }
   /** Select an option by its real export value. */
-  select(value: string): void {
+  select(value: Opt): void {
     if (!this.info.states.includes(value)) {
       throw new Error(
         `'${value}' is not a valid option for radio '${this.info.name}' (valid: ${this.info.states.join(", ")})`,
@@ -68,8 +68,8 @@ export class PdfRadioGroup {
   }
 }
 
-/** A dropdown (choice) field. */
-export class PdfDropdown {
+/** A dropdown (choice) field. `Opt` is its set of valid option values. */
+export class PdfDropdown<Opt extends string = string> {
   /** @internal */
   constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
   /** Valid option export values. */
@@ -77,7 +77,7 @@ export class PdfDropdown {
     return this.info.options;
   }
   /** Select an option by its real export value. */
-  select(value: string): void {
+  select(value: Opt): void {
     if (this.info.options.length && !this.info.options.includes(value)) {
       throw new Error(
         `'${value}' is not a valid option for dropdown '${this.info.name}' (valid: ${this.info.options.join(", ")})`,
