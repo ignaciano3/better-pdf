@@ -11,5 +11,6 @@
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["src", "tests", "examples", "bench", "scripts"]
+  "include": ["src", "tests", "examples", "bench", "scripts"],
+  "exclude": ["scripts/browser-entry-smoke.ts"]
 }
