@@ -64,11 +64,20 @@ export {
   PdfCheckBox,
   PdfRadioGroup,
   PdfDropdown,
+  PdfListBox,
   PdfSignature,
 } from "./fields.js";
+export {
+  PdfError,
+  UnknownFieldError,
+  FieldTypeError,
+  InvalidOptionError,
+  MissingOnStateError,
+} from "./errors.js";
 export { generateFormTypes } from "./typegen.js";
 export type { GenerateFormTypesOptions } from "./typegen.js";
 export type {
+  FieldMeta,
   FormSchema,
   FieldNameOf,
   NameOfType,

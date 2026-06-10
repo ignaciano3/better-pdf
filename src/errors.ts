@@ -1,0 +1,53 @@
+import type { FieldType } from "./form.js";
+
+/**
+ * Base class for every error `better-pdf` throws from the form API. Catch this
+ * to handle any library error, or one of the subclasses for a specific case.
+ */
+export class PdfError extends Error {
+  constructor(message: string) {
+    super(message);
+    // Use the concrete subclass name (UnknownFieldError, ...) even after the
+    // class hierarchy is minified down to a single constructor at runtime.
+    this.name = new.target.name;
+  }
+}
+
+/** Thrown when a field name does not exist in the form. */
+export class UnknownFieldError extends PdfError {
+  constructor(readonly field: string) {
+    super(`no such field: ${field}`);
+  }
+}
+
+/** Thrown when a field is accessed as the wrong type (e.g. dropdown vs text). */
+export class FieldTypeError extends PdfError {
+  constructor(
+    readonly field: string,
+    readonly actual: FieldType,
+    readonly expected: FieldType,
+  ) {
+    super(`field '${field}' is a ${actual}, not a ${expected}`);
+  }
+}
+
+/** Thrown when selecting a value that is not one of a field's valid options. */
+export class InvalidOptionError extends PdfError {
+  constructor(
+    readonly field: string,
+    readonly fieldType: FieldType,
+    readonly value: string,
+    readonly options: readonly string[],
+  ) {
+    super(
+      `'${value}' is not a valid option for ${fieldType} '${field}' (valid: ${options.join(", ")})`,
+    );
+  }
+}
+
+/** Thrown when checking a checkbox that declares no on-state in its widgets. */
+export class MissingOnStateError extends PdfError {
+  constructor(readonly field: string) {
+    super(`checkbox '${field}' has no on-state`);
+  }
+}

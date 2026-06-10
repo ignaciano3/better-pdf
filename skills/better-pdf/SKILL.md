@@ -32,7 +32,7 @@ const out = await doc.save();                      // Promise<Uint8Array>
 2. **Existing PDFs only.** No creation from scratch / arbitrary drawing. Load → fill/flatten → save.
 3. **Signatures are visual only** — an embedded image/appearance, NOT cryptographic/PAdES signing. `getSignature(name).setImage(jpegOrPngBytes)`.
 4. **`save()` is an incremental (append-only) update** — output begins with the original bytes verbatim. With nothing queued it returns a byte-identical round-trip.
-5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save.
+5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save. Errors subclass `PdfError`: `UnknownFieldError`, `FieldTypeError`, `InvalidOptionError`, `MissingOnStateError`.
 
 ## Typed filling (recommended workflow)
 
@@ -74,6 +74,7 @@ Flattened fields are stamped onto the page and removed from the AcroForm (no lon
 | `form.getCheckBox(name).check()` / `.uncheck()` | Toggle using real on-state |
 | `form.getRadioGroup(name).select(v)` | Select by real export value |
 | `form.getDropdown(name).select(v)` | Select by real option value |
+| `form.getListBox(name).select(v)` | Select list-box option (single-select) |
 | `form.getSignature(name).setImage(bytes)` | Embed visual signature (JPEG/PNG) |
 | `form.flattenField(name)` / `form.flatten()` | Flatten one / all fields |
 | `generateFormTypes(fields, { typeName })` | Emit a typed `…Fields` module (string) |

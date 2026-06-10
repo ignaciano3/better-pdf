@@ -4,8 +4,10 @@ import {
   PdfCheckBox,
   PdfRadioGroup,
   PdfDropdown,
+  PdfListBox,
   PdfSignature,
 } from "./fields.js";
+import { UnknownFieldError, FieldTypeError } from "./errors.js";
 
 export type FieldType =
   | "text" | "checkbox" | "radio" | "dropdown"
@@ -61,9 +63,9 @@ export class PdfForm {
 
   private require(name: string, type: FieldType): FieldInfo {
     const f = this.getField(name);
-    if (!f) throw new Error(`no such field: ${name}`);
+    if (!f) throw new UnknownFieldError(name);
     if (f.type !== type) {
-      throw new Error(`field '${name}' is a ${f.type}, not a ${type}`);
+      throw new FieldTypeError(name, f.type, type);
     }
     return f;
   }
@@ -80,13 +82,16 @@ export class PdfForm {
   getDropdown(name: string): PdfDropdown {
     return new PdfDropdown(this.require(name, "dropdown"), this.queue);
   }
+  getListBox(name: string): PdfListBox {
+    return new PdfListBox(this.require(name, "listbox"), this.queue);
+  }
   getSignature(name: string): PdfSignature {
     return new PdfSignature(this.require(name, "signature"), this.queue);
   }
 
   /** Queue a single field to be flattened on save. */
   flattenField(name: string): void {
-    if (!this.getField(name)) throw new Error(`no such field: ${name}`);
+    if (!this.getField(name)) throw new UnknownFieldError(name);
     if (!this.flattenQueue.includes(name)) this.flattenQueue.push(name);
   }
 

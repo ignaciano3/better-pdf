@@ -8,6 +8,20 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- `getListBox(name).select(value)` write accessor for single-select list-box
+  fields, including the typed `doc.getForm<typeof schema>()` overlay.
+- Typed error classes: `PdfError` base plus `UnknownFieldError`,
+  `FieldTypeError`, `InvalidOptionError`, and `MissingOnStateError`, all
+  exported from the package root and browser entry.
+
+### Changed
+
+- Tooling: TypeDoc API reference (`bun run docs`), a real headless-Chromium
+  browser test (`bun run test:browser`) wired into CI, and a `LICENSE` shipped
+  with the published WASM package.
+
 ## [0.1.0]
 
 First public pre-release. Fill and flatten AcroForm fields in existing PDFs,
@@ -40,7 +54,6 @@ WebAssembly with a fully-typed TypeScript API.
 
 - Existing PDFs only; no PDF creation, encryption, or malformed-PDF recovery.
 - No cryptographic/PAdES signing — signatures are appearances only.
-- List-box fields are read-only (no typed write accessor).
 - Text fields are single-line; multi-line wrapping is not generated.
 - PNG alpha is dropped rather than preserved as a soft mask.
 

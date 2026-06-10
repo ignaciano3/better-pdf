@@ -3,6 +3,7 @@ pkg/
 pkg-web/
 target/
 dist/
+docs/api/
 *.wasm
 .DS_Store
 .env
