@@ -33,6 +33,7 @@ test("generates field name and typed metadata declarations", () => {
   const source = generateFormTypes(fields, { typeName: "AnexoForm" });
 
   expect(source).toContain("export const anexoFormFields = {");
+  expect(source).toContain("/* Usage: const form = doc.getForm<typeof anexoFormFields>(); */");
   expect(source).toContain(
     'export type AnexoFormFieldName = "beneficiario.apellidos_nombres" | "beneficiario.estado_civil" | "beneficiario.tipo_beneficiario";',
   );
