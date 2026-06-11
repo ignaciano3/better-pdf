@@ -8,6 +8,22 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-11
+
+### Changed
+
+- Expanded TypeScript API documentation with pdf-lib-style JSDoc examples,
+  parameters, return values, and error notes for document, form, field, and type
+  generation APIs.
+- Aligned the Rust/WASM core package version with the npm package version.
+
+### Fixed
+
+- Filled text values with accented and other non-ASCII characters are now stored
+  as proper PDF text strings and decode correctly when fields are read back.
+
+## [0.1.1] - 2026-06-11
+
 ### Added
 
 - `FieldInfo.maxLength` (text field `/MaxLen`) and `FieldInfo.exported`
@@ -21,19 +37,14 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ### Changed
 
-- Tooling: TypeDoc API reference (`bun run docs`), a real headless-Chromium
-  browser test (`bun run test:browser`) wired into CI, and a `LICENSE` shipped
-  with the published WASM package.
-
-## [Unreleased]
-
-### Changed
-
 - Package renamed to `@ignaciano3/better-pdf` (the unscoped npm name is taken).
 - Ships a single WASM binary (web target); Node loads it synchronously from disk.
 - Signature images cross the JS↔WASM boundary as binary, not JSON number arrays.
 - `FieldInfo.value` now reflects queued mutations immediately; `save()` always
   starts from the originally loaded bytes.
+- Tooling: TypeDoc API reference (`bun run docs`), a real headless-Chromium
+  browser test (`bun run test:browser`) wired into CI, and a `LICENSE` shipped
+  with the published WASM package.
 
 ### Added
 
@@ -80,5 +91,7 @@ WebAssembly with a fully-typed TypeScript API.
 - Text fields are single-line; multi-line wrapping is not generated.
 - PNG alpha is dropped rather than preserved as a soft mask.
 
-[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/ignaciano3/better-pdf/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/ignaciano3/better-pdf/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ignaciano3/better-pdf/releases/tag/v0.1.0
