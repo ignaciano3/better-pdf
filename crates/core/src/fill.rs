@@ -6,14 +6,17 @@ use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct FillOp {
     name: String,
     value: Option<String>,
-    image: Option<Vec<u8>>,
+    image_offset: Option<usize>,
+    image_length: Option<usize>,
 }
 
-/// Apply the given fill ops to `data` and return new PDF bytes (incremental save).
-pub fn fill_fields_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String> {
+/// Apply the given fill ops to `data` and return new PDF bytes (incremental
+/// save). `images` is the concatenated image blob the ops' offsets index into.
+pub fn fill_fields_json(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, String> {
     let ops: Vec<FillOp> = serde_json::from_str(ops_json).map_err(|e| e.to_string())?;
     let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
 
@@ -21,7 +24,7 @@ pub fn fill_fields_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String> 
     // into the IncrementalDocument afterwards.
     let mut plan: Vec<Resolved> = Vec::with_capacity(ops.len());
     for op in &ops {
-        plan.push(resolve(&doc, op)?);
+        plan.push(resolve(&doc, op, images)?);
     }
 
     let touched_appearance = plan.iter().any(|r| {
@@ -87,14 +90,23 @@ enum Apply {
 }
 
 /// Locate the field for `op.name`, classify it, and build the mutation plan.
-fn resolve(doc: &Document, op: &FillOp) -> Result<Resolved, String> {
+fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, String> {
     let (field_id, dict) =
         find_field(doc, &op.name).ok_or_else(|| format!("no such field: {}", op.name))?;
     let ft = forms::inherited_name(doc, dict, b"FT").unwrap_or_default();
     let ff = forms::inherited_int(doc, dict, b"Ff").unwrap_or(0);
     let kind = forms::classify(&ft, ff);
 
-    let apply = if let Some(image) = &op.image {
+    let image_bytes = match (op.image_offset, op.image_length) {
+        (Some(off), Some(len)) => Some(
+            off.checked_add(len)
+                .and_then(|end| images.get(off..end))
+                .ok_or_else(|| format!("image range out of bounds for field {}", op.name))?,
+        ),
+        (None, None) => None,
+        _ => return Err(format!("field {} op has a partial image range", op.name)),
+    };
+    let apply = if let Some(image) = image_bytes {
         if op.value.is_some() {
             return Err(format!(
                 "field {} op cannot contain both value and image",
@@ -509,7 +521,7 @@ mod tests {
     #[test]
     fn fills_text_field() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA, IGNACIO"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         // Append-only: output starts with the original bytes.
         assert!(out.len() > FICHA.len());
         assert_eq!(&out[..FICHA.len()], FICHA);
@@ -530,7 +542,7 @@ mod tests {
     #[test]
     fn fills_radio_group() {
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Titular"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         assert_eq!(
             reparse_value(&out, "beneficiario.tipo_beneficiario").as_deref(),
             Some("Titular")
@@ -540,7 +552,7 @@ mod tests {
     #[test]
     fn fills_dropdown() {
         let ops = r#"[{"name":"beneficiario.estado_civil","value":"Casado"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         assert_eq!(
             reparse_value(&out, "beneficiario.estado_civil").as_deref(),
             Some("Casado")
@@ -550,14 +562,14 @@ mod tests {
     #[test]
     fn rejects_unknown_field() {
         let ops = r#"[{"name":"does.not.exist","value":"x"}]"#;
-        let err = fill_fields_json(FICHA, ops).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
         assert!(err.contains("no such field"), "got: {err}");
     }
 
     #[test]
     fn rejects_invalid_radio_state() {
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Nope"}]"#;
-        let err = fill_fields_json(FICHA, ops).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
         assert!(err.contains("on-state"), "got: {err}");
     }
 
@@ -622,7 +634,7 @@ mod tests {
     #[test]
     fn text_fill_generates_appearance() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let ap = ap_content(&doc, "beneficiario.apellidos_nombres").expect("AP/N present");
         assert!(ap.contains("(GARCIA) Tj"), "got: {ap}");
@@ -632,7 +644,7 @@ mod tests {
     #[test]
     fn fill_flips_need_appearances_false() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"X"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         assert_eq!(need_appearances(&doc), Some(false));
     }
@@ -641,7 +653,7 @@ mod tests {
     fn radio_fill_does_not_add_appearance_stream() {
         // Buttons already have /AP; we must not overwrite with a text stream.
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Titular"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         Document::load_mem(&out).unwrap(); // still valid
         assert_eq!(
             reparse_value(&out, "beneficiario.tipo_beneficiario").as_deref(),
@@ -655,7 +667,7 @@ mod tests {
             {"name":"beneficiario.apellidos_nombres","value":"A"},
             {"name":"beneficiario.tipo_beneficiario","value":"Familiar"}
         ]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         let f = reparse_field(&out);
         let by = |n: &str| {
             f.as_array()
@@ -671,11 +683,8 @@ mod tests {
 
     #[test]
     fn visual_signature_generates_image_appearance() {
-        let ops = serde_json::json!([
-            {"name":"firma.titular","image": TINY_JPEG}
-        ])
-        .to_string();
-        let out = fill_fields_json(ANEXO, &ops).unwrap();
+        let ops = r#"[{"name":"firma.titular","imageOffset":0,"imageLength":21}]"#;
+        let out = fill_fields_json(ANEXO, ops, TINY_JPEG).unwrap();
         assert!(out.len() > ANEXO.len());
         assert_eq!(&out[..ANEXO.len()], ANEXO);
 
@@ -690,11 +699,16 @@ mod tests {
 
     #[test]
     fn visual_signature_rejects_non_signature_field() {
-        let ops = serde_json::json!([
-            {"name":"beneficiario.apellidos_nombres","image": TINY_JPEG}
-        ])
-        .to_string();
-        let err = fill_fields_json(FICHA, &ops).unwrap_err();
+        let ops =
+            r#"[{"name":"beneficiario.apellidos_nombres","imageOffset":0,"imageLength":21}]"#;
+        let err = fill_fields_json(FICHA, ops, TINY_JPEG).unwrap_err();
         assert!(err.contains("cannot set image on field"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_image_range() {
+        let ops = r#"[{"name":"firma.titular","imageOffset":10,"imageLength":100}]"#;
+        let err = fill_fields_json(ANEXO, ops, TINY_JPEG).unwrap_err();
+        assert!(err.contains("image range"), "got: {err}");
     }
 }

@@ -22,7 +22,7 @@ test("PdfListBox.select queues a valid option", () => {
   const queue = new FillQueue();
   new PdfListBox(listboxInfo(), queue).select("EN");
   expect(queue.length).toBe(1);
-  expect(JSON.parse(queue.toJSON())).toEqual([
+  expect(JSON.parse(queue.toPayload().opsJson)).toEqual([
     { name: "preferencias.idioma", value: "EN" },
   ]);
 });

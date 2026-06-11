@@ -29,7 +29,8 @@ export class PdfDocument {
     const form = this.form;
     let bytes = this.bytes;
     if (form && form.queue.length > 0) {
-      bytes = fillFields(bytes, form.queue.toJSON());
+      const { opsJson, images } = form.queue.toPayload();
+      bytes = fillFields(bytes, opsJson, images);
     }
     if (form && form.flattenQueue.length > 0) {
       bytes = flattenFields(bytes, JSON.stringify(form.flattenQueue));

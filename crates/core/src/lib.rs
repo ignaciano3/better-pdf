@@ -18,10 +18,12 @@ pub fn read_fields(data: &[u8]) -> Result<String, JsError> {
     forms::read_fields_json(data).map_err(|e| JsError::new(&e))
 }
 
-/// Apply fill ops (JSON array of {name, value}) to a PDF and return new bytes.
+/// Apply fill ops (JSON array of {name, value | imageOffset+imageLength}) to a
+/// PDF and return new bytes. `images` is the concatenated image blob the
+/// offsets index into.
 #[wasm_bindgen]
-pub fn fill_fields(data: &[u8], ops_json: &str) -> Result<Vec<u8>, JsError> {
-    fill::fill_fields_json(data, ops_json).map_err(|e| JsError::new(&e))
+pub fn fill_fields(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, JsError> {
+    fill::fill_fields_json(data, ops_json, images).map_err(|e| JsError::new(&e))
 }
 
 /// Flatten the named fields (JSON array of names) and return new PDF bytes.

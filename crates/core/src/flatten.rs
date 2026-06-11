@@ -325,6 +325,7 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             r#"[{"name":"beneficiario.apellidos_nombres","value":"FLAT"}]"#,
+            &[],
         )
         .unwrap();
         let out = flatten_fields_json(&filled, r#"["beneficiario.apellidos_nombres"]"#).unwrap();
