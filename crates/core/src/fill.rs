@@ -501,6 +501,8 @@ mod tests {
 
     const FICHA: &[u8] =
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
+    const FICHA_OBJSTREAMS: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/ficha-objstreams.pdf");
     const ANEXO: &[u8] = include_bytes!("../../../tests/fixtures/Discapacidad/Anexo-3-sssalud.pdf");
     const FICHA_XFA: &[u8] =
         include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
@@ -718,5 +720,19 @@ mod tests {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"x"}]"#;
         let err = fill_fields_json(FICHA_XFA, ops, &[]).unwrap_err();
         assert!(err.contains("XFA"), "got: {err}");
+    }
+
+    #[test]
+    fn fills_xref_stream_pdf_incrementally() {
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA"}]"#;
+        let out = fill_fields_json(FICHA_OBJSTREAMS, ops, &[]).unwrap();
+        // Still append-only.
+        assert_eq!(&out[..FICHA_OBJSTREAMS.len()], FICHA_OBJSTREAMS);
+        // Re-parses with the new value.
+        assert_eq!(
+            reparse_value(&out, "beneficiario.apellidos_nombres").as_deref(),
+            Some("GARCIA")
+        );
+        Document::load_mem(&out).unwrap();
     }
 }

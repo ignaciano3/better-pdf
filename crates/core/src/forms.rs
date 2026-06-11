@@ -332,6 +332,20 @@ mod tests {
     }
 
     #[test]
+    fn reads_fields_of_xref_stream_pdfs() {
+        const OBJSTREAMS: &[u8] =
+            include_bytes!("../../../tests/fixtures/generated/ficha-objstreams.pdf");
+        let f = fields(OBJSTREAMS);
+        let names: Vec<&str> = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"beneficiario.apellidos_nombres"), "got: {names:?}");
+    }
+
+    #[test]
     fn classifies_dropdown_with_options() {
         let f = fields(FICHA);
         let dd = f

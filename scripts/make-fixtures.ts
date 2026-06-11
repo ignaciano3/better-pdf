@@ -16,7 +16,9 @@ const source = readFileSync(FICHA);
 {
   const doc = await PDFDocument.load(source);
   if (doc.getForm().getFields().length === 0) throw new Error("source lost its fields");
-  const bytes = await doc.save({ useObjectStreams: true });
+  // updateFieldAppearances:false keeps the original /DA + /DR font wiring intact;
+  // this fixture exists to test the file layout (object/xref streams), nothing else.
+  const bytes = await doc.save({ useObjectStreams: true, updateFieldAppearances: false });
   writeFileSync(join(OUT, "ficha-objstreams.pdf"), bytes);
   console.log(`ficha-objstreams.pdf: ${bytes.length} bytes`);
 }

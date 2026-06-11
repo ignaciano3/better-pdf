@@ -244,7 +244,8 @@ count).
 - No cryptographic signing.
 - List boxes are single-select; multi-select list boxes are not yet supported.
 - Text fields are single-line; multi-line wrapping is not yet generated.
-- Primary test coverage is classic-xref PDF 1.3 forms from the bundled fixture corpus.
+- Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
+  plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged
   `.wasm` asset referenced from the browser entry.
 
