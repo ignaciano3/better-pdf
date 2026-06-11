@@ -7,16 +7,11 @@ import {
   fill_fields,
   flatten_fields,
   read_fields,
-  round_trip,
 } from "../pkg-web/better_pdf_core.js";
 
 initSync({
   module: readFileSync(new URL("../pkg-web/better_pdf_core_bg.wasm", import.meta.url)),
 });
-
-export function roundTrip(data: Uint8Array): Uint8Array {
-  return round_trip(data);
-}
 
 export function readFields(data: Uint8Array): string {
   return read_fields(data);

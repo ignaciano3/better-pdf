@@ -1,6 +1,5 @@
 import {
   initializeWasm,
-  roundTrip,
   readFields,
   fillFields,
   flattenFields,
@@ -42,7 +41,7 @@ export class PdfDocument {
       bytes = flattenFields(bytes, JSON.stringify(form.flattenQueue));
     }
     if (bytes === this.bytes) {
-      return roundTrip(this.bytes);
+      return this.bytes.slice();
     }
     return bytes;
   }

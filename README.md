@@ -80,6 +80,9 @@ const output = await doc.save();
 - `doc.save(): Promise<Uint8Array>`
 
 `save()` applies queued fills first, then queued flattens. With no queued operations it returns a byte-identical round trip.
+`save()` always starts from the originally loaded bytes (calling it twice
+returns the same result), and `FieldInfo.value` reflects queued mutations as
+soon as they are made.
 
 ### `PdfForm`
 

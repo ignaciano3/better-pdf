@@ -54,6 +54,7 @@ export class PdfTextField {
       throw new MaxLengthExceededError(this.info.name, max, value.length);
     }
     this.queue.push({ name: this.info.name, value });
+    this.info.value = value;
   }
 }
 
@@ -66,10 +67,12 @@ export class PdfCheckBox {
     const on = this.info.states[0];
     if (!on) throw new MissingOnStateError(this.info.name);
     this.queue.push({ name: this.info.name, value: on });
+    this.info.value = on;
   }
   /** Uncheck the box. */
   uncheck(): void {
     this.queue.push({ name: this.info.name, value: "Off" });
+    this.info.value = "Off";
   }
 }
 
@@ -87,6 +90,7 @@ export class PdfRadioGroup<Opt extends string = string> {
       throw new InvalidOptionError(this.info.name, "radio", value, this.info.states);
     }
     this.queue.push({ name: this.info.name, value });
+    this.info.value = value;
   }
 }
 
@@ -104,6 +108,7 @@ export class PdfDropdown<Opt extends string = string> {
       throw new InvalidOptionError(this.info.name, "dropdown", value, this.info.options);
     }
     this.queue.push({ name: this.info.name, value });
+    this.info.value = value;
   }
 }
 
@@ -124,6 +129,7 @@ export class PdfListBox<Opt extends string = string> {
       throw new InvalidOptionError(this.info.name, "listbox", value, this.info.options);
     }
     this.queue.push({ name: this.info.name, value });
+    this.info.value = value;
   }
 }
 

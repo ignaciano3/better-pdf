@@ -4,7 +4,6 @@ import initCore, {
   fill_fields,
   flatten_fields,
   read_fields,
-  round_trip,
   type InitInput,
 } from "../pkg-web/better_pdf_core.js";
 
@@ -28,11 +27,6 @@ function ensureInitialized(): void {
       "better-pdf browser WASM is not initialized; await PdfDocument.load() or initializeWasm() first.",
     );
   }
-}
-
-export function roundTrip(data: Uint8Array): Uint8Array {
-  ensureInitialized();
-  return round_trip(data);
 }
 
 export function readFields(data: Uint8Array): string {

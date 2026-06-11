@@ -1,4 +1,4 @@
-import { roundTrip, readFields, fillFields, flattenFields } from "./wasm.js";
+import { readFields, fillFields, flattenFields } from "./wasm.js";
 import { PdfForm } from "./form.js";
 import type { FormSchema, TypedPdfForm } from "./schema.js";
 
@@ -36,7 +36,7 @@ export class PdfDocument {
       bytes = flattenFields(bytes, JSON.stringify(form.flattenQueue));
     }
     if (bytes === this.bytes) {
-      return roundTrip(this.bytes);
+      return this.bytes.slice();
     }
     return bytes;
   }
