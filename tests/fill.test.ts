@@ -21,6 +21,15 @@ test("fills a text field and reads it back after save", async () => {
   expect(reloaded.getForm().getField("beneficiario.apellidos_nombres")?.value).toBe("GARCIA");
 });
 
+test("fills an accented text field without flattening and reads it back after save", async () => {
+  const doc = await load();
+  doc.getForm().getTextField("beneficiario.apellidos_nombres").setText("Juan Pérez");
+  const out = await doc.save();
+
+  const reloaded = await PdfDocument.load(out);
+  expect(reloaded.getForm().getField("beneficiario.apellidos_nombres")?.value).toBe("Juan Pérez");
+});
+
 test("selects a radio option and reads it back", async () => {
   const doc = await load();
   doc.getForm().getRadioGroup("beneficiario.tipo_beneficiario").select("Titular");
