@@ -6,6 +6,8 @@ A maintained, fast alternative to `pdf-lib` for filling and flattening existing 
 
 > **Status:** 0.1.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. The public API may still change before 1.0.
 
+Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
+
 ## Features
 
 - Read AcroForm fields with fully-qualified names, types, values, options, and button states.
@@ -192,6 +194,11 @@ hallucinated field names and invalid values into compile errors.
 workloads, thanks to its Rust/WebAssembly core and append-only incremental
 saves. Indicative results from `bun run bench` on the bundled fixture corpus
 (50 iterations after warmup):
+
+The **fill** and **flatten** rows are the like-for-like comparison. The
+*load + save unchanged* rows compare better-pdf's no-op incremental round-trip
+(it returns the original bytes) against pdf-lib's full parse + re-serialize —
+they showcase the architectural difference, not parser speed.
 
 ### Small mixed form
 

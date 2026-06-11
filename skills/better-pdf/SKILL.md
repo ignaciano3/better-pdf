@@ -31,8 +31,8 @@ const out = await doc.save();                      // Promise<Uint8Array>
 1. **Use the field's REAL export values — never assume `"Yes"`/`"On"`.** Corpus values are domain-specific (`F`/`M`, `SI`/`NO`, `Titular`/`Familiar`). Read them from `field.states` (checkbox/radio) or `field.options` (dropdown). `checkBox.check()` uses the field's actual on-state automatically; `uncheck()` sets `Off`.
 2. **Existing PDFs only.** No creation from scratch / arbitrary drawing. Load → fill/flatten → save.
 3. **Signatures are visual only** — an embedded image/appearance, NOT cryptographic/PAdES signing. `getSignature(name).setImage(jpegOrPngBytes)`.
-4. **`save()` is an incremental (append-only) update** — output begins with the original bytes verbatim. With nothing queued it returns a byte-identical round-trip.
-5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save. Errors subclass `PdfError`: `UnknownFieldError`, `FieldTypeError`, `InvalidOptionError`, `MaxLengthExceededError`, `MissingOnStateError`.
+4. **`save()` is an incremental (append-only) update** — output begins with the original bytes verbatim. With nothing queued it returns a byte-identical round-trip. `save()` always starts from the loaded bytes; `FieldInfo.value` reflects queued mutations immediately.
+5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save. Errors subclass `PdfError`: `UnknownFieldError`, `FieldTypeError`, `InvalidOptionError`, `MaxLengthExceededError`, `MissingOnStateError`, `PdfCoreError`; core rejections at save time (XFA forms, CMYK JPEGs, malformed PDFs) throw `PdfCoreError`.
 
 ## Typed filling (recommended workflow)
 
