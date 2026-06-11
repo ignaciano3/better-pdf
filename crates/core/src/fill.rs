@@ -2,7 +2,7 @@
 
 use crate::appearance;
 use crate::forms::{self};
-use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId};
+use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, text_string};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -400,13 +400,13 @@ fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     match &r.apply {
         Apply::Text { value, ap } => {
-            field_dict_mut(inc, r.field_id)?.set("V", Object::string_literal(value.as_str()));
+            field_dict_mut(inc, r.field_id)?.set("V", text_string(value));
             draw_appearances(inc, value, ap)?;
         }
         Apply::Dropdown { value, index, ap } => {
             {
                 let d = field_dict_mut(inc, r.field_id)?;
-                d.set("V", Object::string_literal(value.as_str()));
+                d.set("V", text_string(value));
                 match index {
                     Some(i) => {
                         d.set("I", Object::Array(vec![Object::Integer(*i)]));
@@ -457,7 +457,14 @@ fn draw_appearances(
         let h = wb.rect[3] - wb.rect[1];
         let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h, &ap.widths);
         let content = appearance::text_appearance_content(
-            &text, size, w, h, ap.q, &ap.da.color, &ap.font, &ap.widths,
+            &text,
+            size,
+            w,
+            h,
+            ap.q,
+            &ap.da.color,
+            &ap.font,
+            &ap.widths,
         );
         let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, ap.font_ref);
         let ap_id = inc.new_document.add_object(Object::Stream(xobj));
@@ -541,16 +548,15 @@ fn clear_need_appearances(inc: &mut IncrementalDocument) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::fill_fields_json;
-    use lopdf::{Document, Object, ObjectId};
+    use super::{fill_fields_json, find_field};
+    use lopdf::{Document, Object, ObjectId, StringFormat};
 
     const FICHA: &[u8] =
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
     const FICHA_OBJSTREAMS: &[u8] =
         include_bytes!("../../../tests/fixtures/generated/ficha-objstreams.pdf");
     const ANEXO: &[u8] = include_bytes!("../../../tests/fixtures/Discapacidad/Anexo-3-sssalud.pdf");
-    const FICHA_XFA: &[u8] =
-        include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
+    const FICHA_XFA: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
     const TINY_JPEG: &[u8] = &[
         0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x02,
         0x00, 0x03, 0x03, 0x00, 0xff, 0xd9,
@@ -580,6 +586,32 @@ mod tests {
         );
         // And it is still a loadable PDF.
         Document::load_mem(&out).unwrap();
+    }
+
+    #[test]
+    fn fills_accented_text_value_as_pdf_text_string() {
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"Juan P\u00e9rez"}]"#;
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, field) = find_field(&doc, "beneficiario.apellidos_nombres").unwrap();
+        let v = field.get(b"V").unwrap();
+
+        assert_eq!(
+            reparse_value(&out, "beneficiario.apellidos_nombres").as_deref(),
+            Some("Juan P\u{e9}rez")
+        );
+        match v {
+            Object::String(bytes, StringFormat::Hexadecimal) => {
+                assert_eq!(
+                    bytes,
+                    &vec![
+                        0xfe, 0xff, 0x00, b'J', 0x00, b'u', 0x00, b'a', 0x00, b'n', 0x00, b' ',
+                        0x00, b'P', 0x00, 0xe9, 0x00, b'r', 0x00, b'e', 0x00, b'z',
+                    ]
+                );
+            }
+            _ => panic!("expected UTF-16BE hexadecimal text string"),
+        }
     }
 
     fn reparse_field(bytes: &[u8]) -> serde_json::Value {
@@ -747,8 +779,7 @@ mod tests {
 
     #[test]
     fn visual_signature_rejects_non_signature_field() {
-        let ops =
-            r#"[{"name":"beneficiario.apellidos_nombres","imageOffset":0,"imageLength":21}]"#;
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","imageOffset":0,"imageLength":21}]"#;
         let err = fill_fields_json(FICHA, ops, TINY_JPEG).unwrap_err();
         assert!(err.contains("cannot set image on field"), "got: {err}");
     }

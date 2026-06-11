@@ -1,5 +1,5 @@
 use crate::flatten::field_widgets;
-use lopdf::{Dictionary, Document, Object, ObjectId};
+use lopdf::{Dictionary, Document, Object, ObjectId, decode_text_string};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -109,10 +109,9 @@ fn describe_field(
             field_widgets(doc, id, d)
                 .into_iter()
                 .filter_map(|w| {
-                    pages.get(&w.page_id).map(|&page| Widget {
-                        page,
-                        rect: w.rect,
-                    })
+                    pages
+                        .get(&w.page_id)
+                        .map(|&page| Widget { page, rect: w.rect })
                 })
                 .collect()
         })
@@ -240,7 +239,7 @@ fn inherited<'a>(doc: &'a Document, d: &'a Dictionary, key: &[u8]) -> Option<&'a
 fn value_to_string(o: &Object) -> Option<String> {
     match o {
         Object::Name(n) => Some(String::from_utf8_lossy(n).into_owned()),
-        Object::String(s, _) => Some(String::from_utf8_lossy(s).into_owned()),
+        Object::String(_, _) => decode_text_string(o).ok(),
         _ => None,
     }
 }
@@ -325,8 +324,7 @@ mod tests {
 
     #[test]
     fn still_reads_fields_of_xfa_hybrids() {
-        const FICHA_XFA: &[u8] =
-            include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
+        const FICHA_XFA: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
         let f = fields(FICHA_XFA);
         assert!(!f.as_array().unwrap().is_empty());
     }
@@ -342,7 +340,10 @@ mod tests {
             .iter()
             .map(|x| x["name"].as_str().unwrap())
             .collect();
-        assert!(names.contains(&"beneficiario.apellidos_nombres"), "got: {names:?}");
+        assert!(
+            names.contains(&"beneficiario.apellidos_nombres"),
+            "got: {names:?}"
+        );
     }
 
     #[test]

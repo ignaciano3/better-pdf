@@ -1,7 +1,7 @@
 //! Appearance engine: Helvetica metrics, WinAnsi encoding, and Form-XObject
 //! construction for filled text/choice fields.
 
-use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
+use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use lopdf::{Dictionary, Object, Stream};
 use std::io::{Read, Write};
 
@@ -295,7 +295,7 @@ pub fn jpeg_info(data: &[u8]) -> Result<JpegInfo, String> {
                 n => {
                     return Err(format!(
                         "unsupported JPEG with {n} color components (CMYK JPEGs are not supported)"
-                    ))
+                    ));
                 }
             };
             if width > 0 && height > 0 {
@@ -620,7 +620,16 @@ mod tests {
 
     #[test]
     fn content_has_text_operators() {
-        let c = text_appearance_content(b"Hi", 10.0, 100.0, 14.0, 0, "0 g", "Helv", &helvetica_widths());
+        let c = text_appearance_content(
+            b"Hi",
+            10.0,
+            100.0,
+            14.0,
+            0,
+            "0 g",
+            "Helv",
+            &helvetica_widths(),
+        );
         let s = String::from_utf8(c).unwrap();
         assert!(s.contains("/Tx BMC"));
         assert!(s.contains("/Helv 10.00 Tf"));
@@ -630,7 +639,16 @@ mod tests {
 
     #[test]
     fn content_escapes_text() {
-        let c = text_appearance_content(b"a(b)", 10.0, 100.0, 14.0, 0, "0 g", "Helv", &helvetica_widths());
+        let c = text_appearance_content(
+            b"a(b)",
+            10.0,
+            100.0,
+            14.0,
+            0,
+            "0 g",
+            "Helv",
+            &helvetica_widths(),
+        );
         assert!(String::from_utf8(c).unwrap().contains("(a\\(b\\)) Tj"));
     }
 

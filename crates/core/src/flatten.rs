@@ -58,7 +58,11 @@ pub fn flatten_fields_json(data: &[u8], names_json: &str) -> Result<Vec<u8>, Str
 }
 
 /// A field's widgets (id + page + rect). A field with no /Kids is its own widget.
-pub(crate) fn field_widgets(doc: &Document, field_id: ObjectId, dict: &Dictionary) -> Vec<RawWidget> {
+pub(crate) fn field_widgets(
+    doc: &Document,
+    field_id: ObjectId,
+    dict: &Dictionary,
+) -> Vec<RawWidget> {
     let ids: Vec<ObjectId> = dict
         .get(b"Kids")
         .and_then(|o| o.as_array())
@@ -362,10 +366,9 @@ mod tests {
 
     #[test]
     fn rejects_xfa_forms_on_flatten() {
-        const FICHA_XFA: &[u8] =
-            include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
-        let err = flatten_fields_json(FICHA_XFA, r#"["beneficiario.apellidos_nombres"]"#)
-            .unwrap_err();
+        const FICHA_XFA: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
+        let err =
+            flatten_fields_json(FICHA_XFA, r#"["beneficiario.apellidos_nombres"]"#).unwrap_err();
         assert!(err.contains("XFA"), "got: {err}");
     }
 }
