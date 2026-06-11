@@ -19,6 +19,12 @@ struct FillOp {
 pub fn fill_fields_json(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, String> {
     let ops: Vec<FillOp> = serde_json::from_str(ops_json).map_err(|e| e.to_string())?;
     let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    if forms::has_xfa(&doc) {
+        return Err(
+            "XFA form detected: filling is not supported because viewers render the XFA data, not the AcroForm values"
+                .to_string(),
+        );
+    }
 
     // Resolve every op against the immutable doc first, so we can move `doc`
     // into the IncrementalDocument afterwards.
@@ -166,7 +172,7 @@ fn ap_inputs(
     dict: &Dictionary,
     name: &str,
 ) -> Result<ApInputs, String> {
-    let acro = acroform(doc).ok_or_else(|| "no AcroForm".to_string())?;
+    let acro = forms::acroform(doc).ok_or_else(|| "no AcroForm".to_string())?;
     let da_str = effective_da(doc, dict, acro);
     let da = appearance::parse_da(&da_str);
     let font_ref = font_ref(doc, acro, &da.font)
@@ -178,13 +184,6 @@ fn ap_inputs(
         font_ref,
         widgets: widget_boxes(doc, field_id, dict),
     })
-}
-
-/// The AcroForm dictionary (inline or via reference).
-fn acroform(doc: &Document) -> Option<&Dictionary> {
-    let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
-    let cat = doc.get_dictionary(root).ok()?;
-    forms::as_dict(doc, cat.get(b"AcroForm").ok()?).ok()
 }
 
 /// Effective /DA: field's own, else inherited, else AcroForm's, else default.
@@ -503,6 +502,8 @@ mod tests {
     const FICHA: &[u8] =
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
     const ANEXO: &[u8] = include_bytes!("../../../tests/fixtures/Discapacidad/Anexo-3-sssalud.pdf");
+    const FICHA_XFA: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
     const TINY_JPEG: &[u8] = &[
         0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x02,
         0x00, 0x03, 0x03, 0x00, 0xff, 0xd9,
@@ -710,5 +711,12 @@ mod tests {
         let ops = r#"[{"name":"firma.titular","imageOffset":10,"imageLength":100}]"#;
         let err = fill_fields_json(ANEXO, ops, TINY_JPEG).unwrap_err();
         assert!(err.contains("image range"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_xfa_forms_on_fill() {
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"x"}]"#;
+        let err = fill_fields_json(FICHA_XFA, ops, &[]).unwrap_err();
+        assert!(err.contains("XFA"), "got: {err}");
     }
 }

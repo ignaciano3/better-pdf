@@ -237,6 +237,7 @@ count).
 
 ## Limitations
 
+- XFA forms are detected and rejected on fill/flatten (reading fields still works).
 - Existing PDFs only. Creating PDFs from scratch is out of scope for v1.
 - No encrypted PDF support.
 - No lenient recovery for malformed PDFs.
