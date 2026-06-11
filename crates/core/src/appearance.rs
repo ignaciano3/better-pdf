@@ -194,6 +194,7 @@ pub fn build_appearance_xobject(
     Stream::new(dict, content).with_compression(false)
 }
 
+#[derive(Debug)]
 pub struct JpegInfo {
     pub width: i64,
     pub height: i64,
@@ -275,10 +276,14 @@ pub fn jpeg_info(data: &[u8]) -> Result<JpegInfo, String> {
             let height = u16::from_be_bytes([data[i + 3], data[i + 4]]) as i64;
             let width = u16::from_be_bytes([data[i + 5], data[i + 6]]) as i64;
             let components = data[i + 7];
-            let color_space = if components == 1 {
-                "DeviceGray"
-            } else {
-                "DeviceRGB"
+            let color_space = match components {
+                1 => "DeviceGray",
+                3 => "DeviceRGB",
+                n => {
+                    return Err(format!(
+                        "unsupported JPEG with {n} color components (CMYK JPEGs are not supported)"
+                    ))
+                }
             };
             if width > 0 && height > 0 {
                 return Ok(JpegInfo {
@@ -626,6 +631,17 @@ mod tests {
         assert_eq!(info.width, 3);
         assert_eq!(info.height, 2);
         assert_eq!(info.color_space, "DeviceRGB");
+    }
+
+    #[test]
+    fn rejects_cmyk_jpeg() {
+        let mut jpg = [
+            0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00,
+            0x02, 0x00, 0x03, 0x03, 0x00, 0xff, 0xd9,
+        ];
+        jpg[17] = 4; // SOF0 component count -> CMYK
+        let err = jpeg_info(&jpg).unwrap_err();
+        assert!(err.contains("components"), "got: {err}");
     }
 
     #[test]

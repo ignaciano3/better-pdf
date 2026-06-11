@@ -166,7 +166,7 @@ Visual signatures are appearances only. They do not create cryptographic/PAdES s
 
 Supported image inputs:
 
-- JPEG, embedded directly as `/DCTDecode`.
+- JPEG (grayscale or RGB), embedded directly as `/DCTDecode`. CMYK JPEGs are rejected.
 - PNG, for 8-bit non-interlaced grayscale, RGB, grayscale+alpha, or RGBA images.
 
 PNG alpha is currently dropped rather than preserved as a PDF soft mask.
