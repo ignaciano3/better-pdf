@@ -6,22 +6,31 @@ use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct FillOp {
     name: String,
     value: Option<String>,
-    image: Option<Vec<u8>>,
+    image_offset: Option<usize>,
+    image_length: Option<usize>,
 }
 
-/// Apply the given fill ops to `data` and return new PDF bytes (incremental save).
-pub fn fill_fields_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String> {
+/// Apply the given fill ops to `data` and return new PDF bytes (incremental
+/// save). `images` is the concatenated image blob the ops' offsets index into.
+pub fn fill_fields_json(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, String> {
     let ops: Vec<FillOp> = serde_json::from_str(ops_json).map_err(|e| e.to_string())?;
     let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    if forms::has_xfa(&doc) {
+        return Err(
+            "XFA form detected: filling is not supported because viewers render the XFA data, not the AcroForm values"
+                .to_string(),
+        );
+    }
 
     // Resolve every op against the immutable doc first, so we can move `doc`
     // into the IncrementalDocument afterwards.
     let mut plan: Vec<Resolved> = Vec::with_capacity(ops.len());
     for op in &ops {
-        plan.push(resolve(&doc, op)?);
+        plan.push(resolve(&doc, op, images)?);
     }
 
     let touched_appearance = plan.iter().any(|r| {
@@ -62,6 +71,7 @@ struct ApInputs {
     q: i64,
     font_ref: ObjectId,
     font: String,
+    widths: appearance::FontWidths,
     widgets: Vec<WidgetBox>,
 }
 
@@ -87,14 +97,23 @@ enum Apply {
 }
 
 /// Locate the field for `op.name`, classify it, and build the mutation plan.
-fn resolve(doc: &Document, op: &FillOp) -> Result<Resolved, String> {
+fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, String> {
     let (field_id, dict) =
         find_field(doc, &op.name).ok_or_else(|| format!("no such field: {}", op.name))?;
     let ft = forms::inherited_name(doc, dict, b"FT").unwrap_or_default();
     let ff = forms::inherited_int(doc, dict, b"Ff").unwrap_or(0);
     let kind = forms::classify(&ft, ff);
 
-    let apply = if let Some(image) = &op.image {
+    let image_bytes = match (op.image_offset, op.image_length) {
+        (Some(off), Some(len)) => Some(
+            off.checked_add(len)
+                .and_then(|end| images.get(off..end))
+                .ok_or_else(|| format!("image range out of bounds for field {}", op.name))?,
+        ),
+        (None, None) => None,
+        _ => return Err(format!("field {} op has a partial image range", op.name)),
+    };
+    let apply = if let Some(image) = image_bytes {
         if op.value.is_some() {
             return Err(format!(
                 "field {} op cannot contain both value and image",
@@ -154,7 +173,7 @@ fn ap_inputs(
     dict: &Dictionary,
     name: &str,
 ) -> Result<ApInputs, String> {
-    let acro = acroform(doc).ok_or_else(|| "no AcroForm".to_string())?;
+    let acro = forms::acroform(doc).ok_or_else(|| "no AcroForm".to_string())?;
     let da_str = effective_da(doc, dict, acro);
     let da = appearance::parse_da(&da_str);
     let font_ref = font_ref(doc, acro, &da.font)
@@ -162,17 +181,11 @@ fn ap_inputs(
     Ok(ApInputs {
         q: quadding(doc, dict),
         font: da.font.clone(),
+        widths: resolve_widths(doc, acro, &da.font),
         da,
         font_ref,
         widgets: widget_boxes(doc, field_id, dict),
     })
-}
-
-/// The AcroForm dictionary (inline or via reference).
-fn acroform(doc: &Document) -> Option<&Dictionary> {
-    let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
-    let cat = doc.get_dictionary(root).ok()?;
-    forms::as_dict(doc, cat.get(b"AcroForm").ok()?).ok()
 }
 
 /// Effective /DA: field's own, else inherited, else AcroForm's, else default.
@@ -239,6 +252,48 @@ fn widget_boxes(doc: &Document, field_id: ObjectId, dict: &Dictionary) -> Vec<Wi
 
 fn quadding(doc: &Document, dict: &Dictionary) -> i64 {
     forms::inherited_int(doc, dict, b"Q").unwrap_or(0)
+}
+
+/// The /DR/Font/<name> dictionary for a DA font name, if present.
+fn font_dict<'a>(doc: &'a Document, acro: &'a Dictionary, font: &str) -> Option<&'a Dictionary> {
+    let dr = forms::as_dict(doc, acro.get(b"DR").ok()?).ok()?;
+    let fonts = forms::as_dict(doc, dr.get(b"Font").ok()?).ok()?;
+    forms::as_dict(doc, fonts.get(font.as_bytes()).ok()?).ok()
+}
+
+/// Width table for the DA font: standard-14 metrics by /BaseFont when
+/// recognized, else the font's own /Widths array, else Helvetica.
+fn resolve_widths(doc: &Document, acro: &Dictionary, da_font: &str) -> appearance::FontWidths {
+    if let Some(fd) = font_dict(doc, acro, da_font) {
+        if let Some(base) = fd.get(b"BaseFont").ok().and_then(|o| o.as_name().ok())
+            && let Some(w) = appearance::standard_14_widths(&String::from_utf8_lossy(base))
+        {
+            return w;
+        }
+        if let Some(w) = widths_from_font_dict(doc, fd) {
+            return w;
+        }
+    }
+    appearance::helvetica_widths()
+}
+
+/// Build a width table from a simple font's /FirstChar + /Widths entries.
+fn widths_from_font_dict(doc: &Document, fd: &Dictionary) -> Option<appearance::FontWidths> {
+    let first = fd.get(b"FirstChar").ok()?.as_i64().ok()?;
+    let widths_obj = fd.get(b"Widths").ok()?;
+    let arr = match widths_obj {
+        Object::Reference(id) => doc.get_object(*id).ok()?.as_array().ok()?,
+        Object::Array(a) => a,
+        _ => return None,
+    };
+    let mut table = [0u16; 224];
+    for (i, w) in arr.iter().enumerate() {
+        let code = first + i as i64;
+        if (32..=255).contains(&code) {
+            table[(code - 32) as usize] = w.as_float().unwrap_or(0.0).round() as u16;
+        }
+    }
+    Some(appearance::FontWidths(table))
 }
 
 /// Resolve the button's widget set and validate the requested on-state.
@@ -400,9 +455,10 @@ fn draw_appearances(
     for wb in &ap.widgets {
         let w = wb.rect[2] - wb.rect[0];
         let h = wb.rect[3] - wb.rect[1];
-        let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h);
-        let content =
-            appearance::text_appearance_content(&text, size, w, h, ap.q, &ap.da.color, &ap.font);
+        let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h, &ap.widths);
+        let content = appearance::text_appearance_content(
+            &text, size, w, h, ap.q, &ap.da.color, &ap.font, &ap.widths,
+        );
         let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, ap.font_ref);
         let ap_id = inc.new_document.add_object(Object::Stream(xobj));
 
@@ -490,7 +546,11 @@ mod tests {
 
     const FICHA: &[u8] =
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
+    const FICHA_OBJSTREAMS: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/ficha-objstreams.pdf");
     const ANEXO: &[u8] = include_bytes!("../../../tests/fixtures/Discapacidad/Anexo-3-sssalud.pdf");
+    const FICHA_XFA: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
     const TINY_JPEG: &[u8] = &[
         0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x02,
         0x00, 0x03, 0x03, 0x00, 0xff, 0xd9,
@@ -509,7 +569,7 @@ mod tests {
     #[test]
     fn fills_text_field() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA, IGNACIO"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         // Append-only: output starts with the original bytes.
         assert!(out.len() > FICHA.len());
         assert_eq!(&out[..FICHA.len()], FICHA);
@@ -530,7 +590,7 @@ mod tests {
     #[test]
     fn fills_radio_group() {
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Titular"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         assert_eq!(
             reparse_value(&out, "beneficiario.tipo_beneficiario").as_deref(),
             Some("Titular")
@@ -540,7 +600,7 @@ mod tests {
     #[test]
     fn fills_dropdown() {
         let ops = r#"[{"name":"beneficiario.estado_civil","value":"Casado"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         assert_eq!(
             reparse_value(&out, "beneficiario.estado_civil").as_deref(),
             Some("Casado")
@@ -550,14 +610,14 @@ mod tests {
     #[test]
     fn rejects_unknown_field() {
         let ops = r#"[{"name":"does.not.exist","value":"x"}]"#;
-        let err = fill_fields_json(FICHA, ops).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
         assert!(err.contains("no such field"), "got: {err}");
     }
 
     #[test]
     fn rejects_invalid_radio_state() {
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Nope"}]"#;
-        let err = fill_fields_json(FICHA, ops).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
         assert!(err.contains("on-state"), "got: {err}");
     }
 
@@ -622,7 +682,7 @@ mod tests {
     #[test]
     fn text_fill_generates_appearance() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let ap = ap_content(&doc, "beneficiario.apellidos_nombres").expect("AP/N present");
         assert!(ap.contains("(GARCIA) Tj"), "got: {ap}");
@@ -632,7 +692,7 @@ mod tests {
     #[test]
     fn fill_flips_need_appearances_false() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"X"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         assert_eq!(need_appearances(&doc), Some(false));
     }
@@ -641,7 +701,7 @@ mod tests {
     fn radio_fill_does_not_add_appearance_stream() {
         // Buttons already have /AP; we must not overwrite with a text stream.
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Titular"}]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         Document::load_mem(&out).unwrap(); // still valid
         assert_eq!(
             reparse_value(&out, "beneficiario.tipo_beneficiario").as_deref(),
@@ -655,7 +715,7 @@ mod tests {
             {"name":"beneficiario.apellidos_nombres","value":"A"},
             {"name":"beneficiario.tipo_beneficiario","value":"Familiar"}
         ]"#;
-        let out = fill_fields_json(FICHA, ops).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         let f = reparse_field(&out);
         let by = |n: &str| {
             f.as_array()
@@ -671,11 +731,8 @@ mod tests {
 
     #[test]
     fn visual_signature_generates_image_appearance() {
-        let ops = serde_json::json!([
-            {"name":"firma.titular","image": TINY_JPEG}
-        ])
-        .to_string();
-        let out = fill_fields_json(ANEXO, &ops).unwrap();
+        let ops = r#"[{"name":"firma.titular","imageOffset":0,"imageLength":21}]"#;
+        let out = fill_fields_json(ANEXO, ops, TINY_JPEG).unwrap();
         assert!(out.len() > ANEXO.len());
         assert_eq!(&out[..ANEXO.len()], ANEXO);
 
@@ -690,11 +747,53 @@ mod tests {
 
     #[test]
     fn visual_signature_rejects_non_signature_field() {
-        let ops = serde_json::json!([
-            {"name":"beneficiario.apellidos_nombres","image": TINY_JPEG}
-        ])
-        .to_string();
-        let err = fill_fields_json(FICHA, &ops).unwrap_err();
+        let ops =
+            r#"[{"name":"beneficiario.apellidos_nombres","imageOffset":0,"imageLength":21}]"#;
+        let err = fill_fields_json(FICHA, ops, TINY_JPEG).unwrap_err();
         assert!(err.contains("cannot set image on field"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_image_range() {
+        let ops = r#"[{"name":"firma.titular","imageOffset":10,"imageLength":100}]"#;
+        let err = fill_fields_json(ANEXO, ops, TINY_JPEG).unwrap_err();
+        assert!(err.contains("image range"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_xfa_forms_on_fill() {
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"x"}]"#;
+        let err = fill_fields_json(FICHA_XFA, ops, &[]).unwrap_err();
+        assert!(err.contains("XFA"), "got: {err}");
+    }
+
+    #[test]
+    fn reads_widths_array_from_font_dict() {
+        use lopdf::{Dictionary, Document, Object};
+        let mut fd = Dictionary::new();
+        fd.set("FirstChar", Object::Integer(65));
+        fd.set(
+            "Widths",
+            Object::Array(vec![Object::Integer(500), Object::Real(750.0)]),
+        );
+        let doc = Document::with_version("1.3");
+        let w = super::widths_from_font_dict(&doc, &fd).unwrap();
+        assert_eq!(w.width(b'A'), 500);
+        assert_eq!(w.width(b'B'), 750);
+        assert_eq!(w.width(b'C'), 556); // default for unset codes
+    }
+
+    #[test]
+    fn fills_xref_stream_pdf_incrementally() {
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA"}]"#;
+        let out = fill_fields_json(FICHA_OBJSTREAMS, ops, &[]).unwrap();
+        // Still append-only.
+        assert_eq!(&out[..FICHA_OBJSTREAMS.len()], FICHA_OBJSTREAMS);
+        // Re-parses with the new value.
+        assert_eq!(
+            reparse_value(&out, "beneficiario.apellidos_nombres").as_deref(),
+            Some("GARCIA")
+        );
+        Document::load_mem(&out).unwrap();
     }
 }

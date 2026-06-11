@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the better-pdf npm package, and generate TypeScript types from a PDF form for compile-time-safe filling. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, and generate TypeScript types from a PDF form for compile-time-safe filling. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -10,7 +10,7 @@ A maintained, fast alternative to pdf-lib for **filling and flattening AcroForm 
 ## Quick start
 
 ```ts
-import { PdfDocument } from "better-pdf";
+import { PdfDocument } from "@ignaciano3/better-pdf";
 
 const doc = await PdfDocument.load(bytes);        // Uint8Array | ArrayBuffer
 const form = doc.getForm();
@@ -31,8 +31,8 @@ const out = await doc.save();                      // Promise<Uint8Array>
 1. **Use the field's REAL export values — never assume `"Yes"`/`"On"`.** Corpus values are domain-specific (`F`/`M`, `SI`/`NO`, `Titular`/`Familiar`). Read them from `field.states` (checkbox/radio) or `field.options` (dropdown). `checkBox.check()` uses the field's actual on-state automatically; `uncheck()` sets `Off`.
 2. **Existing PDFs only.** No creation from scratch / arbitrary drawing. Load → fill/flatten → save.
 3. **Signatures are visual only** — an embedded image/appearance, NOT cryptographic/PAdES signing. `getSignature(name).setImage(jpegOrPngBytes)`.
-4. **`save()` is an incremental (append-only) update** — output begins with the original bytes verbatim. With nothing queued it returns a byte-identical round-trip.
-5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save. Errors subclass `PdfError`: `UnknownFieldError`, `FieldTypeError`, `InvalidOptionError`, `MaxLengthExceededError`, `MissingOnStateError`.
+4. **`save()` is an incremental (append-only) update** — output begins with the original bytes verbatim. With nothing queued it returns a byte-identical round-trip. `save()` always starts from the loaded bytes; `FieldInfo.value` reflects queued mutations immediately.
+5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save. Errors subclass `PdfError`: `UnknownFieldError`, `FieldTypeError`, `InvalidOptionError`, `MaxLengthExceededError`, `MissingOnStateError`, `PdfCoreError`; core rejections at save time (XFA forms, CMYK JPEGs, malformed PDFs) throw `PdfCoreError`.
 
 ## Typed filling (recommended workflow)
 
@@ -50,7 +50,7 @@ form.getTextField("beneficiario.apellidos_nombres").setText("GARCIA");
 form.getDropdown("beneficiario.estado_civil").select("Casado"); // only valid options compile
 ```
 
-The pure generator is also importable: `import { generateFormTypes } from "better-pdf/typegen"` (WASM-free, tree-shakeable).
+The pure generator is also importable: `import { generateFormTypes } from "@ignaciano3/better-pdf/typegen"` (WASM-free, tree-shakeable).
 
 ## Flattening
 

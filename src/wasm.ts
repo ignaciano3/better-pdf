@@ -1,20 +1,26 @@
-// Single import point for the generated WASM bindings.
-// Built with `wasm-pack --target nodejs`, so the module initializes synchronously on import.
-// Later milestones may add a browser target behind this same module boundary.
-import * as core from "../pkg/better_pdf_core.js";
+// Single import point for the generated WASM bindings on server runtimes
+// (Node/Bun). Uses the `--target web` build: the binary is read from disk and
+// instantiated synchronously, so this module keeps initializing on import.
+import { readFileSync } from "node:fs";
+import {
+  initSync,
+  fill_fields,
+  flatten_fields,
+  read_fields,
+} from "../pkg-web/better_pdf_core.js";
 
-export function roundTrip(data: Uint8Array): Uint8Array {
-  return core.round_trip(data);
-}
+initSync({
+  module: readFileSync(new URL("../pkg-web/better_pdf_core_bg.wasm", import.meta.url)),
+});
 
 export function readFields(data: Uint8Array): string {
-  return core.read_fields(data);
+  return read_fields(data);
 }
 
-export function fillFields(data: Uint8Array, opsJson: string): Uint8Array {
-  return core.fill_fields(data, opsJson);
+export function fillFields(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array {
+  return fill_fields(data, opsJson, images);
 }
 
 export function flattenFields(data: Uint8Array, namesJson: string): Uint8Array {
-  return core.flatten_fields(data, namesJson);
+  return flatten_fields(data, namesJson);
 }

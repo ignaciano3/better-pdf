@@ -52,6 +52,9 @@ jobs:
       - name: TypeScript type check
         run: bun run typecheck
 
+      - name: Install qpdf (output validation)
+        run: sudo apt-get update && sudo apt-get install -y qpdf
+
       - name: TypeScript tests
         run: bun test
 
@@ -63,3 +66,6 @@ jobs:
 
       - name: Real browser test (Chromium)
         run: bun run scripts/browser-real-test.ts
+
+      - name: Render regression check (pdf.js)
+        run: bun run test:render

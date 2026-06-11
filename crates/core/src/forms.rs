@@ -156,6 +156,19 @@ pub(crate) fn classify(ft: &str, ff: i64) -> &'static str {
     }
 }
 
+/// The document's AcroForm dictionary (inline in the catalog or via reference).
+pub(crate) fn acroform(doc: &Document) -> Option<&Dictionary> {
+    let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
+    let cat = doc.get_dictionary(root).ok()?;
+    as_dict(doc, cat.get(b"AcroForm").ok()?).ok()
+}
+
+/// True when the form is XFA-backed (the AcroForm carries an /XFA entry).
+/// Viewers render the XFA data, so mutating the AcroForm would be misleading.
+pub(crate) fn has_xfa(doc: &Document) -> bool {
+    acroform(doc).map(|a| a.has(b"XFA")).unwrap_or(false)
+}
+
 pub(crate) fn as_dict<'a>(doc: &'a Document, o: &'a Object) -> Result<&'a Dictionary, String> {
     match o {
         Object::Reference(id) => doc.get_dictionary(*id).map_err(|e| e.to_string()),
@@ -308,6 +321,28 @@ mod tests {
         assert!(!widgets.is_empty());
         assert_eq!(widgets[0]["page"], 0);
         assert_eq!(widgets[0]["rect"].as_array().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn still_reads_fields_of_xfa_hybrids() {
+        const FICHA_XFA: &[u8] =
+            include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
+        let f = fields(FICHA_XFA);
+        assert!(!f.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn reads_fields_of_xref_stream_pdfs() {
+        const OBJSTREAMS: &[u8] =
+            include_bytes!("../../../tests/fixtures/generated/ficha-objstreams.pdf");
+        let f = fields(OBJSTREAMS);
+        let names: Vec<&str> = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"beneficiario.apellidos_nombres"), "got: {names:?}");
     }
 
     #[test]

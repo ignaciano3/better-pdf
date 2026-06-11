@@ -6,6 +6,8 @@ A maintained, fast alternative to `pdf-lib` for filling and flattening existing 
 
 > **Status:** 0.1.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. The public API may still change before 1.0.
 
+Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
+
 ## Features
 
 - Read AcroForm fields with fully-qualified names, types, values, options, and button states.
@@ -20,7 +22,7 @@ A maintained, fast alternative to `pdf-lib` for filling and flattening existing 
 ## Install
 
 ```bash
-bun add better-pdf
+bun add @ignaciano3/better-pdf
 ```
 
 For local development from this repository:
@@ -33,7 +35,7 @@ bun run build
 ## Usage
 
 ```ts
-import { PdfDocument } from "better-pdf";
+import { PdfDocument } from "@ignaciano3/better-pdf";
 
 const input = new Uint8Array(await Bun.file("form.pdf").arrayBuffer());
 const doc = await PdfDocument.load(input);
@@ -61,7 +63,7 @@ Browser bundlers can import the explicit browser entry, or use the package root
 when the bundler honors the `browser` export condition:
 
 ```ts
-import { PdfDocument } from "better-pdf/browser";
+import { PdfDocument } from "@ignaciano3/better-pdf/browser";
 
 const input = new Uint8Array(await file.arrayBuffer());
 const doc = await PdfDocument.load(input);
@@ -80,6 +82,9 @@ const output = await doc.save();
 - `doc.save(): Promise<Uint8Array>`
 
 `save()` applies queued fills first, then queued flattens. With no queued operations it returns a byte-identical round trip.
+`save()` always starts from the originally loaded bytes (calling it twice
+returns the same result), and `FieldInfo.value` reflects queued mutations as
+soon as they are made.
 
 ### `PdfForm`
 
@@ -119,9 +124,11 @@ whole family or a specific case:
 - `MaxLengthExceededError` — `setText()` value longer than the field's `/MaxLen`
   (`.field`, `.maxLength`, `.actualLength`).
 - `MissingOnStateError` — checking a checkbox with no declared on-state (`.field`).
+- `PdfCoreError` — an operation the core rejected at `save()` time (XFA forms,
+  unsupported images, malformed PDFs); the core's message is preserved.
 
 ```ts
-import { FieldTypeError } from "better-pdf";
+import { FieldTypeError } from "@ignaciano3/better-pdf";
 
 try {
   form.getDropdown("some.text.field");
@@ -163,7 +170,7 @@ Visual signatures are appearances only. They do not create cryptographic/PAdES s
 
 Supported image inputs:
 
-- JPEG, embedded directly as `/DCTDecode`.
+- JPEG (grayscale or RGB), embedded directly as `/DCTDecode`. CMYK JPEGs are rejected.
 - PNG, for 8-bit non-interlaced grayscale, RGB, grayscale+alpha, or RGBA images.
 
 PNG alpha is currently dropped rather than preserved as a PDF soft mask.
@@ -187,6 +194,11 @@ hallucinated field names and invalid values into compile errors.
 workloads, thanks to its Rust/WebAssembly core and append-only incremental
 saves. Indicative results from `bun run bench` on the bundled fixture corpus
 (50 iterations after warmup):
+
+The **fill** and **flatten** rows are the like-for-like comparison. The
+*load + save unchanged* rows compare better-pdf's no-op incremental round-trip
+(it returns the original bytes) against pdf-lib's full parse + re-serialize —
+they showcase the architectural difference, not parser speed.
 
 ### Small mixed form
 
@@ -234,13 +246,19 @@ count).
 
 ## Limitations
 
+- XFA forms are detected and rejected on fill/flatten (reading fields still works).
 - Existing PDFs only. Creating PDFs from scratch is out of scope for v1.
 - No encrypted PDF support.
 - No lenient recovery for malformed PDFs.
 - No cryptographic signing.
 - List boxes are single-select; multi-select list boxes are not yet supported.
 - Text fields are single-line; multi-line wrapping is not yet generated.
-- Primary test coverage is classic-xref PDF 1.3 forms from the bundled fixture corpus.
+- Appearance metrics cover the standard 14 text fonts (with Arial / Times New
+  Roman / Courier New aliases and subset-prefix handling) and any simple font
+  carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
+  Text encoding is WinAnsi; characters outside it become `?`.
+- Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
+  plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged
   `.wasm` asset referenced from the browser entry.
 
@@ -252,7 +270,7 @@ Prerequisites: `bun`, the Rust toolchain, the `wasm32-unknown-unknown` target, a
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
 bun install
-bun run build      # compile Rust core to pkg/ + pkg-web/ and TypeScript API to dist/
+bun run build      # compile Rust core to pkg-web/ and TypeScript API to dist/
 bun test           # run TS API tests
 bun run test:browser-entry
 bun run test:browser  # load the web build in headless Chromium (needs `bunx playwright install chromium`)

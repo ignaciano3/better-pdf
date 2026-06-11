@@ -1,5 +1,6 @@
-import { roundTrip, readFields, fillFields, flattenFields } from "./wasm.js";
+import { readFields, fillFields, flattenFields } from "./wasm.js";
 import { PdfForm } from "./form.js";
+import { toPdfError } from "./errors.js";
 import type { FormSchema, TypedPdfForm } from "./schema.js";
 
 /**
@@ -28,14 +29,19 @@ export class PdfDocument {
   async save(): Promise<Uint8Array> {
     const form = this.form;
     let bytes = this.bytes;
-    if (form && form.queue.length > 0) {
-      bytes = fillFields(bytes, form.queue.toJSON());
-    }
-    if (form && form.flattenQueue.length > 0) {
-      bytes = flattenFields(bytes, JSON.stringify(form.flattenQueue));
+    try {
+      if (form && form.queue.length > 0) {
+        const { opsJson, images } = form.queue.toPayload();
+        bytes = fillFields(bytes, opsJson, images);
+      }
+      if (form && form.flattenQueue.length > 0) {
+        bytes = flattenFields(bytes, JSON.stringify(form.flattenQueue));
+      }
+    } catch (e) {
+      throw toPdfError(e);
     }
     if (bytes === this.bytes) {
-      return roundTrip(this.bytes);
+      return this.bytes.slice();
     }
     return bytes;
   }
@@ -74,6 +80,7 @@ export {
   InvalidOptionError,
   MaxLengthExceededError,
   MissingOnStateError,
+  PdfCoreError,
 } from "./errors.js";
 export { generateFormTypes } from "./typegen.js";
 export type { GenerateFormTypesOptions } from "./typegen.js";

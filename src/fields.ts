@@ -11,7 +11,7 @@ export type FillOp = {
   value: string;
 } | {
   name: string;
-  image: number[];
+  image: Uint8Array;
 };
 
 /** Shared, ordered list of pending mutations for a document. */
@@ -20,8 +20,23 @@ export class FillQueue {
   push(op: FillOp): void {
     this.ops.push(op);
   }
-  toJSON(): string {
-    return JSON.stringify(this.ops);
+  /**
+   * Serialize for the WASM boundary: image bytes are concatenated into one
+   * binary blob; the JSON ops reference them by offset + length.
+   */
+  toPayload(): { opsJson: string; images: Uint8Array } {
+    let total = 0;
+    for (const op of this.ops) if ("image" in op) total += op.image.length;
+    const images = new Uint8Array(total);
+    let offset = 0;
+    const wire = this.ops.map((op) => {
+      if (!("image" in op)) return op;
+      images.set(op.image, offset);
+      const entry = { name: op.name, imageOffset: offset, imageLength: op.image.length };
+      offset += op.image.length;
+      return entry;
+    });
+    return { opsJson: JSON.stringify(wire), images };
   }
   get length(): number {
     return this.ops.length;
@@ -39,6 +54,7 @@ export class PdfTextField {
       throw new MaxLengthExceededError(this.info.name, max, value.length);
     }
     this.queue.push({ name: this.info.name, value });
+    this.info.value = value;
   }
 }
 
@@ -51,10 +67,12 @@ export class PdfCheckBox {
     const on = this.info.states[0];
     if (!on) throw new MissingOnStateError(this.info.name);
     this.queue.push({ name: this.info.name, value: on });
+    this.info.value = on;
   }
   /** Uncheck the box. */
   uncheck(): void {
     this.queue.push({ name: this.info.name, value: "Off" });
+    this.info.value = "Off";
   }
 }
 
@@ -72,6 +90,7 @@ export class PdfRadioGroup<Opt extends string = string> {
       throw new InvalidOptionError(this.info.name, "radio", value, this.info.states);
     }
     this.queue.push({ name: this.info.name, value });
+    this.info.value = value;
   }
 }
 
@@ -89,6 +108,7 @@ export class PdfDropdown<Opt extends string = string> {
       throw new InvalidOptionError(this.info.name, "dropdown", value, this.info.options);
     }
     this.queue.push({ name: this.info.name, value });
+    this.info.value = value;
   }
 }
 
@@ -109,6 +129,7 @@ export class PdfListBox<Opt extends string = string> {
       throw new InvalidOptionError(this.info.name, "listbox", value, this.info.options);
     }
     this.queue.push({ name: this.info.name, value });
+    this.info.value = value;
   }
 }
 
@@ -118,6 +139,6 @@ export class PdfSignature {
   constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
   /** Set the signature's visual image. JPEG bytes are supported in this milestone. */
   setImage(bytes: Uint8Array): void {
-    this.queue.push({ name: this.info.name, image: Array.from(bytes) });
+    this.queue.push({ name: this.info.name, image: bytes.slice() });
   }
 }

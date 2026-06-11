@@ -25,6 +25,26 @@ While the version is `0.x`, the public API may change between minor releases.
   browser test (`bun run test:browser`) wired into CI, and a `LICENSE` shipped
   with the published WASM package.
 
+## [Unreleased]
+
+### Changed
+
+- Package renamed to `@ignaciano3/better-pdf` (the unscoped npm name is taken).
+- Ships a single WASM binary (web target); Node loads it synchronously from disk.
+- Signature images cross the JS↔WASM boundary as binary, not JSON number arrays.
+- `FieldInfo.value` now reflects queued mutations immediately; `save()` always
+  starts from the originally loaded bytes.
+
+### Added
+
+- `PdfCoreError`: core (WASM) failures from `save()` are part of the `PdfError` family.
+- Standard-14 font metrics with Arial/Times New Roman/Courier New aliases,
+  `/Widths`-array fallback, and full WinAnsi text encoding (€, smart quotes, …).
+- XFA-backed forms are detected and rejected on fill/flatten with a clear error.
+- CMYK JPEG signature images are rejected instead of being mislabeled RGB.
+- Validation: `qpdf --check` in CI, a pdf.js render regression check, fuzz
+  targets for the PDF/image/DA parsers, and xref-stream/object-stream fixtures.
+
 ## [0.1.0]
 
 First public pre-release. Fill and flatten AcroForm fields in existing PDFs,

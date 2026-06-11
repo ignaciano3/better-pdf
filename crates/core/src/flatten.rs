@@ -25,6 +25,12 @@ pub(crate) struct RawWidget {
 pub fn flatten_fields_json(data: &[u8], names_json: &str) -> Result<Vec<u8>, String> {
     let names: Vec<String> = serde_json::from_str(names_json).map_err(|e| e.to_string())?;
     let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    if forms::has_xfa(&doc) {
+        return Err(
+            "XFA form detected: flattening is not supported because viewers render the XFA data, not the AcroForm values"
+                .to_string(),
+        );
+    }
 
     // Resolve everything against the immutable doc first.
     let mut field_ids: Vec<ObjectId> = Vec::new();
@@ -325,6 +331,7 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             r#"[{"name":"beneficiario.apellidos_nombres","value":"FLAT"}]"#,
+            &[],
         )
         .unwrap();
         let out = flatten_fields_json(&filled, r#"["beneficiario.apellidos_nombres"]"#).unwrap();
@@ -351,5 +358,14 @@ mod tests {
     fn flatten_unknown_field_errors() {
         let err = flatten_fields_json(FICHA, r#"["nope.nope"]"#).unwrap_err();
         assert!(err.contains("no such field"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_xfa_forms_on_flatten() {
+        const FICHA_XFA: &[u8] =
+            include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
+        let err = flatten_fields_json(FICHA_XFA, r#"["beneficiario.apellidos_nombres"]"#)
+            .unwrap_err();
+        assert!(err.contains("XFA"), "got: {err}");
     }
 }
