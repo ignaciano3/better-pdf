@@ -66,6 +66,7 @@
     "build:wasm": "wasm-pack build crates/core --target web --out-dir ../../pkg-web --out-name better_pdf_core",
     "build:js": "tsc -p tsconfig.build.json",
     "build": "bun run build:wasm && bun run build:js",
+    "fixtures:generate": "bun run scripts/make-fixtures.ts",
     "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
     "test:browser-entry": "bun run build && bun run scripts/browser-entry-smoke.ts",
