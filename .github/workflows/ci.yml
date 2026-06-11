@@ -66,3 +66,6 @@ jobs:
 
       - name: Real browser test (Chromium)
         run: bun run scripts/browser-real-test.ts
+
+      - name: Render regression check (pdf.js)
+        run: bun run test:render
