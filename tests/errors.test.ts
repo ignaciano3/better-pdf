@@ -7,6 +7,7 @@ import {
   UnknownFieldError,
   FieldTypeError,
   InvalidOptionError,
+  PdfCoreError,
 } from "../src/index.ts";
 
 const FICHA = join(
@@ -62,4 +63,14 @@ test("invalid option throws InvalidOptionError listing valid values", async () =
   const e = err as InvalidOptionError;
   expect(e.field).toBe("beneficiario.tipo_beneficiario");
   expect(e.options).toEqual(radio.options);
+});
+
+test("core failures from save() are PdfCoreError (a PdfError)", async () => {
+  const bytes = new Uint8Array(
+    readFileSync(join(import.meta.dir, "fixtures/generated/ficha-xfa.pdf")),
+  );
+  const doc = await PdfDocument.load(bytes);
+  doc.getForm().getTextField("beneficiario.apellidos_nombres").setText("X");
+  await expect(doc.save()).rejects.toBeInstanceOf(PdfCoreError);
+  await expect(doc.save()).rejects.toThrow(/XFA/);
 });

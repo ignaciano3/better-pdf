@@ -64,3 +64,15 @@ export class MissingOnStateError extends PdfError {
     super(`checkbox '${field}' has no on-state`);
   }
 }
+
+/**
+ * Thrown when the WASM core rejects an operation at save time (e.g. XFA forms,
+ * unsupported images, malformed PDFs). The original core message is preserved.
+ */
+export class PdfCoreError extends PdfError {}
+
+/** @internal Wrap a core failure so every error this library throws is a PdfError. */
+export function toPdfError(e: unknown): PdfError {
+  if (e instanceof PdfError) return e;
+  return new PdfCoreError(e instanceof Error ? e.message : String(e));
+}

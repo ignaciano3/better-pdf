@@ -122,6 +122,8 @@ whole family or a specific case:
 - `MaxLengthExceededError` — `setText()` value longer than the field's `/MaxLen`
   (`.field`, `.maxLength`, `.actualLength`).
 - `MissingOnStateError` — checking a checkbox with no declared on-state (`.field`).
+- `PdfCoreError` — an operation the core rejected at `save()` time (XFA forms,
+  unsupported images, malformed PDFs); the core's message is preserved.
 
 ```ts
 import { FieldTypeError } from "@ignaciano3/better-pdf";
