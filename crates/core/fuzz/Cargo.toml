@@ -1,0 +1,41 @@
+[package]
+name = "better-pdf-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+better-pdf-core = { path = ".." }
+
+[[bin]]
+name = "read_fields"
+path = "fuzz_targets/read_fields.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "signature_image"
+path = "fuzz_targets/signature_image.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_da"
+path = "fuzz_targets/parse_da.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fill"
+path = "fuzz_targets/fill.rs"
+test = false
+doc = false
+bench = false

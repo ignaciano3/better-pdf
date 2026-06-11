@@ -24,3 +24,11 @@ pub fn fill_fields(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>
 pub fn flatten_fields(data: &[u8], names_json: &str) -> Result<Vec<u8>, JsError> {
     flatten::flatten_fields_json(data, names_json).map_err(|e| JsError::new(&e))
 }
+
+/// Internal re-exports for the fuzz targets in `fuzz/`. Not a public API.
+#[doc(hidden)]
+pub mod fuzz_api {
+    pub use crate::appearance::{parse_da, signature_image};
+    pub use crate::fill::fill_fields_json;
+    pub use crate::forms::read_fields_json;
+}

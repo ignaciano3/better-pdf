@@ -1,0 +1,38 @@
+name: Fuzz
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1" # weekly, Monday 04:17 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [read_fields, signature_image, parse_da, fill]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/core/fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Seed corpus with a real fixture
+        run: |
+          mkdir -p crates/core/fuzz/corpus/${{ matrix.target }}
+          cp "tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf" "crates/core/fuzz/corpus/${{ matrix.target }}/"
+      - name: Fuzz for 3 minutes
+        working-directory: crates/core
+        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=180
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: crates/core/fuzz/artifacts
