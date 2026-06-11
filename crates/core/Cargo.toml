@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 # --enable-bulk-memory is required because the edition-2024 toolchain emits
 # memory.copy; -Oz does the real size reduction on the final binary.
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ['-Oz', '--enable-bulk-memory']
+wasm-opt = ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int']
 
 [profile.release]
 opt-level = 3

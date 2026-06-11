@@ -5,6 +5,7 @@
     "": {
       "name": "better-pdf",
       "devDependencies": {
+        "@pdf-lib/standard-fonts": "^1.0.0",
         "@types/bun": "latest",
         "@types/node": "latest",
         "pdf-lib": "^1.17.1",

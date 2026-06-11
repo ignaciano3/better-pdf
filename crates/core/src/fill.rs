@@ -71,6 +71,7 @@ struct ApInputs {
     q: i64,
     font_ref: ObjectId,
     font: String,
+    widths: appearance::FontWidths,
     widgets: Vec<WidgetBox>,
 }
 
@@ -180,6 +181,7 @@ fn ap_inputs(
     Ok(ApInputs {
         q: quadding(doc, dict),
         font: da.font.clone(),
+        widths: resolve_widths(doc, acro, &da.font),
         da,
         font_ref,
         widgets: widget_boxes(doc, field_id, dict),
@@ -250,6 +252,48 @@ fn widget_boxes(doc: &Document, field_id: ObjectId, dict: &Dictionary) -> Vec<Wi
 
 fn quadding(doc: &Document, dict: &Dictionary) -> i64 {
     forms::inherited_int(doc, dict, b"Q").unwrap_or(0)
+}
+
+/// The /DR/Font/<name> dictionary for a DA font name, if present.
+fn font_dict<'a>(doc: &'a Document, acro: &'a Dictionary, font: &str) -> Option<&'a Dictionary> {
+    let dr = forms::as_dict(doc, acro.get(b"DR").ok()?).ok()?;
+    let fonts = forms::as_dict(doc, dr.get(b"Font").ok()?).ok()?;
+    forms::as_dict(doc, fonts.get(font.as_bytes()).ok()?).ok()
+}
+
+/// Width table for the DA font: standard-14 metrics by /BaseFont when
+/// recognized, else the font's own /Widths array, else Helvetica.
+fn resolve_widths(doc: &Document, acro: &Dictionary, da_font: &str) -> appearance::FontWidths {
+    if let Some(fd) = font_dict(doc, acro, da_font) {
+        if let Some(base) = fd.get(b"BaseFont").ok().and_then(|o| o.as_name().ok())
+            && let Some(w) = appearance::standard_14_widths(&String::from_utf8_lossy(base))
+        {
+            return w;
+        }
+        if let Some(w) = widths_from_font_dict(doc, fd) {
+            return w;
+        }
+    }
+    appearance::helvetica_widths()
+}
+
+/// Build a width table from a simple font's /FirstChar + /Widths entries.
+fn widths_from_font_dict(doc: &Document, fd: &Dictionary) -> Option<appearance::FontWidths> {
+    let first = fd.get(b"FirstChar").ok()?.as_i64().ok()?;
+    let widths_obj = fd.get(b"Widths").ok()?;
+    let arr = match widths_obj {
+        Object::Reference(id) => doc.get_object(*id).ok()?.as_array().ok()?,
+        Object::Array(a) => a,
+        _ => return None,
+    };
+    let mut table = [0u16; 224];
+    for (i, w) in arr.iter().enumerate() {
+        let code = first + i as i64;
+        if (32..=255).contains(&code) {
+            table[(code - 32) as usize] = w.as_float().unwrap_or(0.0).round() as u16;
+        }
+    }
+    Some(appearance::FontWidths(table))
 }
 
 /// Resolve the button's widget set and validate the requested on-state.
@@ -411,9 +455,10 @@ fn draw_appearances(
     for wb in &ap.widgets {
         let w = wb.rect[2] - wb.rect[0];
         let h = wb.rect[3] - wb.rect[1];
-        let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h);
-        let content =
-            appearance::text_appearance_content(&text, size, w, h, ap.q, &ap.da.color, &ap.font);
+        let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h, &ap.widths);
+        let content = appearance::text_appearance_content(
+            &text, size, w, h, ap.q, &ap.da.color, &ap.font, &ap.widths,
+        );
         let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, ap.font_ref);
         let ap_id = inc.new_document.add_object(Object::Stream(xobj));
 
@@ -720,6 +765,22 @@ mod tests {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"x"}]"#;
         let err = fill_fields_json(FICHA_XFA, ops, &[]).unwrap_err();
         assert!(err.contains("XFA"), "got: {err}");
+    }
+
+    #[test]
+    fn reads_widths_array_from_font_dict() {
+        use lopdf::{Dictionary, Document, Object};
+        let mut fd = Dictionary::new();
+        fd.set("FirstChar", Object::Integer(65));
+        fd.set(
+            "Widths",
+            Object::Array(vec![Object::Integer(500), Object::Real(750.0)]),
+        );
+        let doc = Document::with_version("1.3");
+        let w = super::widths_from_font_dict(&doc, &fd).unwrap();
+        assert_eq!(w.width(b'A'), 500);
+        assert_eq!(w.width(b'B'), 750);
+        assert_eq!(w.width(b'C'), 556); // default for unset codes
     }
 
     #[test]

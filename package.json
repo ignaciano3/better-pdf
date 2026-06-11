@@ -67,6 +67,7 @@
     "build:js": "tsc -p tsconfig.build.json",
     "build": "bun run build:wasm && bun run build:js",
     "fixtures:generate": "bun run scripts/make-fixtures.ts",
+    "generate:font-metrics": "bun run scripts/gen-font-metrics.ts",
     "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
     "test:browser-entry": "bun run build && bun run scripts/browser-entry-smoke.ts",
@@ -79,6 +80,7 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@pdf-lib/standard-fonts": "^1.0.0",
     "@types/bun": "latest",
     "@types/node": "latest",
     "pdf-lib": "^1.17.1",

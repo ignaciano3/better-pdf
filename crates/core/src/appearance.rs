@@ -5,72 +5,83 @@ use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use lopdf::{Dictionary, Object, Stream};
 use std::io::{Read, Write};
 
-/// Helvetica AFM advance widths (units / 1000 em) for WinAnsi codes 32..=126.
-/// Index 0 == code 32 (space). Accented Latin-1 letters approximate to their
-/// ASCII base width (good enough for v1 auto-sizing; corpus is Helvetica).
-const HELV_ASCII: [u16; 95] = [
-    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, // 32..47
-    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556, // 48..63
-    1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, // 64..79
-    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, // 80..95
-    333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, // 96..111
-    556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584, // 112..126
-];
+/// Advance-width table (units/1000 em) for one font, indexed by WinAnsi code.
+#[derive(Clone)]
+pub struct FontWidths(pub [u16; 224]);
 
-/// Map a Latin-1/WinAnsi byte >=127 to an ASCII base letter for width purposes.
-fn winansi_base(code: u8) -> u8 {
-    match code {
-        0xC0..=0xC5 => b'A',
-        0xC8..=0xCB => b'E',
-        0xCC..=0xCF => b'I',
-        0xD2..=0xD6 => b'O',
-        0xD9..=0xDC => b'U',
-        0xD1 => b'N',
-        0xC7 => b'C',
-        0xE0..=0xE5 => b'a',
-        0xE8..=0xEB => b'e',
-        0xEC..=0xEF => b'i',
-        0xF2..=0xF6 => b'o',
-        0xF9..=0xFC => b'u',
-        0xF1 => b'n',
-        0xE7 => b'c',
-        0xBF => b'?',
-        0xA1 => b'!',
-        _ => 0, // unknown
+impl FontWidths {
+    /// Width of one WinAnsi byte; 556 (Helvetica average) for unknown codes.
+    pub fn width(&self, code: u8) -> u16 {
+        if code >= 32 {
+            let w = self.0[(code - 32) as usize];
+            if w != 0 {
+                return w;
+            }
+        }
+        556
     }
 }
 
-/// Advance width (units/1000 em) of one WinAnsi byte.
-pub fn helvetica_width(code: u8) -> u16 {
-    if (32..=126).contains(&code) {
-        HELV_ASCII[(code - 32) as usize]
-    } else {
-        let base = winansi_base(code);
-        if base != 0 {
-            HELV_ASCII[(base - 32) as usize]
-        } else {
-            556 // default average advance
+/// Helvetica metrics: the fallback when a font can't be identified.
+pub fn helvetica_widths() -> FontWidths {
+    FontWidths(crate::font_metrics::HELVETICA)
+}
+
+/// Resolve a /BaseFont name to a standard-14 width table, stripping subset
+/// prefixes ("ABCDEF+Arial-Bold") and aliasing the common TrueType names
+/// (Arial -> Helvetica, Times New Roman -> Times, Courier New -> Courier).
+pub fn standard_14_widths(base_font: &str) -> Option<FontWidths> {
+    use crate::font_metrics as fm;
+    let name = base_font.rsplit('+').next().unwrap_or(base_font);
+    let lower = name.to_ascii_lowercase();
+    let bold = lower.contains("bold");
+    let italic = lower.contains("italic") || lower.contains("oblique");
+    let table: &[u16; 224] = if lower.contains("courier") {
+        match (bold, italic) {
+            (true, true) => &fm::COURIER_BOLDOBLIQUE,
+            (true, false) => &fm::COURIER_BOLD,
+            (false, true) => &fm::COURIER_OBLIQUE,
+            (false, false) => &fm::COURIER,
         }
-    }
+    } else if lower.contains("times") {
+        match (bold, italic) {
+            (true, true) => &fm::TIMES_BOLDITALIC,
+            (true, false) => &fm::TIMES_BOLD,
+            (false, true) => &fm::TIMES_ITALIC,
+            (false, false) => &fm::TIMES_ROMAN,
+        }
+    } else if lower.contains("helvetica") || lower.contains("arial") {
+        match (bold, italic) {
+            (true, true) => &fm::HELVETICA_BOLDOBLIQUE,
+            (true, false) => &fm::HELVETICA_BOLD,
+            (false, true) => &fm::HELVETICA_OBLIQUE,
+            (false, false) => &fm::HELVETICA,
+        }
+    } else {
+        return None;
+    };
+    Some(FontWidths(*table))
 }
 
 /// Width of a WinAnsi byte string at the given font size (points).
-pub fn string_width(bytes: &[u8], size: f32) -> f32 {
-    let units: u32 = bytes.iter().map(|&c| helvetica_width(c) as u32).sum();
+pub fn string_width(bytes: &[u8], size: f32, widths: &FontWidths) -> f32 {
+    let units: u32 = bytes.iter().map(|&c| widths.width(c) as u32).sum();
     units as f32 / 1000.0 * size
 }
 
-/// Encode a Rust string to WinAnsi bytes. The Latin-1 range (<=0xFF) maps by
-/// code point; anything else becomes '?' (out of scope for v1's corpus).
-// TODO(milestone): full WinAnsi 0x80-0x9F map (typographic punctuation).
+/// Encode a Rust string to WinAnsi bytes. ASCII maps directly; everything else
+/// goes through the generated WinAnsi table; unmappable chars become '?'.
 pub fn encode_winansi(s: &str) -> Vec<u8> {
+    use crate::font_metrics::WINANSI_FROM_UNICODE;
     s.chars()
         .map(|c| {
             let cp = c as u32;
-            if cp <= 0xFF {
-                cp as u8
-            } else {
-                b'?'
+            if cp < 0x80 {
+                return cp as u8;
+            }
+            match WINANSI_FROM_UNICODE.binary_search_by_key(&cp, |&(u, _)| u) {
+                Ok(i) => WINANSI_FROM_UNICODE[i].1,
+                Err(_) => b'?',
             }
         })
         .collect()
@@ -121,13 +132,13 @@ pub fn parse_da(da: &str) -> Da {
 
 /// Choose a font size. `da_size > 0` is honored; `0` means auto: cap to the
 /// box height, then shrink to fit the box width.
-pub fn auto_size(da_size: f32, text: &[u8], avail_w: f32, box_h: f32) -> f32 {
+pub fn auto_size(da_size: f32, text: &[u8], avail_w: f32, box_h: f32, widths: &FontWidths) -> f32 {
     if da_size > 0.0 {
         return da_size;
     }
     // One ~2pt vertical breathing margin, capped to a sane max (Acrobat-like).
     let mut size = (box_h - 2.0).clamp(MIN_AUTO, MAX_AUTO);
-    let w = string_width(text, size);
+    let w = string_width(text, size, widths);
     if w > avail_w && w > 0.0 {
         size = (size * avail_w / w).max(MIN_AUTO);
     }
@@ -137,6 +148,7 @@ pub fn auto_size(da_size: f32, text: &[u8], avail_w: f32, box_h: f32) -> f32 {
 /// Build the content stream for a single-line text appearance. `q` is the
 /// quadding: 0=left, 1=center, 2=right. Coordinates are in the field's space
 /// (BBox origin 0,0).
+#[allow(clippy::too_many_arguments)]
 pub fn text_appearance_content(
     text: &[u8],
     size: f32,
@@ -145,8 +157,9 @@ pub fn text_appearance_content(
     q: i64,
     color: &str,
     font: &str,
+    widths: &FontWidths,
 ) -> Vec<u8> {
-    let tw = string_width(text, size);
+    let tw = string_width(text, size, widths);
     let tx = match q {
         1 => ((box_w - tw) / 2.0).max(PAD), // center
         2 => (box_w - PAD - tw).max(PAD),   // right
@@ -573,16 +586,16 @@ mod tests {
 
     #[test]
     fn helvetica_widths_match_afm() {
-        assert_eq!(helvetica_width(b' '), 278);
-        assert_eq!(helvetica_width(b'A'), 667);
-        assert_eq!(helvetica_width(b'i'), 222);
-        assert_eq!(helvetica_width(b'W'), 944);
+        assert_eq!(helvetica_widths().width(b' '), 278);
+        assert_eq!(helvetica_widths().width(b'A'), 667);
+        assert_eq!(helvetica_widths().width(b'i'), 222);
+        assert_eq!(helvetica_widths().width(b'W'), 944);
     }
 
     #[test]
     fn string_width_scales_with_size() {
         // "AA" at size 10 = 2 * 667/1000 * 10 = 13.34
-        let w = string_width(b"AA", 10.0);
+        let w = string_width(b"AA", 10.0, &helvetica_widths());
         assert!((w - 13.34).abs() < 0.01, "got {w}");
     }
 
@@ -597,17 +610,17 @@ mod tests {
     #[test]
     fn auto_size_uses_height_then_shrinks_to_width() {
         // Tall, wide box, short text → height-capped at 12.
-        assert!((auto_size(0.0, b"AB", 300.0, 14.0) - 12.0).abs() < 0.01);
+        assert!((auto_size(0.0, b"AB", 300.0, 14.0, &helvetica_widths()) - 12.0).abs() < 0.01);
         // Narrow box forces shrink below the height cap.
-        let s = auto_size(0.0, b"WWWWWWWWWW", 30.0, 14.0);
+        let s = auto_size(0.0, b"WWWWWWWWWW", 30.0, 14.0, &helvetica_widths());
         assert!((4.0..12.0).contains(&s), "got {s}");
         // Explicit DA size is honored as-is.
-        assert_eq!(auto_size(9.0, b"x", 300.0, 50.0), 9.0);
+        assert_eq!(auto_size(9.0, b"x", 300.0, 50.0, &helvetica_widths()), 9.0);
     }
 
     #[test]
     fn content_has_text_operators() {
-        let c = text_appearance_content(b"Hi", 10.0, 100.0, 14.0, 0, "0 g", "Helv");
+        let c = text_appearance_content(b"Hi", 10.0, 100.0, 14.0, 0, "0 g", "Helv", &helvetica_widths());
         let s = String::from_utf8(c).unwrap();
         assert!(s.contains("/Tx BMC"));
         assert!(s.contains("/Helv 10.00 Tf"));
@@ -617,8 +630,38 @@ mod tests {
 
     #[test]
     fn content_escapes_text() {
-        let c = text_appearance_content(b"a(b)", 10.0, 100.0, 14.0, 0, "0 g", "Helv");
+        let c = text_appearance_content(b"a(b)", 10.0, 100.0, 14.0, 0, "0 g", "Helv", &helvetica_widths());
         assert!(String::from_utf8(c).unwrap().contains("(a\\(b\\)) Tj"));
+    }
+
+    #[test]
+    fn standard_14_tables_match_known_afm_values() {
+        let helv = helvetica_widths();
+        assert_eq!(helv.width(b'A'), 667);
+        assert_eq!(helv.width(b' '), 278);
+        let times = standard_14_widths("Times-Roman").unwrap();
+        assert_eq!(times.width(b'A'), 722);
+        assert_eq!(times.width(b' '), 250);
+        let courier = standard_14_widths("Courier").unwrap();
+        assert_eq!(courier.width(b'A'), 600);
+        assert_eq!(courier.width(b'W'), 600);
+    }
+
+    #[test]
+    fn maps_da_base_fonts_to_standard_14_tables() {
+        // Subset prefixes and the common TrueType aliases resolve.
+        let bold = standard_14_widths("ABCDEF+Arial-BoldMT").unwrap();
+        assert_eq!(bold.width(b'A'), 722); // Helvetica-Bold 'A'
+        assert!(standard_14_widths("TimesNewRomanPS-ItalicMT").is_some());
+        assert!(standard_14_widths("CourierNewPSMT").is_some());
+        assert!(standard_14_widths("Wingdings").is_none());
+    }
+
+    #[test]
+    fn encodes_winansi_beyond_latin1() {
+        assert_eq!(encode_winansi("€"), vec![0x80]);
+        assert_eq!(encode_winansi("\u{201C}"), vec![0x93]); // left double quote
+        assert_eq!(encode_winansi("漢"), vec![b'?']);
     }
 
     #[test]

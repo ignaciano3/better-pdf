@@ -3,6 +3,7 @@ use wasm_bindgen::prelude::*;
 mod appearance;
 mod fill;
 mod flatten;
+mod font_metrics;
 mod forms;
 
 /// Read the AcroForm fields of a PDF, returned as a JSON array string.
