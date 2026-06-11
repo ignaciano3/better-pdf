@@ -252,7 +252,7 @@ Prerequisites: `bun`, the Rust toolchain, the `wasm32-unknown-unknown` target, a
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
 bun install
-bun run build      # compile Rust core to pkg/ + pkg-web/ and TypeScript API to dist/
+bun run build      # compile Rust core to pkg-web/ and TypeScript API to dist/
 bun test           # run TS API tests
 bun run test:browser-entry
 bun run test:browser  # load the web build in headless Chromium (needs `bunx playwright install chromium`)
