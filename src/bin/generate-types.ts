@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
+import { readFile, realpath, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { PdfDocument } from "../index.js";
 import { generateFormTypes } from "../typegen.js";
 
@@ -48,7 +48,17 @@ export async function runGenerateTypesCli(args: string[]): Promise<void> {
   console.log(source);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+async function isCliEntrypoint(): Promise<boolean> {
+  if (!process.argv[1]) return false;
+
+  const [modulePath, argvPath] = await Promise.all([
+    realpath(fileURLToPath(import.meta.url)),
+    realpath(process.argv[1]),
+  ]);
+  return modulePath === argvPath;
+}
+
+if (await isCliEntrypoint()) {
   runGenerateTypesCli(process.argv.slice(2)).catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
