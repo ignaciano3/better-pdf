@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the better-pdf npm package, and generate TypeScript types from a PDF form for compile-time-safe filling. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, and generate TypeScript types from a PDF form for compile-time-safe filling. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -10,7 +10,7 @@ A maintained, fast alternative to pdf-lib for **filling and flattening AcroForm 
 ## Quick start
 
 ```ts
-import { PdfDocument } from "better-pdf";
+import { PdfDocument } from "@ignaciano3/better-pdf";
 
 const doc = await PdfDocument.load(bytes);        // Uint8Array | ArrayBuffer
 const form = doc.getForm();
@@ -50,7 +50,7 @@ form.getTextField("beneficiario.apellidos_nombres").setText("GARCIA");
 form.getDropdown("beneficiario.estado_civil").select("Casado"); // only valid options compile
 ```
 
-The pure generator is also importable: `import { generateFormTypes } from "better-pdf/typegen"` (WASM-free, tree-shakeable).
+The pure generator is also importable: `import { generateFormTypes } from "@ignaciano3/better-pdf/typegen"` (WASM-free, tree-shakeable).
 
 ## Flattening
 

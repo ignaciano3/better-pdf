@@ -20,7 +20,7 @@ A maintained, fast alternative to `pdf-lib` for filling and flattening existing 
 ## Install
 
 ```bash
-bun add better-pdf
+bun add @ignaciano3/better-pdf
 ```
 
 For local development from this repository:
@@ -33,7 +33,7 @@ bun run build
 ## Usage
 
 ```ts
-import { PdfDocument } from "better-pdf";
+import { PdfDocument } from "@ignaciano3/better-pdf";
 
 const input = new Uint8Array(await Bun.file("form.pdf").arrayBuffer());
 const doc = await PdfDocument.load(input);
@@ -61,7 +61,7 @@ Browser bundlers can import the explicit browser entry, or use the package root
 when the bundler honors the `browser` export condition:
 
 ```ts
-import { PdfDocument } from "better-pdf/browser";
+import { PdfDocument } from "@ignaciano3/better-pdf/browser";
 
 const input = new Uint8Array(await file.arrayBuffer());
 const doc = await PdfDocument.load(input);
@@ -121,7 +121,7 @@ whole family or a specific case:
 - `MissingOnStateError` — checking a checkbox with no declared on-state (`.field`).
 
 ```ts
-import { FieldTypeError } from "better-pdf";
+import { FieldTypeError } from "@ignaciano3/better-pdf";
 
 try {
   form.getDropdown("some.text.field");
