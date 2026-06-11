@@ -40,14 +40,24 @@ export type OptionsOf<S extends FormSchema, N extends keyof S> =
  * runtime object is the same untyped `PdfForm`.
  */
 export interface TypedPdfForm<S extends FormSchema> {
+  /** Get metadata for every AcroForm field in the document. */
   getFields(): FieldInfo[];
+  /** Get metadata for one declared field name, or `undefined` if it is absent. */
   getField(name: FieldNameOf<S>): FieldInfo | undefined;
+  /** Get a typed text field wrapper. */
   getTextField(name: NameOfType<S, "text">): PdfTextField;
+  /** Get a typed checkbox wrapper. */
   getCheckBox(name: NameOfType<S, "checkbox">): PdfCheckBox;
+  /** Get a typed radio group wrapper whose `select()` values come from the schema. */
   getRadioGroup<N extends NameOfType<S, "radio">>(name: N): PdfRadioGroup<OptionsOf<S, N>>;
+  /** Get a typed dropdown wrapper whose `select()` values come from the schema. */
   getDropdown<N extends NameOfType<S, "dropdown">>(name: N): PdfDropdown<OptionsOf<S, N>>;
+  /** Get a typed single-select list-box wrapper whose `select()` values come from the schema. */
   getListBox<N extends NameOfType<S, "listbox">>(name: N): PdfListBox<OptionsOf<S, N>>;
+  /** Get a typed visual signature field wrapper. */
   getSignature(name: NameOfType<S, "signature">): PdfSignature;
+  /** Queue one declared field to be flattened when the document is saved. */
   flattenField(name: FieldNameOf<S>): void;
+  /** Queue every field to be flattened when the document is saved. */
   flatten(): void;
 }

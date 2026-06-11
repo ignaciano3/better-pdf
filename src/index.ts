@@ -4,8 +4,24 @@ import { toPdfError } from "./errors.js";
 import type { FormSchema, TypedPdfForm } from "./schema.js";
 
 /**
- * A loaded PDF document. Holds the source bytes, exposes the AcroForm, and
- * persists queued field mutations on `save()` via an incremental update.
+ * Represents a loaded PDF document.
+ *
+ * `PdfDocument` is the entry point for reading AcroForm fields, queuing field
+ * changes, flattening fields, and saving the result as PDF bytes.
+ *
+ * @example
+ * ```ts
+ * import { PdfDocument } from "@ignaciano3/better-pdf";
+ *
+ * const input = await fetch("form.pdf").then((res) => res.arrayBuffer());
+ * const doc = await PdfDocument.load(input);
+ * const form = doc.getForm();
+ *
+ * form.getTextField("person.name").setText("Ada Lovelace");
+ * form.getCheckBox("person.accepted").check();
+ *
+ * const output = await doc.save();
+ * ```
  */
 export class PdfDocument {
   private form?: PdfForm;
@@ -14,8 +30,19 @@ export class PdfDocument {
   private constructor(private readonly bytes: Uint8Array) {}
 
   /**
-   * Load a PDF from bytes. Async because later milestones (and the browser build)
-   * initialize the WASM module asynchronously; callers should always `await`.
+   * Load a PDF document from raw bytes.
+   *
+   * This method accepts either a `Uint8Array` or an `ArrayBuffer`. It is async
+   * so the same code works in Node.js and browser builds.
+   *
+   * @param input - The bytes of an existing PDF file.
+   * @returns A loaded `PdfDocument`.
+   *
+   * @example
+   * ```ts
+   * const bytes = new Uint8Array(await Bun.file("form.pdf").arrayBuffer());
+   * const doc = await PdfDocument.load(bytes);
+   * ```
    */
   static async load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument> {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
@@ -23,8 +50,26 @@ export class PdfDocument {
   }
 
   /**
-   * Serialize back to PDF bytes, applying queued fills then flattens as
-   * incremental updates. With nothing queued, returns a byte-exact round-trip.
+   * Save the document and return the resulting PDF bytes.
+   *
+   * Queued field fills are applied first, then queued field flattens. If no
+   * changes were queued, this returns a copy of the original PDF bytes.
+   *
+   * Calling `save()` does not mutate the original loaded bytes. Calling it
+   * again with the same queued operations returns the same PDF output.
+   *
+   * @returns The saved PDF bytes.
+   * @throws `PdfCoreError` when the PDF core rejects an operation, such as an
+   * unsupported image, XFA form, or malformed PDF.
+   *
+   * @example
+   * ```ts
+   * form.getTextField("invoice.total").setText("$42.00");
+   * form.flattenField("invoice.total");
+   *
+   * const pdfBytes = await doc.save();
+   * await Bun.write("filled.pdf", pdfBytes);
+   * ```
    */
   async save(): Promise<Uint8Array> {
     const form = this.form;
@@ -47,14 +92,41 @@ export class PdfDocument {
   }
 
   /**
-   * The document's AcroForm. The same instance is returned each call, so queued
-   * mutations accumulate until `save()`.
+   * Get the document's AcroForm.
+   *
+   * The same `PdfForm` instance is returned every time. Field changes are queued
+   * on the form and applied when you call `doc.save()`.
+   *
+   * @returns The document's form API.
+   *
+   * @example
+   * ```ts
+   * const form = doc.getForm();
+   * const fields = form.getFields();
+   *
+   * for (const field of fields) {
+   *   console.log(field.name, field.type, field.value);
+   * }
+   * ```
    */
   getForm(): PdfForm;
   /**
-   * A compile-time-narrowed view of the form. Pass a generated schema as the
-   * type argument: `doc.getForm<typeof myFormFields>()`. Type-only — the runtime
-   * object is identical to the untyped `getForm()`.
+   * Get a compile-time typed view of the document's AcroForm.
+   *
+   * Pass a generated field metadata object as the type argument. The runtime
+   * object is the same `PdfForm`; the schema is used only by TypeScript to catch
+   * unknown field names, wrong field accessors, and invalid choice values.
+   *
+   * @returns The document's form API narrowed by the generated schema.
+   *
+   * @example
+   * ```ts
+   * import { enrollmentFormFields } from "./form-types.js";
+   *
+   * const form = doc.getForm<typeof enrollmentFormFields>();
+   * form.getTextField("beneficiario.apellidos_nombres").setText("GARCIA");
+   * form.getDropdown("beneficiario.estado_civil").select("Casado");
+   * ```
    */
   getForm<S extends FormSchema>(): TypedPdfForm<S>;
   getForm(): PdfForm {

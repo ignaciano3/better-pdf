@@ -19,6 +19,37 @@ const TYPE_SUFFIXES: Record<FieldType, string> = {
   unknown: "Unknown",
 };
 
+/**
+ * Generate a TypeScript module that describes the fields in a PDF form.
+ *
+ * The generated module exports a metadata object and field-name helper types.
+ * Pass the metadata object to `doc.getForm<typeof metadata>()` to get
+ * compile-time checks for field names, field kinds, and choice values.
+ *
+ * @param fields - Field metadata, usually from `doc.getForm().getFields()`.
+ * @param options - Naming options for the generated TypeScript module.
+ * @returns TypeScript source code.
+ *
+ * @example
+ * ```ts
+ * import { PdfDocument, generateFormTypes } from "@ignaciano3/better-pdf";
+ *
+ * const doc = await PdfDocument.load(pdfBytes);
+ * const source = generateFormTypes(doc.getForm().getFields(), {
+ *   typeName: "EnrollmentForm",
+ * });
+ *
+ * await Bun.write("src/enrollment-form-types.ts", source);
+ * ```
+ *
+ * @example
+ * ```ts
+ * import { enrollmentFormFields } from "./enrollment-form-types.js";
+ *
+ * const form = doc.getForm<typeof enrollmentFormFields>();
+ * form.getDropdown("beneficiario.estado_civil").select("Casado");
+ * ```
+ */
 export function generateFormTypes(
   fields: readonly FieldInfo[],
   options: GenerateFormTypesOptions = {},

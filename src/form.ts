@@ -44,7 +44,24 @@ export interface FieldInfo {
 
 export type ReadFields = (bytes: Uint8Array) => string;
 
-/** A view over a PDF's AcroForm fields, with typed mutation accessors. */
+/**
+ * Provides access to the AcroForm fields in a PDF.
+ *
+ * Use `PdfForm` to inspect fields, get type-specific field wrappers, queue
+ * field values, and choose which fields should be flattened when the document
+ * is saved.
+ *
+ * @example
+ * ```ts
+ * const form = doc.getForm();
+ *
+ * form.getTextField("applicant.name").setText("Ada Lovelace");
+ * form.getDropdown("applicant.country").select("Argentina");
+ * form.getCheckBox("applicant.acceptsTerms").check();
+ *
+ * const pdfBytes = await doc.save();
+ * ```
+ */
 export class PdfForm {
   private readonly fields: FieldInfo[];
   /** @internal — shared with PdfDocument so save() can flush pending ops. */
@@ -57,10 +74,45 @@ export class PdfForm {
     this.fields = JSON.parse(readFields(bytes)) as FieldInfo[];
   }
 
+  /**
+   * Get metadata for every AcroForm field in the document.
+   *
+   * The returned field info includes each field's fully-qualified name, type,
+   * current value, valid checkbox/radio states, valid choice options, flags,
+   * max text length, and widget positions.
+   *
+   * @returns All fields in the form.
+   *
+   * @example
+   * ```ts
+   * for (const field of form.getFields()) {
+   *   console.log(field.name, field.type, field.value);
+   *   console.log(field.options);
+   * }
+   * ```
+   */
   getFields(): FieldInfo[] {
     return this.fields;
   }
 
+  /**
+   * Get metadata for one field by fully-qualified field name.
+   *
+   * This returns `undefined` when the field does not exist. Use a type-specific
+   * accessor such as `getTextField()` when you want an exception for missing
+   * fields or wrong field types.
+   *
+   * @param name - The fully-qualified field name.
+   * @returns The field metadata, or `undefined` if no field has that name.
+   *
+   * @example
+   * ```ts
+   * const field = form.getField("beneficiario.estado_civil");
+   * if (field?.type === "dropdown") {
+   *   console.log(field.options);
+   * }
+   * ```
+   */
   getField(name: string): FieldInfo | undefined {
     return this.fields.find((f) => f.name === name);
   }
@@ -74,32 +126,157 @@ export class PdfForm {
     return f;
   }
 
+  /**
+   * Get a text field by name.
+   *
+   * @param name - The fully-qualified text field name.
+   * @returns A text field wrapper for setting the field value.
+   * @throws `UnknownFieldError` when no field has the given name.
+   * @throws `FieldTypeError` when the field exists but is not a text field.
+   *
+   * @example
+   * ```ts
+   * form.getTextField("person.fullName").setText("Ada Lovelace");
+   * ```
+   */
   getTextField(name: string): PdfTextField {
     return new PdfTextField(this.require(name, "text"), this.queue);
   }
+  /**
+   * Get a checkbox field by name.
+   *
+   * @param name - The fully-qualified checkbox field name.
+   * @returns A checkbox wrapper for checking or unchecking the field.
+   * @throws `UnknownFieldError` when no field has the given name.
+   * @throws `FieldTypeError` when the field exists but is not a checkbox.
+   *
+   * @example
+   * ```ts
+   * form.getCheckBox("person.accepted").check();
+   * ```
+   */
   getCheckBox(name: string): PdfCheckBox {
     return new PdfCheckBox(this.require(name, "checkbox"), this.queue);
   }
+  /**
+   * Get a radio-button group by name.
+   *
+   * Select one of the group's real export values. You can read them from
+   * `radioGroup.options` or from `FieldInfo.states`.
+   *
+   * @param name - The fully-qualified radio group field name.
+   * @returns A radio group wrapper for selecting an option.
+   * @throws `UnknownFieldError` when no field has the given name.
+   * @throws `FieldTypeError` when the field exists but is not a radio group.
+   *
+   * @example
+   * ```ts
+   * const radio = form.getRadioGroup("beneficiario.tipo_beneficiario");
+   * console.log(radio.options);
+   * radio.select("Titular");
+   * ```
+   */
   getRadioGroup(name: string): PdfRadioGroup {
     return new PdfRadioGroup(this.require(name, "radio"), this.queue);
   }
+  /**
+   * Get a dropdown field by name.
+   *
+   * Select one of the dropdown's real export values. You can read them from
+   * `dropdown.options` or from `FieldInfo.options`.
+   *
+   * @param name - The fully-qualified dropdown field name.
+   * @returns A dropdown wrapper for selecting an option.
+   * @throws `UnknownFieldError` when no field has the given name.
+   * @throws `FieldTypeError` when the field exists but is not a dropdown.
+   *
+   * @example
+   * ```ts
+   * const dropdown = form.getDropdown("beneficiario.estado_civil");
+   * dropdown.select(dropdown.options[0]);
+   * ```
+   */
   getDropdown(name: string): PdfDropdown {
     return new PdfDropdown(this.require(name, "dropdown"), this.queue);
   }
+  /**
+   * Get a list-box field by name.
+   *
+   * List boxes are single-select in this version. Select one of the list box's
+   * real export values from `listBox.options` or `FieldInfo.options`.
+   *
+   * @param name - The fully-qualified list-box field name.
+   * @returns A list-box wrapper for selecting an option.
+   * @throws `UnknownFieldError` when no field has the given name.
+   * @throws `FieldTypeError` when the field exists but is not a list box.
+   *
+   * @example
+   * ```ts
+   * const listBox = form.getListBox("person.languages");
+   * listBox.select("TypeScript");
+   * ```
+   */
   getListBox(name: string): PdfListBox {
     return new PdfListBox(this.require(name, "listbox"), this.queue);
   }
+  /**
+   * Get a visual signature field by name.
+   *
+   * This is for placing a signature image only. It does not create a
+   * cryptographic digital signature.
+   *
+   * @param name - The fully-qualified signature field name.
+   * @returns A signature wrapper for setting a visual signature image.
+   * @throws `UnknownFieldError` when no field has the given name.
+   * @throws `FieldTypeError` when the field exists but is not a signature field.
+   *
+   * @example
+   * ```ts
+   * const image = new Uint8Array(await Bun.file("signature.png").arrayBuffer());
+   * form.getSignature("firma.titular").setImage(image);
+   * ```
+   */
   getSignature(name: string): PdfSignature {
     return new PdfSignature(this.require(name, "signature"), this.queue);
   }
 
-  /** Queue a single field to be flattened on save. */
+  /**
+   * Queue one field to be flattened when the document is saved.
+   *
+   * Flattening turns the field's current appearance into normal page content
+   * and removes the interactive field from the saved PDF. If you filled the
+   * field first, the filled value is flattened.
+   *
+   * @param name - The fully-qualified field name to flatten.
+   * @throws `UnknownFieldError` when no field has the given name.
+   *
+   * @example
+   * ```ts
+   * form.getTextField("invoice.total").setText("$42.00");
+   * form.flattenField("invoice.total");
+   *
+   * const pdfBytes = await doc.save();
+   * ```
+   */
   flattenField(name: string): void {
     if (!this.getField(name)) throw new UnknownFieldError(name);
     if (!this.flattenQueue.includes(name)) this.flattenQueue.push(name);
   }
 
-  /** Queue all fields to be flattened on save. */
+  /**
+   * Queue every form field to be flattened when the document is saved.
+   *
+   * Flattening all fields is useful when you want the saved PDF to be
+   * non-editable after filling it.
+   *
+   * @example
+   * ```ts
+   * form.getTextField("person.fullName").setText("Ada Lovelace");
+   * form.flatten();
+   *
+   * const pdfBytes = await doc.save();
+   * ```
+   */
   flatten(): void {
     for (const f of this.fields) {
       if (!this.flattenQueue.includes(f.name)) this.flattenQueue.push(f.name);
