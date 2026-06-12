@@ -171,8 +171,17 @@ src/
 - `./forms` → form/field classes, errors, typegen, schema types.
 - `./generate` → `PageSizes`, `StandardFonts`, `rgb`/`grayscale`, draw option types.
 
-`PdfDocument` remains the shared hub exported from the root (and from both subpaths for
-convenience). `sideEffects: false` already lets bundlers tree-shake unused classes; the
+`PdfDocument` is exported only from the root entries (`.` and `./browser`), because its
+`load()` is runtime-specific (Node reads the WASM binary from disk; the browser entry
+initializes it asynchronously). The subpaths stay runtime-neutral: they export only code
+with no WASM imports, so either entry can compose with them.
+
+`core/document.ts` is extracted in M20, when `save()` grows draw logic: today
+`PdfDocument` is duplicated across `index.ts` and `index.browser.ts` (the only difference
+is WASM initialization), and adding draw handling to both copies would double the
+maintenance. M19 keeps the two entry files at the root untouched.
+
+`sideEffects: false` already lets bundlers tree-shake unused classes; the
 subpaths are primarily about a focused, discoverable surface per audience. Install size
 is dominated by the single WASM binary and does not change; a per-feature WASM split is
 explicitly deferred.
