@@ -29,6 +29,11 @@ focused API surface — without splitting into separate npm packages.
 - **Packaging split:** `src/core`, `src/forms`, `src/generate` with `./forms` and
   `./generate` subpath exports. Root export keeps re-exporting everything (no breaking
   change). Single WASM binary, single npm package.
+- **Fixture cleanup:** delete the 17 fixture PDFs (of 24) that no test, script, Rust
+  test, fuzz corpus, or doc references. The used set is: `Form.-D.P.-2.4.1-Ficha-personal.pdf`,
+  `Anexo-3-sssalud.pdf`, `Convenio-OSFATUN-Discapacidad-2022.pdf`,
+  `Formulario asistencia al viajero 1.pdf`, `Modulo-de-Diabetes.pdf`, and both files in
+  `tests/fixtures/generated/`.
 
 ### Out of scope (future candidates)
 
@@ -193,8 +198,8 @@ The existing `./browser` and `./typegen` subpaths and the CLI bin are unchanged.
 ## 7. Milestones
 
 1. **M19 — Restructure:** move TS sources into `core/` and `forms/`, add `./forms`
-   subpath export, root re-exports unchanged. Zero behavior change; all existing tests
-   pass unmodified.
+   subpath export, root re-exports unchanged. Delete the 17 unreferenced fixture PDFs.
+   Zero behavior change; all existing tests pass unmodified.
 2. **M20 — Pages + draw text on existing PDFs:** `read_pages`, `getPage`/`getPages`/
    `getPageCount`, draw queue, `drawText`, `apply_draw_ops` with incremental update and
    `q`/`Q` wrapping. `./generate` subpath lands here.
