@@ -39,8 +39,8 @@
       "import": "./dist/forms/index.js"
     },
     "./typegen": {
-      "types": "./dist/typegen.d.ts",
-      "import": "./dist/typegen.js"
+      "types": "./dist/forms/typegen.d.ts",
+      "import": "./dist/forms/typegen.js"
     }
   },
   "bin": {
@@ -68,7 +68,7 @@
   ],
   "scripts": {
     "build:wasm": "wasm-pack build crates/core --target web --out-dir ../../pkg-web --out-name better_pdf_core",
-    "build:js": "tsc -p tsconfig.build.json",
+    "build:js": "rm -rf dist && tsc -p tsconfig.build.json",
     "build": "bun run build:wasm && bun run build:js",
     "fixtures:generate": "bun run scripts/make-fixtures.ts",
     "generate:font-metrics": "bun run scripts/gen-font-metrics.ts",
