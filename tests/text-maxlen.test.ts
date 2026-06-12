@@ -1,10 +1,10 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PdfTextField, FillQueue } from "../src/fields.ts";
-import { MaxLengthExceededError } from "../src/errors.ts";
+import { PdfTextField, FillQueue } from "../src/forms/fields.ts";
+import { MaxLengthExceededError } from "../src/core/errors.ts";
 import { PdfDocument } from "../src/index.ts";
-import type { FieldInfo } from "../src/form.ts";
+import type { FieldInfo } from "../src/forms/form.ts";
 
 function textInfo(maxLength: number | null): FieldInfo {
   return {

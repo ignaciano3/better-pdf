@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { FillQueue } from "../src/fields.ts";
+import { FillQueue } from "../src/forms/fields.ts";
 
 test("FillQueue packs images into one blob with offsets", () => {
   const q = new FillQueue();

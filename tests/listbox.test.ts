@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
-import { PdfListBox, FillQueue } from "../src/fields.ts";
-import { InvalidOptionError } from "../src/errors.ts";
-import type { FieldInfo } from "../src/form.ts";
+import { PdfListBox, FillQueue } from "../src/forms/fields.ts";
+import { InvalidOptionError } from "../src/core/errors.ts";
+import type { FieldInfo } from "../src/forms/form.ts";
 
 function listboxInfo(): FieldInfo {
   return {

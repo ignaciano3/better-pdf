@@ -1,7 +1,7 @@
-import { readFields, fillFields, flattenFields } from "./wasm.js";
-import { PdfForm } from "./form.js";
-import { toPdfError } from "./errors.js";
-import type { FormSchema, TypedPdfForm } from "./schema.js";
+import { readFields, fillFields, flattenFields } from "./core/wasm.js";
+import { PdfForm } from "./forms/form.js";
+import { toPdfError } from "./core/errors.js";
+import type { FormSchema, TypedPdfForm } from "./forms/schema.js";
 
 /**
  * Represents a loaded PDF document.
@@ -135,8 +135,8 @@ export class PdfDocument {
   }
 }
 
-export { PdfForm } from "./form.js";
-export type { FieldInfo, FieldType, FieldWidget } from "./form.js";
+export { PdfForm } from "./forms/form.js";
+export type { FieldInfo, FieldType, FieldWidget } from "./forms/form.js";
 export {
   PdfTextField,
   PdfCheckBox,
@@ -144,7 +144,7 @@ export {
   PdfDropdown,
   PdfListBox,
   PdfSignature,
-} from "./fields.js";
+} from "./forms/fields.js";
 export {
   PdfError,
   UnknownFieldError,
@@ -153,9 +153,9 @@ export {
   MaxLengthExceededError,
   MissingOnStateError,
   PdfCoreError,
-} from "./errors.js";
-export { generateFormTypes } from "./typegen.js";
-export type { GenerateFormTypesOptions } from "./typegen.js";
+} from "./core/errors.js";
+export { generateFormTypes } from "./forms/typegen.js";
+export type { GenerateFormTypesOptions } from "./forms/typegen.js";
 export type {
   FieldMeta,
   FormSchema,
@@ -163,4 +163,4 @@ export type {
   NameOfType,
   OptionsOf,
   TypedPdfForm,
-} from "./schema.js";
+} from "./forms/schema.js";

@@ -7,10 +7,10 @@ import {
   fill_fields,
   flatten_fields,
   read_fields,
-} from "../pkg-web/better_pdf_core.js";
+} from "../../pkg-web/better_pdf_core.js";
 
 initSync({
-  module: readFileSync(new URL("../pkg-web/better_pdf_core_bg.wasm", import.meta.url)),
+  module: readFileSync(new URL("../../pkg-web/better_pdf_core_bg.wasm", import.meta.url)),
 });
 
 export function readFields(data: Uint8Array): string {

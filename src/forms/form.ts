@@ -7,7 +7,7 @@ import {
   PdfListBox,
   PdfSignature,
 } from "./fields.js";
-import { UnknownFieldError, FieldTypeError } from "./errors.js";
+import { UnknownFieldError, FieldTypeError } from "../core/errors.js";
 
 export type FieldType =
   | "text" | "checkbox" | "radio" | "dropdown"

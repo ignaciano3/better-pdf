@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { PdfDocument } from "../src/index.ts";
 import { PDFDocument } from "pdf-lib";
-import type { FieldInfo, FieldType } from "../src/form.ts";
+import type { FieldInfo, FieldType } from "../src/forms/form.ts";
 
 const ITER = Number(process.env.BENCH_ITER ?? 25);
 const WARMUP = Number(process.env.BENCH_WARMUP ?? 3);

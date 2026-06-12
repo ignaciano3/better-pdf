@@ -2,7 +2,7 @@
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { PdfDocument } from "../index.js";
-import { generateFormTypes } from "../typegen.js";
+import { generateFormTypes } from "../forms/typegen.js";
 
 function usage(): string {
   return [

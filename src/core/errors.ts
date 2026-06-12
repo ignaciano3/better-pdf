@@ -1,4 +1,4 @@
-import type { FieldType } from "./form.js";
+import type { FieldType } from "../forms/form.js";
 
 /**
  * Base class for every error `better-pdf` throws from the form API. Catch this
