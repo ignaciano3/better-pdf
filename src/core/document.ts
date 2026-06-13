@@ -7,6 +7,8 @@ import { type PageSize, PageSizes } from "../generate/page-sizes.js";
 import { PdfImage } from "../generate/image.js";
 import { PdfFont } from "../generate/font.js";
 import { StandardFonts } from "../generate/fonts.js";
+import { FormBuilder } from "../generate/form-builder.js";
+import type { FieldDef } from "../generate/form-builder.js";
 
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
@@ -15,7 +17,7 @@ export interface CoreWasm {
   flattenFields(data: Uint8Array, namesJson: string): Uint8Array;
   readPages(data: Uint8Array): string;
   applyDrawOps(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array;
-  createDocument(opsJson: string, images?: Uint8Array): Uint8Array;
+  createDocument(opsJson: string, images?: Uint8Array, fieldsJson?: string): Uint8Array;
   imageInfo(data: Uint8Array): string;
   measureText(font: string, size: number, text: string): number;
 }
@@ -25,6 +27,8 @@ export class PdfDocumentBase {
   private pages?: PdfPage[];
   private readonly createdPages: PdfPage[] = [];
   private readonly drawQueue = new DrawQueue();
+  private readonly fieldDefs: FieldDef[] = [];
+  private readonly fieldNames = new Set<string>();
 
   /** @internal */
   protected constructor(
@@ -59,7 +63,7 @@ export class PdfDocumentBase {
     if (this.mode === "create") {
       try {
         const { opsJson, images } = this.drawQueue.toCreatePayload();
-        return this.wasm.createDocument(opsJson, images);
+        return this.wasm.createDocument(opsJson, images, JSON.stringify(this.fieldDefs));
       } catch (e) {
         throw toPdfError(e);
       }
@@ -117,6 +121,22 @@ export class PdfDocumentBase {
     const page = new PdfPage(index, width, height, 0, this.drawQueue);
     this.createdPages.push(page);
     return page;
+  }
+
+  /**
+   * Begin building an AcroForm on a document created with {@link PdfDocument.create}.
+   *
+   * Returns a {@link FormBuilder} that accumulates field definitions. The
+   * builder shares state with the document; calling `save()` serializes all
+   * added fields to Rust.
+   *
+   * @throws `PdfError` when called on a document opened with `PdfDocument.load()`.
+   */
+  createForm(): FormBuilder {
+    if (this.mode !== "create") {
+      throw new PdfError("createForm is only available on documents created with PdfDocument.create()");
+    }
+    return new FormBuilder(this.fieldDefs, this.fieldNames);
   }
 
   private loadPages(): PdfPage[] {

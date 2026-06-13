@@ -42,8 +42,12 @@ export function applyDrawOps(
   return apply_draw_ops(data, opsJson, images);
 }
 
-export function createDocument(opsJson: string, images: Uint8Array = new Uint8Array()): Uint8Array {
-  return create_document(opsJson, images);
+export function createDocument(
+  opsJson: string,
+  images: Uint8Array = new Uint8Array(),
+  fieldsJson = "[]",
+): Uint8Array {
+  return create_document(opsJson, images, fieldsJson);
 }
 
 export function imageInfo(data: Uint8Array): string {

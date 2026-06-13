@@ -66,8 +66,10 @@ largely identical; the differences are noted below.
 
 - **Standard-14 fonts only.** `getFont()` accepts a `StandardFonts` enum value;
   custom font embedding (`embedFont` with TTF/OTF bytes) is not yet supported.
-- **No AcroForm field creation on new documents.** `getForm()` is not available
-  on documents created with `PdfDocument.create()`.
+- **Form creation uses a builder.** pdf-lib mutates `form` in place via
+  `form.createTextField(...)`; better-pdf accumulates fields through a chainable
+  `doc.createForm()` builder (see below). `getForm()` itself is not available on
+  a created document until it is saved and reloaded.
 - **RGB and grayscale only.** CMYK color is not supported.
 - **Ellipse center semantics.** `drawEllipse({ x, y, xScale, yScale, … })` uses
   `(x, y)` as the center and `xScale`/`yScale` as the x and y radii — the same
@@ -78,6 +80,37 @@ largely identical; the differences are noted below.
   `await PdfDocument.create()` (pdf-lib's `PDFDocument.create()` is synchronous).
 - **`PageSizes` constants** are `[width, height]` tuples in PDF points: `A3`,
   `A4`, `A5`, `Letter`, `Legal`, `Tabloid`.
+
+## Creating form fields
+
+pdf-lib creates AcroForm fields by mutating the form returned from
+`pdfDoc.getForm()`. better-pdf uses a chainable builder obtained from
+`doc.createForm()` on a **created** document (`PdfDocument.create()`); each
+`add*` call also refines the builder's type so `getFieldNames()` is statically
+typed to the declared names.
+
+### API mapping
+
+| pdf-lib | better-pdf |
+| --- | --- |
+| `form.createTextField(name)` + `field.addToPage(page, opts)` | `doc.createForm().addTextField(name, { page, x, y, width, height, … })` |
+| `form.createCheckBox(name)` | `.addCheckBox(name, { page, x, y, size, … })` |
+| `form.createRadioGroup(name)` | `.addRadioGroup(name, { options: [{ value, page, x, y, size }], … })` |
+| `form.createDropdown(name)` | `.addDropdown(name, { page, x, y, width, height, options, … })` |
+| `form.createOptionList(name)` | `.addListBox(name, { page, x, y, width, height, options, … })` |
+| (no signature-field creation) | `.addSignatureField(name, { page, x, y, width, height, … })` |
+
+### Differences from pdf-lib
+
+- **Created documents only.** `doc.createForm()` throws if the document was
+  opened with `PdfDocument.load()`; pdf-lib lets you add fields to any document.
+- **Chainable, not in-place.** Every `add*` returns the builder, so fields are
+  declared in one fluent chain rather than mutating a shared `form` object.
+- **Position is per-call.** Geometry (`page`, `x`, `y`, plus `width`/`height` or
+  `size`) is passed to each `add*` call — there is no separate `addToPage` step.
+- **Typed names accumulate.** `getFieldNames()` is typed to the declared field
+  names. Once saved and reloaded with `PdfDocument.load`, the form is a normal
+  fillable AcroForm — fill it via `getForm()` and flatten it with this library.
 
 ## Typed forms (no pdf-lib equivalent)
 

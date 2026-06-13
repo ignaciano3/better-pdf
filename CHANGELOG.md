@@ -8,6 +8,25 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-13
+
+### Added
+
+- `doc.createForm()` — a chainable `FormBuilder` for adding AcroForm fields to a
+  document created with `PdfDocument.create()` (throws on loaded documents).
+- Field creation methods: `addTextField`, `addCheckBox`, `addRadioGroup`,
+  `addDropdown`, `addListBox`, and `addSignatureField`, covering all six field
+  types: text, checkbox, radio, dropdown, listbox, and signature.
+- Per-field options: `value`, `readOnly`, `required`, `tooltip`, `maxLength`,
+  and `multiline` (text fields), plus `checked`/`onValue` (checkboxes) and
+  `selected` (radio/choice fields).
+- Per-field `border` (`{ color, width? }`) and `background` (a `Color`)
+  appearance options, using `rgb`/`grayscale` color helpers.
+- Typed field-name accumulation: each `add*` call refines the builder's schema,
+  so `getFieldNames()` returns the declared names typed. Generated forms are
+  normal fillable AcroForms — after `save()` and reload via `PdfDocument.load`
+  they can be filled with `getForm()` and flattened by this library.
+
 ## [0.2.0] - 2026-06-13
 
 ### Added
@@ -125,7 +144,8 @@ WebAssembly with a fully-typed TypeScript API.
 - Text fields are single-line; multi-line wrapping is not generated.
 - PNG alpha is dropped rather than preserved as a soft mask.
 
-[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ignaciano3/better-pdf/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ignaciano3/better-pdf/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/ignaciano3/better-pdf/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ignaciano3/better-pdf/compare/v0.1.0...v0.1.1
