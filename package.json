@@ -38,6 +38,10 @@
       "types": "./dist/forms/index.d.ts",
       "import": "./dist/forms/index.js"
     },
+    "./generate": {
+      "types": "./dist/generate/index.d.ts",
+      "import": "./dist/generate/index.js"
+    },
     "./typegen": {
       "types": "./dist/forms/typegen.d.ts",
       "import": "./dist/forms/typegen.js"
