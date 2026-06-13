@@ -3,6 +3,7 @@
 
 use lopdf::{dictionary, Dictionary, Document, Object, Stream};
 use serde::Deserialize;
+use std::collections::HashSet;
 
 use crate::draw::{
     emit_ellipse, emit_image_op, emit_line, emit_rectangle, emit_text_block, extgstate_dict,
@@ -75,9 +76,44 @@ enum CreateOp {
     },
 }
 
-pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, String> {
+#[derive(Deserialize)]
+struct Border {
+    color: [f32; 3],
+    width: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum FieldDef {
+    Text {
+        name: String,
+        page: usize,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        value: Option<String>,
+        #[serde(rename = "maxLength")]
+        max_length: Option<i64>,
+        multiline: Option<bool>,
+        #[serde(default)]
+        required: bool,
+        #[serde(rename = "readOnly", default)]
+        read_only: bool,
+        tooltip: Option<String>,
+        border: Option<Border>,
+        background: Option<[f32; 3]>,
+    },
+}
+
+pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) -> Result<Vec<u8>, String> {
     let ops: Vec<CreateOp> =
         serde_json::from_str(ops_json).map_err(|e| format!("invalid create ops: {e}"))?;
+
+    // Parse fields, treating "" as empty array
+    let effective_fields_json = if fields_json.is_empty() { "[]" } else { fields_json };
+    let fields: Vec<FieldDef> =
+        serde_json::from_str(effective_fields_json).map_err(|e| format!("invalid fields: {e}"))?;
 
     let pages: Vec<(f32, f32)> = ops
         .iter()
@@ -257,6 +293,40 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
         }
     }
 
+    // Validate fields
+    {
+        let mut seen_names: HashSet<&str> = HashSet::new();
+        for field in &fields {
+            match field {
+                FieldDef::Text { name, page, x, y, width, height, max_length, .. } => {
+                    if name.is_empty() {
+                        return Err("field name must not be empty".to_string());
+                    }
+                    if !seen_names.insert(name.as_str()) {
+                        return Err(format!("duplicate field name: {name}"));
+                    }
+                    if *page >= pages.len() {
+                        return Err(format!("field page {page} out of range ({} pages)", pages.len()));
+                    }
+                    if !x.is_finite() || !y.is_finite() {
+                        return Err("field x/y must be finite".to_string());
+                    }
+                    if !width.is_finite() || *width <= 0.0 {
+                        return Err("field width must be finite and > 0".to_string());
+                    }
+                    if !height.is_finite() || *height <= 0.0 {
+                        return Err("field height must be finite and > 0".to_string());
+                    }
+                    if let Some(ml) = max_length {
+                        if *ml < 0 {
+                            return Err("field maxLength must be >= 0".to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let mut doc = Document::with_version("1.7");
     let pages_id = doc.new_object_id();
 
@@ -267,6 +337,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
     let mut gs_counter: usize = 0;
 
     let mut kids: Vec<Object> = Vec::new();
+    let mut page_ids: Vec<lopdf::ObjectId> = Vec::new();
     for (page_index, (w, h)) in pages.iter().enumerate() {
         let mut content = Vec::new();
         let mut font_res = Dictionary::new();
@@ -453,6 +524,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
         };
         let page_id = doc.add_object(Object::Dictionary(page_dict));
         kids.push(Object::Reference(page_id));
+        page_ids.push(page_id);
     }
 
     let count = kids.len() as i64;
@@ -463,10 +535,181 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
     };
     doc.set_object(pages_id, Object::Dictionary(pages_dict));
 
-    let catalog_id = doc.add_object(dictionary! {
+    // Build AcroForm and field widgets if any fields are defined
+    let acro_form_ref = if !fields.is_empty() {
+        // Shared Helv font for all field appearances
+        let helv = doc.add_object(Object::Dictionary(font_dict("Helvetica")));
+        let widths = crate::appearance::helvetica_widths();
+
+        let mut acro_fields: Vec<Object> = Vec::new();
+        // Track which field object ids go on which page: page_index -> Vec<ObjectId>
+        let mut page_annots: Vec<Vec<lopdf::ObjectId>> = vec![Vec::new(); page_ids.len()];
+
+        for field in &fields {
+            match field {
+                FieldDef::Text {
+                    name,
+                    page,
+                    x,
+                    y,
+                    width,
+                    height,
+                    value,
+                    max_length,
+                    multiline,
+                    required,
+                    read_only,
+                    tooltip,
+                    border,
+                    background,
+                } => {
+                    let val_str = value.clone().unwrap_or_default();
+                    let val_bytes = crate::appearance::encode_winansi(&val_str);
+
+                    let content = crate::appearance::text_appearance_content(
+                        &val_bytes,
+                        12.0,
+                        *width,
+                        *height,
+                        0,
+                        "0 g",
+                        "Helv",
+                        &widths,
+                    );
+                    let ap_stream = crate::appearance::build_appearance_xobject(
+                        content, *width, *height, "Helv", helv,
+                    );
+                    let ap_id = doc.add_object(Object::Stream(ap_stream));
+
+                    let flags: i64 = ((*read_only as i64) << 0)
+                        | ((*required as i64) << 1)
+                        | ((multiline.unwrap_or(false) as i64) << 12);
+
+                    let rect = Object::Array(vec![
+                        Object::Real(*x),
+                        Object::Real(*y),
+                        Object::Real(*x + *width),
+                        Object::Real(*y + *height),
+                    ]);
+
+                    let mut field_dict = Dictionary::new();
+                    field_dict.set("Type", Object::Name(b"Annot".to_vec()));
+                    field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                    field_dict.set("FT", Object::Name(b"Tx".to_vec()));
+                    field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+                    field_dict.set("Rect", rect);
+                    field_dict.set("DA", Object::string_literal("/Helv 12 Tf 0 g"));
+                    field_dict.set("V", Object::string_literal(val_bytes));
+                    field_dict.set("Ff", Object::Integer(flags));
+                    field_dict.set(
+                        "AP",
+                        Object::Dictionary(dictionary! {
+                            "N" => Object::Reference(ap_id)
+                        }),
+                    );
+                    field_dict.set("P", Object::Reference(page_ids[*page]));
+
+                    if let Some(ml) = max_length {
+                        field_dict.set("MaxLen", Object::Integer(*ml));
+                    }
+                    if let Some(tip) = tooltip {
+                        if !tip.is_empty() {
+                            field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
+                        }
+                    }
+
+                    // MK dict: BG (background), BC (border color), BS (border style)
+                    let mut mk = Dictionary::new();
+                    if let Some(bg) = background {
+                        mk.set(
+                            "BG",
+                            Object::Array(vec![
+                                Object::Real(bg[0]),
+                                Object::Real(bg[1]),
+                                Object::Real(bg[2]),
+                            ]),
+                        );
+                    }
+                    if let Some(b) = border {
+                        mk.set(
+                            "BC",
+                            Object::Array(vec![
+                                Object::Real(b.color[0]),
+                                Object::Real(b.color[1]),
+                                Object::Real(b.color[2]),
+                            ]),
+                        );
+                        // Add border style if width != 1
+                        if (b.width - 1.0).abs() > 0.001 {
+                            field_dict.set(
+                                "BS",
+                                Object::Dictionary(dictionary! {
+                                    "W" => Object::Real(b.width),
+                                    "S" => Object::Name(b"S".to_vec())
+                                }),
+                            );
+                        }
+                    }
+                    if mk.len() > 0 {
+                        field_dict.set("MK", Object::Dictionary(mk));
+                    }
+
+                    let field_id = doc.add_object(Object::Dictionary(field_dict));
+                    acro_fields.push(Object::Reference(field_id));
+                    page_annots[*page].push(field_id);
+                }
+            }
+        }
+
+        // Append widget annotations to their respective pages
+        for (pg_idx, annot_ids) in page_annots.iter().enumerate() {
+            if annot_ids.is_empty() {
+                continue;
+            }
+            let page_obj = doc
+                .get_object_mut(page_ids[pg_idx])
+                .expect("page must exist");
+            let page_dict = page_obj.as_dict_mut().expect("page must be a dict");
+            let annots = page_dict
+                .get_mut(b"Annots")
+                .ok()
+                .and_then(|o| if let Object::Array(_) = o { Some(o) } else { None });
+            if let Some(Object::Array(arr)) = annots {
+                for &aid in annot_ids {
+                    arr.push(Object::Reference(aid));
+                }
+            } else {
+                let arr: Vec<Object> =
+                    annot_ids.iter().map(|&aid| Object::Reference(aid)).collect();
+                page_dict.set("Annots", Object::Array(arr));
+            }
+        }
+
+        // Build and add AcroForm
+        let acro_dict = dictionary! {
+            "Fields" => Object::Array(acro_fields),
+            "DR" => Object::Dictionary(dictionary! {
+                "Font" => Object::Dictionary(dictionary! {
+                    "Helv" => Object::Reference(helv)
+                })
+            }),
+            "DA" => Object::string_literal("/Helv 0 Tf 0 g"),
+            "NeedAppearances" => Object::Boolean(false)
+        };
+        let acro_id = doc.add_object(Object::Dictionary(acro_dict));
+        Some(acro_id)
+    } else {
+        None
+    };
+
+    let mut catalog_dict = dictionary! {
         "Type" => Object::Name(b"Catalog".to_vec()),
         "Pages" => Object::Reference(pages_id),
-    });
+    };
+    if let Some(acro_id) = acro_form_ref {
+        catalog_dict.set("AcroForm", Object::Reference(acro_id));
+    }
+    let catalog_id = doc.add_object(Object::Dictionary(catalog_dict));
     doc.trailer.set("Root", Object::Reference(catalog_id));
 
     let mut out = Vec::new();
@@ -491,7 +734,7 @@ mod tests {
 
     #[test]
     fn creates_single_page_doc() {
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[]).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         assert_eq!(doc.get_pages().len(), 1);
         let cat = doc.catalog().unwrap();
@@ -500,7 +743,7 @@ mod tests {
 
     #[test]
     fn page_has_mediabox() {
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[]).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -512,7 +755,7 @@ mod tests {
 
     #[test]
     fn text_drawn_on_created_page() {
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#, &[]).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#, &[], "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -527,7 +770,7 @@ mod tests {
 
     #[test]
     fn multiple_pages_in_order() {
-        let out = create_document_json(r#"[{"op":"addPage","width":100,"height":200},{"op":"addPage","width":300,"height":400}]"#, &[]).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":100,"height":200},{"op":"addPage","width":300,"height":400}]"#, &[], "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let pages: Vec<_> = doc.get_pages().into_iter().collect();
         assert_eq!(pages.len(), 2);
@@ -538,25 +781,25 @@ mod tests {
 
     #[test]
     fn errors_on_no_pages() {
-        let r = create_document_json(r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[]);
+        let r = create_document_json(r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[], "[]");
         assert!(r.is_err());
     }
 
     #[test]
     fn errors_on_text_page_out_of_range() {
-        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":1,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[]);
+        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":1,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[], "[]");
         assert!(r.unwrap_err().contains("page"));
     }
 
     #[test]
     fn errors_on_unknown_font() {
-        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#, &[]);
+        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#, &[], "[]");
         assert!(r.unwrap_err().contains("font"));
     }
 
     #[test]
     fn output_parses_and_is_nonempty() {
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[]).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], "[]").unwrap();
         assert!(out.starts_with(b"%PDF-"));
         assert!(out.len() > 100);
     }
@@ -568,7 +811,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = create_document_json(&json, png).unwrap();
+        let out = create_document_json(&json, png, "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -589,7 +832,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":1,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let r = create_document_json(&json, png);
+        let r = create_document_json(&json, png, "[]");
         assert!(r.unwrap_err().contains("page"));
     }
 
@@ -601,7 +844,7 @@ mod tests {
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{}}}]"#,
             len + 1
         );
-        let r = create_document_json(&json, png);
+        let r = create_document_json(&json, png, "[]");
         assert!(r.unwrap_err().contains("out of bounds"));
     }
 
@@ -618,6 +861,7 @@ mod tests {
         let out = create_document_json(
             r#"[{"op":"addPage","width":595,"height":842},{"op":"rectangle","page":0,"x":50,"y":100,"width":200,"height":80,"color":[0.9,0.9,0.9],"borderColor":[0,0,0],"borderWidth":1}]"#,
             &[],
+            "[]",
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -635,6 +879,7 @@ mod tests {
         let out = create_document_json(
             r#"[{"op":"addPage","width":595,"height":842},{"op":"rectangle","page":0,"x":50,"y":100,"width":200,"height":80,"color":[0.9,0.9,0.9],"opacity":0.5}]"#,
             &[],
+            "[]",
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -666,6 +911,7 @@ mod tests {
         let out = create_document_json(
             r#"[{"op":"addPage","width":595,"height":842},{"op":"line","page":0,"x1":50,"y1":100,"x2":250,"y2":100,"thickness":2,"color":[1,0,0]},{"op":"ellipse","page":0,"x":150,"y":400,"xScale":100,"yScale":40,"color":[0,0,1],"borderColor":[0,0,0],"borderWidth":1}]"#,
             &[],
+            "[]",
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -680,5 +926,37 @@ mod tests {
             s.matches(" c").count() >= 4,
             "expected >= 4 cubic bezier segments for ellipse: {s}"
         );
+    }
+
+    #[test]
+    fn creates_text_field() {
+        let fields = r#"[{"type":"text","name":"fullName","page":0,"x":56,"y":700,"width":200,"height":20,"value":"Ada"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], fields).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        assert!(doc.catalog().unwrap().has(b"AcroForm"));
+        let json = crate::forms::read_fields_json(&out).unwrap();
+        assert!(json.contains("fullName"), "json: {json}");
+        assert!(json.contains("Ada"), "json: {json}");
+    }
+
+    #[test]
+    fn text_field_on_page_annots() {
+        let fields = r#"[{"type":"text","name":"a","page":0,"x":10,"y":10,"width":100,"height":20}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], fields).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Annots").unwrap().as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn rejects_duplicate_field_name() {
+        let f = r#"[{"type":"text","name":"x","page":0,"x":0,"y":0,"width":10,"height":10},{"type":"text","name":"x","page":0,"x":0,"y":40,"width":10,"height":10}]"#;
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+    }
+
+    #[test]
+    fn rejects_field_bad_page() {
+        let f = r#"[{"type":"text","name":"x","page":5,"x":0,"y":0,"width":10,"height":10}]"#;
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
     }
 }
