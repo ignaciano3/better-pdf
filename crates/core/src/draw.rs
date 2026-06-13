@@ -317,6 +317,7 @@ pub(crate) fn emit_ellipse(
         )
         .as_bytes(),
     );
+    out.extend_from_slice(b"h\n");
     out.extend_from_slice(paint_op(fill.is_some(), border.is_some()).as_bytes());
     out.extend_from_slice(b"\nQ\n");
 }
@@ -343,18 +344,35 @@ pub(crate) fn register_extgstate(
         Some(id) => {
             inc.opt_clone_object_to_new_document(id)
                 .map_err(|e| e.to_string())?;
-            set_extgstate(dict_mut(inc, id)?, key, gs_id);
+            resolve_and_set_subdict(inc, id, b"ExtGState", key, gs_id)?;
         }
         None => {
             let page = dict_mut(inc, page_id)?;
             if !page.has(b"Resources") {
                 page.set("Resources", Object::Dictionary(Dictionary::new()));
             }
-            let res = page
+            let extgstate_sub_ref = page
                 .get_mut(b"Resources")
                 .and_then(Object::as_dict_mut)
-                .map_err(|e| e.to_string())?;
-            set_extgstate(res, key, gs_id);
+                .ok()
+                .and_then(|res| res.get(b"ExtGState").ok().cloned())
+                .and_then(|obj| if let Object::Reference(id) = obj { Some(id) } else { None });
+            if let Some(sub_id) = extgstate_sub_ref {
+                inc.opt_clone_object_to_new_document(sub_id)
+                    .map_err(|e| e.to_string())?;
+                let gs_dict = inc
+                    .new_document
+                    .get_object_mut(sub_id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(|e| e.to_string())?;
+                gs_dict.set(key.as_bytes().to_vec(), Object::Reference(gs_id));
+            } else {
+                let res = dict_mut(inc, page_id)?
+                    .get_mut(b"Resources")
+                    .and_then(Object::as_dict_mut)
+                    .map_err(|e| e.to_string())?;
+                set_extgstate(res, key, gs_id);
+            }
         }
     }
     Ok(())
@@ -384,18 +402,35 @@ pub(crate) fn register_xobject(
         Some(id) => {
             inc.opt_clone_object_to_new_document(id)
                 .map_err(|e| e.to_string())?;
-            set_xobject(dict_mut(inc, id)?, key, xobject_id);
+            resolve_and_set_subdict(inc, id, b"XObject", key, xobject_id)?;
         }
         None => {
             let page = dict_mut(inc, page_id)?;
             if !page.has(b"Resources") {
                 page.set("Resources", Object::Dictionary(Dictionary::new()));
             }
-            let res = page
+            let xobject_sub_ref = page
                 .get_mut(b"Resources")
                 .and_then(Object::as_dict_mut)
-                .map_err(|e| e.to_string())?;
-            set_xobject(res, key, xobject_id);
+                .ok()
+                .and_then(|res| res.get(b"XObject").ok().cloned())
+                .and_then(|obj| if let Object::Reference(id) = obj { Some(id) } else { None });
+            if let Some(sub_id) = xobject_sub_ref {
+                inc.opt_clone_object_to_new_document(sub_id)
+                    .map_err(|e| e.to_string())?;
+                let xo_dict = inc
+                    .new_document
+                    .get_object_mut(sub_id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(|e| e.to_string())?;
+                xo_dict.set(key.as_bytes().to_vec(), Object::Reference(xobject_id));
+            } else {
+                let res = dict_mut(inc, page_id)?
+                    .get_mut(b"Resources")
+                    .and_then(Object::as_dict_mut)
+                    .map_err(|e| e.to_string())?;
+                set_xobject(res, key, xobject_id);
+            }
         }
     }
     Ok(())
@@ -408,6 +443,52 @@ fn set_xobject(res: &mut Dictionary, key: &str, xobject_id: ObjectId) {
     if let Ok(xo) = res.get_mut(b"XObject").and_then(Object::as_dict_mut) {
         xo.set(key.as_bytes().to_vec(), Object::Reference(xobject_id));
     }
+}
+
+/// If the sub-dict under `res_id[subdict_key]` is an indirect reference, clone it into
+/// `new_document` and mutate it there; otherwise fall through to the inline set_* helper.
+/// This prevents a silent no-op when the sub-dict is stored as an indirect object.
+fn resolve_and_set_subdict(
+    inc: &mut IncrementalDocument,
+    res_id: ObjectId,
+    subdict_key: &[u8],
+    entry_key: &str,
+    entry_id: ObjectId,
+) -> Result<(), String> {
+    // Check if the sub-dict is an indirect reference in either document
+    let subdict_ref: Option<ObjectId> = inc
+        .new_document
+        .get_object(res_id)
+        .and_then(Object::as_dict)
+        .ok()
+        .and_then(|d| d.get(subdict_key).ok().cloned())
+        .and_then(|obj| if let Object::Reference(id) = obj { Some(id) } else { None });
+
+    match subdict_ref {
+        Some(sub_id) => {
+            // Clone the indirect sub-dict into new_document so we can mutate it
+            inc.opt_clone_object_to_new_document(sub_id)
+                .map_err(|e| e.to_string())?;
+            let sub_dict = inc
+                .new_document
+                .get_object_mut(sub_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
+            sub_dict.set(entry_key.as_bytes().to_vec(), Object::Reference(entry_id));
+        }
+        None => {
+            // Sub-dict is inline (or absent) — use the regular mutable setter
+            let res = dict_mut(inc, res_id)?;
+            // Route to the appropriate set_* based on subdict_key
+            match subdict_key {
+                b"ExtGState" => set_extgstate(res, entry_key, entry_id),
+                b"XObject" => set_xobject(res, entry_key, entry_id),
+                b"Font" => set_font(res, entry_key, entry_id),
+                _ => {}
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Apply draw ops from a JSON string to `data` and return new PDF bytes
@@ -516,6 +597,12 @@ pub fn apply_draw_ops_json(
                         return Err("invalid coordinate".to_string());
                     }
                 }
+                if *width <= 0.0 {
+                    return Err("width must be > 0".to_string());
+                }
+                if *height <= 0.0 {
+                    return Err("height must be > 0".to_string());
+                }
                 if let Some(c) = color {
                     for &v in c.iter() {
                         if !v.is_finite() {
@@ -556,6 +643,12 @@ pub fn apply_draw_ops_json(
                     if !v.is_finite() {
                         return Err("invalid coordinate".to_string());
                     }
+                }
+                if *x_scale <= 0.0 {
+                    return Err("xScale must be > 0".to_string());
+                }
+                if *y_scale <= 0.0 {
+                    return Err("yScale must be > 0".to_string());
                 }
                 if let Some(c) = color {
                     for &v in c.iter() {
@@ -609,7 +702,7 @@ pub fn apply_draw_ops_json(
     // Global image counter for unique XObject keys across all pages
     let mut img_counter: usize = 0;
 
-    // Global ExtGState counter for unique GS keys across all pages
+    // Global ExtGState counter for unique BPG keys across all pages
     let mut gs_counter: usize = 0;
 
     // Process each touched page
@@ -690,7 +783,7 @@ pub fn apply_draw_ops_json(
                     page: _,
                 } => {
                     let gs_key = if let Some(o) = opacity {
-                        let key = format!("GS{gs_counter}");
+                        let key = format!("BPG{gs_counter}");
                         gs_counter += 1;
                         let gs_id = inc.new_document.add_object(
                             Object::Dictionary(extgstate_dict(*o))
@@ -717,7 +810,7 @@ pub fn apply_draw_ops_json(
                     page: _,
                 } => {
                     let gs_key = if let Some(o) = opacity {
-                        let key = format!("GS{gs_counter}");
+                        let key = format!("BPG{gs_counter}");
                         gs_counter += 1;
                         let gs_id = inc.new_document.add_object(
                             Object::Dictionary(extgstate_dict(*o))
@@ -745,7 +838,7 @@ pub fn apply_draw_ops_json(
                     page: _,
                 } => {
                     let gs_key = if let Some(o) = opacity {
-                        let key = format!("GS{gs_counter}");
+                        let key = format!("BPG{gs_counter}");
                         gs_counter += 1;
                         let gs_id = inc.new_document.add_object(
                             Object::Dictionary(extgstate_dict(*o))
@@ -869,18 +962,37 @@ fn register_font(
         Some(id) => {
             inc.opt_clone_object_to_new_document(id)
                 .map_err(|e| e.to_string())?;
-            set_font(dict_mut(inc, id)?, key, font_id);
+            resolve_and_set_subdict(inc, id, b"Font", key, font_id)?;
         }
         None => {
             let page = dict_mut(inc, page_id)?;
             if !page.has(b"Resources") {
                 page.set("Resources", Object::Dictionary(Dictionary::new()));
             }
-            let res = page
+            // Check if /Font sub-dict is an indirect reference stored inline in Resources
+            let font_sub_ref = page
                 .get_mut(b"Resources")
                 .and_then(Object::as_dict_mut)
-                .map_err(|e| e.to_string())?;
-            set_font(res, key, font_id);
+                .ok()
+                .and_then(|res| res.get(b"Font").ok().cloned())
+                .and_then(|obj| if let Object::Reference(id) = obj { Some(id) } else { None });
+            if let Some(sub_id) = font_sub_ref {
+                // Clone the indirect Font dict and mutate it directly
+                inc.opt_clone_object_to_new_document(sub_id)
+                    .map_err(|e| e.to_string())?;
+                let font_dict_obj = inc
+                    .new_document
+                    .get_object_mut(sub_id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(|e| e.to_string())?;
+                font_dict_obj.set(key.as_bytes().to_vec(), Object::Reference(font_id));
+            } else {
+                let res = dict_mut(inc, page_id)?
+                    .get_mut(b"Resources")
+                    .and_then(Object::as_dict_mut)
+                    .map_err(|e| e.to_string())?;
+                set_font(res, key, font_id);
+            }
         }
     }
     Ok(())
@@ -1152,13 +1264,13 @@ mod tests {
             lopdf::Object::Dictionary(d) => d.clone(),
             _ => panic!("expected ExtGState dict"),
         };
-        // GS0 must exist
-        let gs0_ref = extgstate
-            .get(b"GS0")
-            .expect("GS0 not found in ExtGState resources");
-        let gs0_id = gs0_ref.as_reference().unwrap();
-        let gs0_dict = doc.get_object(gs0_id).unwrap().as_dict().unwrap().clone();
-        let ca = gs0_dict.get(b"ca").unwrap();
+        // BPG0 must exist
+        let bpg0_ref = extgstate
+            .get(b"BPG0")
+            .expect("BPG0 not found in ExtGState resources");
+        let bpg0_id = bpg0_ref.as_reference().unwrap();
+        let bpg0_dict = doc.get_object(bpg0_id).unwrap().as_dict().unwrap().clone();
+        let ca = bpg0_dict.get(b"ca").unwrap();
         let ca_val = match ca {
             lopdf::Object::Real(v) => *v,
             lopdf::Object::Integer(v) => *v as f32,
@@ -1168,9 +1280,9 @@ mod tests {
             (ca_val - 0.5).abs() < 0.01,
             "expected ca ~= 0.5, got {ca_val}"
         );
-        // Content must reference /GS0 gs
+        // Content must reference /BPG0 gs
         let s = last_draw_stream_content(&out);
-        assert!(s.contains("/GS0 gs"), "content missing /GS0 gs, got: {s}");
+        assert!(s.contains("/BPG0 gs"), "content missing /BPG0 gs, got: {s}");
     }
 
     #[test]
@@ -1199,6 +1311,139 @@ mod tests {
         assert!(
             tj_pos < re_pos,
             "text (Tj at {tj_pos}) should appear before rectangle (re at {re_pos}), content: {s}"
+        );
+    }
+
+    // Finding 2 regression: page whose /Resources/Font is an indirect object still gets
+    // the new BPF font registered. We build an in-memory PDF where /Resources/Font is
+    // stored as an indirect reference (lopdf stores it inline by default, so we promote it).
+    #[test]
+    fn font_registered_when_resources_font_is_indirect() {
+        use lopdf::{dictionary, Dictionary, Document, Object, Stream};
+
+        // Build a minimal 1-page PDF with /Resources/Font as an indirect object
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+
+        // Indirect Font dict (existing entry to verify we don't lose it)
+        let existing_font_id = doc.add_object(Object::Dictionary(font_dict("Helvetica")));
+        let mut font_res = Dictionary::new();
+        font_res.set("ExistingFont", Object::Reference(existing_font_id));
+        let font_res_id = doc.add_object(Object::Dictionary(font_res));
+
+        let mut resources = Dictionary::new();
+        resources.set("Font", Object::Reference(font_res_id));
+
+        let content_id = doc.add_object(Object::Stream(Stream::new(
+            Dictionary::new(),
+            b"".to_vec(),
+        )));
+        let page_dict = dictionary! {
+            "Type" => Object::Name(b"Page".to_vec()),
+            "Parent" => Object::Reference(pages_id),
+            "MediaBox" => Object::Array(vec![
+                Object::Real(0.0), Object::Real(0.0),
+                Object::Real(595.0), Object::Real(842.0),
+            ]),
+            "Contents" => Object::Reference(content_id),
+            "Resources" => Object::Dictionary(resources),
+        };
+        let page_id = doc.add_object(Object::Dictionary(page_dict));
+
+        let pages_dict = dictionary! {
+            "Type" => Object::Name(b"Pages".to_vec()),
+            "Kids" => Object::Array(vec![Object::Reference(page_id)]),
+            "Count" => Object::Integer(1i64),
+        };
+        doc.set_object(pages_id, Object::Dictionary(pages_dict));
+
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+        });
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+
+        let mut base = Vec::new();
+        doc.save_to(&mut base).unwrap();
+
+        // Apply a drawText op — this exercises register_font with an indirect Font sub-dict
+        let out = apply_draw_ops_json(
+            &base,
+            r#"[{"op":"text","page":0,"x":50,"y":700,"size":12,"font":"Helvetica","color":[0,0,0],"text":"hi"}]"#,
+            &[],
+        )
+        .expect("apply_draw_ops_json should succeed");
+
+        // Reload and verify both the original ExistingFont and new BPF font are present
+        let doc2 = Document::load_mem(&out).unwrap();
+        let (_, first) = doc2.get_pages().into_iter().next().unwrap();
+        let page = doc2.get_dictionary(first).unwrap();
+        let res = match page.get(b"Resources").unwrap() {
+            lopdf::Object::Reference(r) => doc2.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected Resources dict"),
+        };
+        let fonts = match res.get(b"Font").unwrap() {
+            lopdf::Object::Reference(r) => doc2.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected Font dict"),
+        };
+        assert!(
+            fonts.iter().any(|(k, _)| k.starts_with(b"BPF")),
+            "new BPF font not found; fonts: {:?}",
+            fonts.iter().map(|(k, _)| String::from_utf8_lossy(k).into_owned()).collect::<Vec<_>>()
+        );
+        assert!(
+            fonts.has(b"ExistingFont"),
+            "original ExistingFont was lost after drawText"
+        );
+    }
+
+    // Finding 4: ellipse content must contain closepath 'h' before the paint operator
+    #[test]
+    fn ellipse_content_contains_closepath() {
+        let out = ops(
+            r#"[{"op":"ellipse","page":0,"x":150,"y":140,"xScale":100,"yScale":40,"color":[0,0,1],"borderColor":[0,0,0],"borderWidth":1}]"#,
+            &[],
+        );
+        let s = last_draw_stream_content(&out);
+        // Find last 'c' curve and ensure 'h' appears before the paint op
+        let h_pos = s.find("\nh\n").expect("missing closepath 'h' in ellipse content");
+        let paint_pos = s.rfind('B').or_else(|| s.rfind('f')).or_else(|| s.rfind('S'))
+            .expect("missing paint operator");
+        assert!(
+            h_pos < paint_pos,
+            "closepath 'h' (at {h_pos}) must appear before paint op (at {paint_pos}), content: {s}"
+        );
+    }
+
+    // Finding 5: ellipse with xScale=0 must error with "must be > 0"
+    #[test]
+    fn ellipse_zero_scale_errors() {
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"ellipse","page":0,"x":100,"y":100,"xScale":0,"yScale":50,"color":[0,0,1]}]"#,
+            &[],
+        );
+        let err = r.unwrap_err();
+        assert!(
+            err.contains("must be > 0"),
+            "expected 'must be > 0' error for xScale=0, got: {err}"
+        );
+    }
+
+    // Finding 5: rectangle with zero width must error
+    #[test]
+    fn rectangle_zero_width_errors() {
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"rectangle","page":0,"x":10,"y":10,"width":0,"height":30,"color":[0,0,1]}]"#,
+            &[],
+        );
+        let err = r.unwrap_err();
+        assert!(
+            err.contains("must be > 0"),
+            "expected 'must be > 0' error for width=0, got: {err}"
         );
     }
 }

@@ -119,10 +119,13 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
             }
             CreateOp::Line {
                 page,
+                x1,
+                y1,
+                x2,
+                y2,
                 thickness,
                 color,
                 opacity,
-                ..
             } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
@@ -137,6 +140,11 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
                         return Err("thickness must be >= 0".to_string());
                     }
                 }
+                for &v in &[*x1, *y1, *x2, *y2] {
+                    if !v.is_finite() {
+                        return Err("invalid coordinate".to_string());
+                    }
+                }
                 if let Some(c) = color {
                     for &v in c.iter() {
                         if !v.is_finite() {
@@ -147,11 +155,14 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
             }
             CreateOp::Rectangle {
                 page,
+                x,
+                y,
+                width,
+                height,
                 color,
                 border_color,
                 border_width,
                 opacity,
-                ..
             } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
@@ -165,6 +176,17 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
                     if !bw.is_finite() || *bw < 0.0 {
                         return Err("borderWidth must be >= 0".to_string());
                     }
+                }
+                for &v in &[*x, *y, *width, *height] {
+                    if !v.is_finite() {
+                        return Err("invalid coordinate".to_string());
+                    }
+                }
+                if *width <= 0.0 {
+                    return Err("width must be > 0".to_string());
+                }
+                if *height <= 0.0 {
+                    return Err("height must be > 0".to_string());
                 }
                 if let Some(c) = color {
                     for &v in c.iter() {
@@ -183,11 +205,14 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
             }
             CreateOp::Ellipse {
                 page,
+                x,
+                y,
+                x_scale,
+                y_scale,
                 color,
                 border_color,
                 border_width,
                 opacity,
-                ..
             } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
@@ -201,6 +226,17 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
                     if !bw.is_finite() || *bw < 0.0 {
                         return Err("borderWidth must be >= 0".to_string());
                     }
+                }
+                for &v in &[*x, *y, *x_scale, *y_scale] {
+                    if !v.is_finite() {
+                        return Err("invalid coordinate".to_string());
+                    }
+                }
+                if *x_scale <= 0.0 {
+                    return Err("xScale must be > 0".to_string());
+                }
+                if *y_scale <= 0.0 {
+                    return Err("yScale must be > 0".to_string());
                 }
                 if let Some(c) = color {
                     for &v in c.iter() {
@@ -227,7 +263,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
     // Global image counter for unique XObject keys
     let mut img_counter: usize = 0;
 
-    // Global ExtGState counter for unique GS keys across all pages
+    // Global ExtGState counter for unique BPG keys across all pages
     let mut gs_counter: usize = 0;
 
     let mut kids: Vec<Object> = Vec::new();
@@ -297,7 +333,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
                     opacity,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
-                        let key = format!("GS{gs_counter}");
+                        let key = format!("BPG{gs_counter}");
                         gs_counter += 1;
                         let gs_id =
                             doc.add_object(Object::Dictionary(extgstate_dict(*o)));
@@ -329,7 +365,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
                     opacity,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
-                        let key = format!("GS{gs_counter}");
+                        let key = format!("BPG{gs_counter}");
                         gs_counter += 1;
                         let gs_id =
                             doc.add_object(Object::Dictionary(extgstate_dict(*o)));
@@ -362,7 +398,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
                     opacity,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
-                        let key = format!("GS{gs_counter}");
+                        let key = format!("BPG{gs_counter}");
                         gs_counter += 1;
                         let gs_id =
                             doc.add_object(Object::Dictionary(extgstate_dict(*o)));
@@ -606,10 +642,10 @@ mod tests {
         let page = doc.get_dictionary(pid).unwrap();
         let res = page.get(b"Resources").unwrap().as_dict().unwrap();
         let extgstate = res.get(b"ExtGState").unwrap().as_dict().unwrap();
-        let gs0_ref = extgstate.get(b"GS0").expect("GS0 not found in ExtGState");
-        let gs0_id = gs0_ref.as_reference().unwrap();
-        let gs0_dict = doc.get_object(gs0_id).unwrap().as_dict().unwrap().clone();
-        let ca = gs0_dict.get(b"ca").unwrap();
+        let bpg0_ref = extgstate.get(b"BPG0").expect("BPG0 not found in ExtGState");
+        let bpg0_id = bpg0_ref.as_reference().unwrap();
+        let bpg0_dict = doc.get_object(bpg0_id).unwrap().as_dict().unwrap().clone();
+        let ca = bpg0_dict.get(b"ca").unwrap();
         let ca_val = match ca {
             lopdf::Object::Real(v) => *v,
             lopdf::Object::Integer(v) => *v as f32,
@@ -622,7 +658,7 @@ mod tests {
         let contents_id = page.get(b"Contents").unwrap().as_reference().unwrap();
         let stream = doc.get_object(contents_id).unwrap().as_stream().unwrap();
         let s = String::from_utf8_lossy(&stream.content);
-        assert!(s.contains("/GS0 gs"), "content missing '/GS0 gs': {s}");
+        assert!(s.contains("/BPG0 gs"), "content missing '/BPG0 gs': {s}");
     }
 
     #[test]
