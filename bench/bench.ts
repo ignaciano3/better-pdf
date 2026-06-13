@@ -11,8 +11,8 @@
  */
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { PdfDocument } from "../src/index.ts";
-import { PDFDocument } from "pdf-lib";
+import { PdfDocument, PageSizes, rgb as bpRgb } from "../src/index.ts";
+import { PDFDocument, StandardFonts, rgb as plRgb } from "pdf-lib";
 import type { FieldInfo, FieldType } from "../src/forms/form.ts";
 
 const ITER = Number(process.env.BENCH_ITER ?? 25);
@@ -40,6 +40,17 @@ const fixtures = [
 ];
 
 const signatureImage = new Uint8Array(readFileSync(join(import.meta.dir, "../signature.jpg")));
+
+// Minimal valid 1×1 RGBA PNG used by the "create + draw image" scenario.
+const TINY_PNG = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+  0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xf8, 0xcf, 0xc0, 0xf0,
+  0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00,
+  0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+]);
+
 let sink = 0;
 
 type BenchFn = () => Promise<void>;
@@ -271,5 +282,142 @@ for (const fixtureInfo of fixtures) {
 
   console.log("");
 }
+
+// ---------------------------------------------------------------------------
+// PDF generation scenarios (no fixture required)
+// ---------------------------------------------------------------------------
+
+const smallFixtureBytes = new Uint8Array(
+  readFileSync(fixtures[0]!.path),
+);
+
+const generationScenarios: Scenario[] = [
+  {
+    name: "create + draw text",
+    better: async () => {
+      const doc = await PdfDocument.create();
+      const page = doc.addPage(PageSizes.A4);
+      for (let i = 0; i < 20; i++) {
+        page.drawText(`Line ${i + 1}`, { x: 50, y: 800 - i * 20, size: 12 });
+      }
+      remember(await doc.save());
+    },
+    pdflib: async () => {
+      const doc = await PDFDocument.create();
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      const page = doc.addPage([595.28, 841.89]);
+      for (let i = 0; i < 20; i++) {
+        page.drawText(`Line ${i + 1}`, { x: 50, y: 800 - i * 20, size: 12, font });
+      }
+      remember(new Uint8Array(await doc.save()));
+    },
+  },
+  {
+    name: "stamp text on existing",
+    better: async () => {
+      const doc = await PdfDocument.load(smallFixtureBytes);
+      const page = doc.getPage(0);
+      for (let i = 0; i < 5; i++) {
+        page.drawText("STAMP", { x: 50, y: 50 + i * 20, size: 14 });
+      }
+      remember(await doc.save());
+    },
+    pdflib: async () => {
+      const doc = await PDFDocument.load(smallFixtureBytes);
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      const page = doc.getPages()[0]!;
+      for (let i = 0; i < 5; i++) {
+        page.drawText("STAMP", { x: 50, y: 50 + i * 20, size: 14, font });
+      }
+      remember(new Uint8Array(await doc.save()));
+    },
+  },
+  {
+    name: "create + draw image",
+    better: async () => {
+      const doc = await PdfDocument.create();
+      const page = doc.addPage(PageSizes.A4);
+      const img = await doc.embedPng(TINY_PNG);
+      page.drawImage(img, { x: 50, y: 50, width: 100, height: 100 });
+      remember(await doc.save());
+    },
+    pdflib: async () => {
+      const doc = await PDFDocument.create();
+      const page = doc.addPage([595.28, 841.89]);
+      const img = await doc.embedPng(TINY_PNG);
+      page.drawImage(img, { x: 50, y: 50, width: 100, height: 100 });
+      remember(new Uint8Array(await doc.save()));
+    },
+  },
+  {
+    name: "create + vector shapes",
+    better: async () => {
+      const doc = await PdfDocument.create();
+      const page = doc.addPage(PageSizes.A4);
+      for (let i = 0; i < 4; i++) {
+        page.drawRectangle({
+          x: 50 + i * 60,
+          y: 600,
+          width: 50,
+          height: 40,
+          color: bpRgb(0.8, 0.2, 0.2),
+          borderColor: bpRgb(0, 0, 0),
+        });
+      }
+      for (let i = 0; i < 3; i++) {
+        page.drawLine({
+          start: { x: 50, y: 550 - i * 20 },
+          end: { x: 300, y: 550 - i * 20 },
+          thickness: 1,
+          color: bpRgb(0, 0, 0.8),
+        });
+      }
+      for (let i = 0; i < 3; i++) {
+        page.drawEllipse({
+          x: 100 + i * 80,
+          y: 480,
+          xScale: 30,
+          yScale: 20,
+          color: bpRgb(0.2, 0.7, 0.2),
+          borderColor: bpRgb(0, 0, 0),
+        });
+      }
+      remember(await doc.save());
+    },
+    // no pdf-lib equivalent — marked better-pdf-only (no pdflib field)
+  },
+];
+
+console.log("### PDF generation");
+console.log("(no fixture — create or stamp from scratch)\n");
+console.log("| Scenario | better-pdf | pdf-lib | speedup |");
+console.log("| --- | ---: | ---: | ---: |");
+
+for (const scenario of generationScenarios) {
+  const better = await tryMean(scenario.better);
+  if (better instanceof Error) {
+    console.log(`| ${scenario.name} | error: ${better.message} | n/a | n/a |`);
+    continue;
+  }
+
+  if (!scenario.pdflib) {
+    console.log(`| ${scenario.name} | ${better.toFixed(2)} ms | n/a | n/a |`);
+    continue;
+  }
+
+  const pdflib = await tryMean(scenario.pdflib);
+  if (pdflib instanceof Error) {
+    console.log(
+      `| ${scenario.name} | ${better.toFixed(2)} ms | error: ${pdflib.message} | n/a |`,
+    );
+    continue;
+  }
+
+  console.log(
+    `| ${scenario.name} | ${better.toFixed(2)} ms | ${pdflib.toFixed(2)} ms | ${(pdflib / better).toFixed(1)}x |`,
+  );
+}
+
+console.log("");
 
 if (sink === Number.MIN_SAFE_INTEGER) console.log("ignore", sink);
