@@ -12,7 +12,8 @@ export interface CoreWasm {
   flattenFields(data: Uint8Array, namesJson: string): Uint8Array;
   readPages(data: Uint8Array): string;
   applyDrawOps(data: Uint8Array, opsJson: string): Uint8Array;
-  createDocument(opsJson: string): Uint8Array;
+  createDocument(opsJson: string, images?: Uint8Array): Uint8Array;
+  imageInfo(data: Uint8Array): string;
 }
 
 export class PdfDocumentBase {

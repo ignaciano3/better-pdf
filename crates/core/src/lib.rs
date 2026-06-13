@@ -44,10 +44,22 @@ pub fn apply_draw_ops(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<
 }
 
 /// Build a new PDF document from scratch using a JSON array of create ops
-/// (addPage, text, etc.) and return the PDF bytes.
+/// (addPage, text, image, etc.) and return the PDF bytes. `images` is the
+/// concatenated image blob that Image ops index into via imageOffset / imageLength.
 #[wasm_bindgen]
-pub fn create_document(ops_json: &str) -> Result<Vec<u8>, JsError> {
-    create::create_document_json(ops_json).map_err(|e| JsError::new(&e))
+pub fn create_document(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, JsError> {
+    create::create_document_json(ops_json, images).map_err(|e| JsError::new(&e))
+}
+
+/// Return JSON `{"width":W,"height":H}` (intrinsic pixels) for a JPEG/PNG, or error.
+#[wasm_bindgen]
+pub fn image_info(data: &[u8]) -> Result<String, JsError> {
+    appearance::signature_image(data)
+        .map(|img| {
+            let i = img.info();
+            format!("{{\"width\":{},\"height\":{}}}", i.width, i.height)
+        })
+        .map_err(|e| JsError::new(&e))
 }
 
 /// Internal re-exports for the fuzz targets in `fuzz/`. Not a public API.
