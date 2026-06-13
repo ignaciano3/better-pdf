@@ -53,9 +53,13 @@ export function readPages(data: Uint8Array): string {
   return read_pages(data);
 }
 
-export function applyDrawOps(data: Uint8Array, opsJson: string): Uint8Array {
+export function applyDrawOps(
+  data: Uint8Array,
+  opsJson: string,
+  images: Uint8Array = new Uint8Array(),
+): Uint8Array {
   ensureInitialized();
-  return apply_draw_ops(data, opsJson);
+  return apply_draw_ops(data, opsJson, images);
 }
 
 export function createDocument(opsJson: string, images: Uint8Array = new Uint8Array()): Uint8Array {
