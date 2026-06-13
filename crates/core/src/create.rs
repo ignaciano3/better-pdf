@@ -1656,4 +1656,57 @@ mod tests {
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Annots").unwrap().as_array().unwrap().len(), 1);
     }
+
+    fn get_first_field_dict(doc: &Document) -> Dictionary {
+        let cat = doc.catalog().unwrap();
+        let acro = match cat.get(b"AcroForm").unwrap() {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap().clone(),
+            Object::Dictionary(d) => d.clone(),
+            _ => panic!("AcroForm is not a dict or ref"),
+        };
+        let fid = acro
+            .get(b"Fields")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .as_reference()
+            .unwrap();
+        doc.get_dictionary(fid).unwrap().clone()
+    }
+
+    #[test]
+    fn field_border_and_background() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":10,"y":10,"width":100,"height":20,"border":{"color":[1,0,0],"width":2},"background":[0.9,0.9,0.9]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let mk = w.get(b"MK").unwrap().as_dict().unwrap();
+        assert!(mk.has(b"BC"), "MK missing BC (border color)");
+        assert!(mk.has(b"BG"), "MK missing BG (background)");
+        let bs = w.get(b"BS").unwrap().as_dict().unwrap();
+        assert!(
+            (bs.get(b"W").unwrap().as_float().unwrap() - 2.0).abs() < 0.01,
+            "BS/W should be 2.0"
+        );
+    }
+
+    #[test]
+    fn field_readonly_required_flags() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":50,"height":20,"readOnly":true,"required":true}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let ff = w.get(b"Ff").unwrap().as_i64().unwrap();
+        assert!(ff & 1 != 0, "readOnly bit (bit 0) not set; Ff = {ff}");
+        assert!(ff & 2 != 0, "required bit (bit 1) not set; Ff = {ff}");
+    }
+
+    #[test]
+    fn field_tooltip() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":50,"height":20,"tooltip":"Your name"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        assert!(w.has(b"TU"), "field dict missing TU (tooltip)");
+    }
 }
