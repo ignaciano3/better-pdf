@@ -199,4 +199,37 @@ const formTypes = generateFormTypes(doc.getForm().getFields(), { typeName: "MyFo
 save(`types-${basename(inputPath, ".pdf")}.ts`, new TextEncoder().encode(formTypes));
 console.log(`  ${formTypes.split("\n").length} lines — import it and pass to getForm<typeof …>()`);
 
+// --- 7. Generate a fillable form on a new PDF -------------------------------
+
+heading("7. Build a brand-new fillable AcroForm");
+
+// createForm() is only available on documents made with create(). Each add*
+// call is chainable and accumulates the typed field-name schema.
+const formDoc = await PdfDocument.create();
+formDoc.addPage(PageSizes.A4);
+
+const builder = formDoc
+  .createForm()
+  .addTextField("applicant.name", {
+    page: 0, x: 56, y: 740, width: 240, height: 22,
+    value: "GARCIA, IGNACIO",
+    border: { color: rgb(0.1, 0.1, 0.4), width: 1 },
+  })
+  .addCheckBox("applicant.agree", {
+    page: 0, x: 56, y: 700, size: 14, checked: true,
+  });
+
+console.log(`  declared fields: ${JSON.stringify(builder.getFieldNames())}`);
+
+const formBytes = await formDoc.save();
+save("generated-form.pdf", formBytes);
+
+// Reload it: the saved document is a normal fillable AcroForm.
+const reloaded = await PdfDocument.load(formBytes);
+const reloadedFields = reloaded.getForm().getFields();
+console.log(`  reloaded form has ${reloadedFields.length} field(s):`);
+for (const f of reloadedFields) {
+  console.log(`    ${f.type.padEnd(10)} ${f.name} = ${JSON.stringify(f.value)}`);
+}
+
 console.log("\nDone. Open the files above to see the results.");

@@ -20,6 +20,7 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Save append-only incremental PDF updates.
 - Create new PDFs with `PdfDocument.create()` and standard page sizes.
 - Draw text, images, lines, rectangles, and ellipses on new and existing pages.
+- Create fillable AcroForm fields (text, checkbox, radio, dropdown, listbox, signature) on generated documents with `doc.createForm()`.
 
 ## Install
 
@@ -149,6 +150,72 @@ const label = "Invoice #1234";
 const w = font.widthOfTextAtSize(label, 16);
 page.drawText(label, { x: pageWidth - w - 40, y: pageHeight - 60, size: 16, font });
 ```
+
+### (e) Creating form fields
+
+On a document created with `PdfDocument.create()`, call `doc.createForm()` to get
+a chainable `FormBuilder` and declare AcroForm fields. There are six field types —
+`addTextField`, `addCheckBox`, `addRadioGroup`, `addDropdown`, `addListBox`, and
+`addSignatureField` — each placed by `page` index plus a position/size in PDF
+points. The fields are serialized into the document on `save()`.
+
+```ts
+import { PdfDocument, PageSizes, rgb } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+doc.addPage(PageSizes.A4);
+
+const form = doc
+  .createForm()
+  .addTextField("applicant.name", {
+    page: 0, x: 56, y: 740, width: 240, height: 22,
+    value: "GARCIA, IGNACIO",
+    maxLength: 64,
+    border: { color: rgb(0.1, 0.1, 0.4), width: 1 },
+    background: rgb(0.97, 0.97, 1),
+  })
+  .addTextField("applicant.notes", {
+    page: 0, x: 56, y: 660, width: 240, height: 60, multiline: true,
+  })
+  .addCheckBox("applicant.agree", {
+    page: 0, x: 56, y: 620, size: 14, checked: true, required: true,
+  })
+  .addRadioGroup("applicant.kind", {
+    selected: "primary",
+    options: [
+      { value: "primary", page: 0, x: 56, y: 590, size: 14 },
+      { value: "dependent", page: 0, x: 120, y: 590, size: 14 },
+    ],
+  })
+  .addDropdown("applicant.status", {
+    page: 0, x: 56, y: 550, width: 160, height: 22,
+    options: ["single", "married"], selected: "married",
+  })
+  .addListBox("applicant.plan", {
+    page: 0, x: 56, y: 500, width: 160, height: 48,
+    options: ["basic", "plus", "premium"],
+  })
+  .addSignatureField("applicant.signature", {
+    page: 0, x: 56, y: 440, width: 200, height: 48,
+  });
+
+console.log(form.getFieldNames()); // typed array of the declared names
+
+const output = await doc.save();
+await Bun.write("form.pdf", output);
+```
+
+> **Created documents only.** `createForm()` throws on documents opened with
+> `PdfDocument.load()`. The field names are accumulated into the builder's type,
+> so `getFieldNames()` is statically typed.
+>
+> **A normal fillable form.** The result is a standard AcroForm: reload it with
+> `PdfDocument.load(output)` and you can fill it (`getForm().getTextField(...)`,
+> `.getCheckBox(...).check()`, …) and flatten it with this same library.
+
+Every field supports `required`, `readOnly`, `tooltip`, and the optional
+`border` (`{ color, width? }`) / `background` (a `Color`) appearance — colors come
+from `rgb(r, g, b)` and `grayscale(v)` (0–1).
 
 ---
 
@@ -406,7 +473,6 @@ count).
 - Appearance metrics cover the standard 14 text fonts (with Arial / Times New
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
-- No AcroForm field creation on newly created documents.
 - Color: RGB and grayscale only; CMYK is not supported.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
   plus generated xref-stream/object-stream variants).
