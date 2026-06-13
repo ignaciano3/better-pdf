@@ -16,7 +16,7 @@ While the version is `0.x`, the public API may change between minor releases.
   `doc.getPage(i)` returning a `PdfPage`; throws `PageOutOfRangeError` for
   out-of-range indices.
 - `drawText` on both loaded and created pages, with `x`, `y`, `size`, `font`,
-  `color`, `lineHeight`, and `opacity` options.
+  `color`, and `lineHeight` options.
 - `PdfDocument.create()` — create a new empty document without a source PDF.
 - `doc.addPage(size)` — append a page given a `[width, height]` tuple;
   `PageSizes` constants (`A3`, `A4`, `A5`, `Letter`, `Legal`, `Tabloid`)
@@ -36,7 +36,7 @@ While the version is `0.x`, the public API may change between minor releases.
 - `StandardFonts` enum: `Helvetica`, `HelveticaBold`, `HelveticaOblique`,
   `HelveticaBoldOblique`, `Courier`, `CourierBold`, `CourierOblique`,
   `CourierBoldOblique`, `TimesRoman`, `TimesBold`, `TimesItalic`,
-  `TimesBoldItalic`, `Symbol`, `ZapfDingbats`.
+  `TimesBoldItalic`.
 - `doc.getFont(StandardFonts.X)` — returns a `PdfFont` with
   `font.widthOfTextAtSize(text, size)` for layout calculations.
 - `./forms` and `./generate` subpath exports for tree-shaking-friendly imports.

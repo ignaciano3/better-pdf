@@ -66,15 +66,15 @@ await Bun.write("filled.pdf", output);
 Import from the `./generate` subpath (or the package root — both export the same classes):
 
 ```ts
-import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf/generate";
+import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf";
 ```
 
 ### (a) Create a document, draw text
 
 ```ts
-import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf/generate";
+import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf";
 
-const doc = PdfDocument.create();
+const doc = await PdfDocument.create();
 const page = doc.addPage(PageSizes.A4);               // 595 × 842 pt
 
 const font = doc.getFont(StandardFonts.Helvetica);
@@ -171,7 +171,7 @@ const output = await doc.save();
 ### `PdfDocument`
 
 - `PdfDocument.load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument>` — open an existing PDF
-- `PdfDocument.create(): PdfDocument` — create a new empty document
+- `PdfDocument.create(): Promise<PdfDocument>` — create a new empty document
 - `doc.addPage(size: [number, number]): PdfPage` — add a page; `PageSizes.A4` etc. are `[width, height]` tuples
 - `doc.getPageCount(): number`
 - `doc.getPages(): PdfPage[]`
@@ -189,11 +189,11 @@ soon as they are made.
 
 **`PageSizes`**: `A3`, `A4`, `A5`, `Letter`, `Legal`, `Tabloid` — each is a `[width, height]` tuple in PDF points.
 
-**`StandardFonts`**: `Helvetica`, `HelveticaBold`, `HelveticaOblique`, `HelveticaBoldOblique`, `Courier`, `CourierBold`, `CourierOblique`, `CourierBoldOblique`, `TimesRoman`, `TimesBold`, `TimesItalic`, `TimesBoldItalic`, `Symbol`, `ZapfDingbats`.
+**`StandardFonts`** (12 standard fonts): `Helvetica`, `HelveticaBold`, `HelveticaOblique`, `HelveticaBoldOblique`, `Courier`, `CourierBold`, `CourierOblique`, `CourierBoldOblique`, `TimesRoman`, `TimesBold`, `TimesItalic`, `TimesBoldItalic`. (`Symbol` and `ZapfDingbats` are intentionally omitted.)
 
 ### `PdfPage`
 
-- `page.drawText(text, options)` — `options`: `{ x, y, size, font?, color?, lineHeight?, opacity? }`
+- `page.drawText(text, options)` — `options`: `{ x, y, size, font?, color?, lineHeight? }`
 - `page.drawImage(image, options)` — `options`: `{ x, y, width?, height? }`
 - `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
 - `page.drawRectangle(options)` — `options`: `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`

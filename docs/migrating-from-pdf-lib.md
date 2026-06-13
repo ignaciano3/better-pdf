@@ -44,7 +44,7 @@ largely identical; the differences are noted below.
 
 | pdf-lib | better-pdf |
 | --- | --- |
-| `PDFDocument.create()` | `PdfDocument.create()` (sync — no `await`) |
+| `PDFDocument.create()` | `await PdfDocument.create()` (async — returns `Promise<PdfDocument>`) |
 | `pdfDoc.addPage([width, height])` | `doc.addPage([width, height])` or `doc.addPage(PageSizes.A4)` etc. |
 | `pdfDoc.getPageCount()` | `doc.getPageCount()` |
 | `pdfDoc.getPages()` | `doc.getPages()` |
@@ -74,7 +74,8 @@ largely identical; the differences are noted below.
   as pdf-lib.
 - **`save()` is always async** and returns `Promise<Uint8Array>`. There is no
   synchronous `saveSync()`.
-- **`PdfDocument.create()` is synchronous** — no `await PDFDocument.create()`.
+- **`PdfDocument.create()` is async** — it may initialize WASM, so you must
+  `await PdfDocument.create()` (pdf-lib's `PDFDocument.create()` is synchronous).
 - **`PageSizes` constants** are `[width, height]` tuples in PDF points: `A3`,
   `A4`, `A5`, `Letter`, `Legal`, `Tabloid`.
 
