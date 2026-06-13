@@ -69,6 +69,13 @@ pub fn string_width(bytes: &[u8], size: f32, widths: &FontWidths) -> f32 {
     units as f32 / 1000.0 * size
 }
 
+/// Width in points of `text` rendered in standard-14 `font` at `size`.
+/// Errors if `font` is not a standard-14 base name.
+pub fn measure_text_width(font: &str, size: f32, text: &str) -> Result<f32, String> {
+    let widths = standard_14_widths(font).ok_or_else(|| format!("unknown font: {font}"))?;
+    Ok(string_width(&encode_winansi(text), size, &widths))
+}
+
 /// Encode a Rust string to WinAnsi bytes. ASCII maps directly; everything else
 /// goes through the generated WinAnsi table; unmappable chars become '?'.
 pub fn encode_winansi(s: &str) -> Vec<u8> {
@@ -568,6 +575,29 @@ pub fn build_signature_appearance_xobject(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn measures_helvetica_width() {
+        let w = measure_text_width("Helvetica", 12.0, "Hello").unwrap();
+        assert!(w > 20.0 && w < 40.0, "width was {w}");
+    }
+
+    #[test]
+    fn measure_scales_linearly_with_size() {
+        let a = measure_text_width("Helvetica", 10.0, "ABCDEF").unwrap();
+        let b = measure_text_width("Helvetica", 20.0, "ABCDEF").unwrap();
+        assert!((b - 2.0 * a).abs() < 0.01);
+    }
+
+    #[test]
+    fn measure_empty_is_zero() {
+        assert_eq!(measure_text_width("Helvetica", 12.0, "").unwrap(), 0.0);
+    }
+
+    #[test]
+    fn measure_unknown_font_errors() {
+        assert!(measure_text_width("Comic Sans", 12.0, "x").unwrap_err().contains("font"));
+    }
 
     #[test]
     fn encodes_spanish_to_winansi() {
