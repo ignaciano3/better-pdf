@@ -104,6 +104,103 @@ enum FieldDef {
         border: Option<Border>,
         background: Option<[f32; 3]>,
     },
+    CheckBox {
+        name: String,
+        page: usize,
+        x: f32,
+        y: f32,
+        size: f32,
+        #[serde(default)]
+        checked: bool,
+        #[serde(rename = "onValue")]
+        on_value: Option<String>,
+        #[serde(default)]
+        required: bool,
+        #[serde(rename = "readOnly", default)]
+        read_only: bool,
+        tooltip: Option<String>,
+        border: Option<Border>,
+        background: Option<[f32; 3]>,
+    },
+    RadioGroup {
+        name: String,
+        selected: Option<String>,
+        #[serde(default)]
+        required: bool,
+        #[serde(rename = "readOnly", default)]
+        read_only: bool,
+        tooltip: Option<String>,
+        options: Vec<RadioOption>,
+    },
+}
+
+#[derive(Deserialize)]
+struct RadioOption {
+    value: String,
+    page: usize,
+    x: f32,
+    y: f32,
+    size: f32,
+}
+
+/// Build a minimal Form XObject with no font resources.
+fn button_xobject(size: f32, content: Vec<u8>) -> Stream {
+    let mut dict = Dictionary::new();
+    dict.set("Type", Object::Name(b"XObject".to_vec()));
+    dict.set("Subtype", Object::Name(b"Form".to_vec()));
+    dict.set("FormType", Object::Integer(1));
+    dict.set(
+        "BBox",
+        Object::Array(vec![
+            Object::Real(0.0),
+            Object::Real(0.0),
+            Object::Real(size),
+            Object::Real(size),
+        ]),
+    );
+    Stream::new(dict, content).with_compression(false)
+}
+
+/// Off appearance: empty stream (blank).
+fn button_off_appearance(size: f32) -> Stream {
+    button_xobject(size, Vec::new())
+}
+
+/// On appearance for checkboxes: a tick mark via two line segments.
+fn checkbox_on_appearance(size: f32) -> Stream {
+    use crate::draw::fmt_num;
+    let p = size * 0.2;
+    let t = size * 0.12;
+    let content = format!(
+        "q {} w 0 0 0 RG {} {} m {} {} l {} {} l S Q",
+        fmt_num(t),
+        fmt_num(p),
+        fmt_num(size * 0.5),
+        fmt_num(size * 0.42),
+        fmt_num(p),
+        fmt_num(size - p),
+        fmt_num(size - p),
+    )
+    .into_bytes();
+    button_xobject(size, content)
+}
+
+/// On appearance for radio buttons: filled black circle.
+fn radio_on_appearance(size: f32) -> Stream {
+    use crate::draw::fmt_num;
+    let c = size / 2.0;
+    let r = size * 0.3;
+    let k = 0.5523 * r;
+    let content = format!(
+        "q 0 0 0 rg {} {} m {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c f Q",
+        fmt_num(c + r), fmt_num(c),
+        fmt_num(c + r), fmt_num(c + k), fmt_num(c + k), fmt_num(c + r), fmt_num(c), fmt_num(c + r),
+        fmt_num(c - k), fmt_num(c + r), fmt_num(c - r), fmt_num(c + k), fmt_num(c - r), fmt_num(c),
+        fmt_num(c - r), fmt_num(c - k), fmt_num(c - k), fmt_num(c - r), fmt_num(c), fmt_num(c - r),
+        fmt_num(c + k), fmt_num(c - r), fmt_num(c + r), fmt_num(c - k), fmt_num(c + r), fmt_num(c),
+    )
+    .into_bytes();
+    button_xobject(size, content)
 }
 
 pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) -> Result<Vec<u8>, String> {
@@ -320,6 +417,65 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     if let Some(ml) = max_length {
                         if *ml < 0 {
                             return Err("field maxLength must be >= 0".to_string());
+                        }
+                    }
+                }
+                FieldDef::CheckBox { name, page, x, y, size, on_value, .. } => {
+                    if name.is_empty() {
+                        return Err("field name must not be empty".to_string());
+                    }
+                    if !seen_names.insert(name.as_str()) {
+                        return Err(format!("duplicate field name: {name}"));
+                    }
+                    if *page >= pages.len() {
+                        return Err(format!("field page {page} out of range ({} pages)", pages.len()));
+                    }
+                    if !x.is_finite() || !y.is_finite() {
+                        return Err("field x/y must be finite".to_string());
+                    }
+                    if !size.is_finite() || *size <= 0.0 {
+                        return Err("checkbox size must be finite and > 0".to_string());
+                    }
+                    if let Some(ov) = on_value {
+                        if ov == "Off" {
+                            return Err("checkbox onValue must not be \"Off\"".to_string());
+                        }
+                    }
+                }
+                FieldDef::RadioGroup { name, selected, options, .. } => {
+                    if name.is_empty() {
+                        return Err("field name must not be empty".to_string());
+                    }
+                    if !seen_names.insert(name.as_str()) {
+                        return Err(format!("duplicate field name: {name}"));
+                    }
+                    if options.is_empty() {
+                        return Err(format!("radioGroup \"{name}\" must have at least one option"));
+                    }
+                    let mut seen_values: HashSet<&str> = HashSet::new();
+                    for opt in options {
+                        if opt.value.is_empty() {
+                            return Err("radio option value must not be empty".to_string());
+                        }
+                        if opt.value == "Off" {
+                            return Err("radio option value must not be \"Off\"".to_string());
+                        }
+                        if !seen_values.insert(opt.value.as_str()) {
+                            return Err(format!("duplicate radio option value: {}", opt.value));
+                        }
+                        if opt.page >= pages.len() {
+                            return Err(format!("radio option page {} out of range ({} pages)", opt.page, pages.len()));
+                        }
+                        if !opt.x.is_finite() || !opt.y.is_finite() {
+                            return Err("radio option x/y must be finite".to_string());
+                        }
+                        if !opt.size.is_finite() || opt.size <= 0.0 {
+                            return Err("radio option size must be finite and > 0".to_string());
+                        }
+                    }
+                    if let Some(sel) = selected {
+                        if !options.iter().any(|o| &o.value == sel) {
+                            return Err(format!("radioGroup \"{name}\" selected value \"{sel}\" is not in options"));
                         }
                     }
                 }
@@ -658,6 +814,191 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     acro_fields.push(Object::Reference(field_id));
                     page_annots[*page].push(field_id);
                 }
+                FieldDef::CheckBox {
+                    name,
+                    page,
+                    x,
+                    y,
+                    size,
+                    checked,
+                    on_value,
+                    required,
+                    read_only,
+                    tooltip,
+                    border,
+                    background,
+                } => {
+                    let on = on_value.clone().unwrap_or_else(|| "Yes".to_string());
+
+                    let off_id = doc.add_object(Object::Stream(button_off_appearance(*size)));
+                    let on_id = doc.add_object(Object::Stream(checkbox_on_appearance(*size)));
+
+                    let mut ap_n = Dictionary::new();
+                    ap_n.set(on.as_bytes().to_vec(), Object::Reference(on_id));
+                    ap_n.set("Off", Object::Reference(off_id));
+
+                    let as_val = if *checked {
+                        Object::Name(on.as_bytes().to_vec())
+                    } else {
+                        Object::Name(b"Off".to_vec())
+                    };
+                    let v_val = as_val.clone();
+
+                    let flags: i64 = ((*read_only as i64) << 0) | ((*required as i64) << 1);
+
+                    let rect = Object::Array(vec![
+                        Object::Real(*x),
+                        Object::Real(*y),
+                        Object::Real(*x + *size),
+                        Object::Real(*y + *size),
+                    ]);
+
+                    let mut field_dict = Dictionary::new();
+                    field_dict.set("Type", Object::Name(b"Annot".to_vec()));
+                    field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                    field_dict.set("FT", Object::Name(b"Btn".to_vec()));
+                    field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+                    field_dict.set("Rect", rect);
+                    field_dict.set("V", v_val);
+                    field_dict.set("AS", as_val);
+                    field_dict.set("Ff", Object::Integer(flags));
+                    field_dict.set(
+                        "AP",
+                        Object::Dictionary(dictionary! {
+                            "N" => Object::Dictionary(ap_n)
+                        }),
+                    );
+                    field_dict.set("P", Object::Reference(page_ids[*page]));
+
+                    if let Some(tip) = tooltip {
+                        if !tip.is_empty() {
+                            field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
+                        }
+                    }
+
+                    let mut mk = Dictionary::new();
+                    if let Some(bg) = background {
+                        mk.set(
+                            "BG",
+                            Object::Array(vec![
+                                Object::Real(bg[0]),
+                                Object::Real(bg[1]),
+                                Object::Real(bg[2]),
+                            ]),
+                        );
+                    }
+                    if let Some(b) = border {
+                        mk.set(
+                            "BC",
+                            Object::Array(vec![
+                                Object::Real(b.color[0]),
+                                Object::Real(b.color[1]),
+                                Object::Real(b.color[2]),
+                            ]),
+                        );
+                        if (b.width - 1.0).abs() > 0.001 {
+                            field_dict.set(
+                                "BS",
+                                Object::Dictionary(dictionary! {
+                                    "W" => Object::Real(b.width),
+                                    "S" => Object::Name(b"S".to_vec())
+                                }),
+                            );
+                        }
+                    }
+                    if mk.len() > 0 {
+                        field_dict.set("MK", Object::Dictionary(mk));
+                    }
+
+                    let field_id = doc.add_object(Object::Dictionary(field_dict));
+                    acro_fields.push(Object::Reference(field_id));
+                    page_annots[*page].push(field_id);
+                }
+                FieldDef::RadioGroup {
+                    name,
+                    selected,
+                    required,
+                    read_only,
+                    tooltip,
+                    options,
+                } => {
+                    let parent_id = doc.new_object_id();
+
+                    let v_val = if let Some(sel) = selected {
+                        Object::Name(sel.as_bytes().to_vec())
+                    } else {
+                        Object::Name(b"Off".to_vec())
+                    };
+
+                    let flags: i64 = (1_i64 << 15)
+                        | ((*read_only as i64) << 0)
+                        | ((*required as i64) << 1);
+
+                    let mut kids_refs: Vec<Object> = Vec::new();
+
+                    for opt in options {
+                        let off_id =
+                            doc.add_object(Object::Stream(button_off_appearance(opt.size)));
+                        let on_id =
+                            doc.add_object(Object::Stream(radio_on_appearance(opt.size)));
+
+                        let mut ap_n = Dictionary::new();
+                        ap_n.set(opt.value.as_bytes().to_vec(), Object::Reference(on_id));
+                        ap_n.set("Off", Object::Reference(off_id));
+
+                        let is_selected = selected
+                            .as_ref()
+                            .map(|s| s == &opt.value)
+                            .unwrap_or(false);
+                        let as_val = if is_selected {
+                            Object::Name(opt.value.as_bytes().to_vec())
+                        } else {
+                            Object::Name(b"Off".to_vec())
+                        };
+
+                        let rect = Object::Array(vec![
+                            Object::Real(opt.x),
+                            Object::Real(opt.y),
+                            Object::Real(opt.x + opt.size),
+                            Object::Real(opt.y + opt.size),
+                        ]);
+
+                        let mut kid_dict = Dictionary::new();
+                        kid_dict.set("Type", Object::Name(b"Annot".to_vec()));
+                        kid_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                        kid_dict.set("Rect", rect);
+                        kid_dict.set("Parent", Object::Reference(parent_id));
+                        kid_dict.set("P", Object::Reference(page_ids[opt.page]));
+                        kid_dict.set("AS", as_val);
+                        kid_dict.set(
+                            "AP",
+                            Object::Dictionary(dictionary! {
+                                "N" => Object::Dictionary(ap_n)
+                            }),
+                        );
+
+                        let kid_id = doc.add_object(Object::Dictionary(kid_dict));
+                        kids_refs.push(Object::Reference(kid_id));
+                        page_annots[opt.page].push(kid_id);
+                    }
+
+                    let mut parent_dict = Dictionary::new();
+                    parent_dict.set("FT", Object::Name(b"Btn".to_vec()));
+                    parent_dict.set("Ff", Object::Integer(flags));
+                    parent_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+                    parent_dict.set("Kids", Object::Array(kids_refs));
+                    parent_dict.set("V", v_val);
+
+                    if let Some(tip) = tooltip {
+                        if !tip.is_empty() {
+                            parent_dict
+                                .set("TU", Object::string_literal(tip.as_bytes().to_vec()));
+                        }
+                    }
+
+                    doc.set_object(parent_id, Object::Dictionary(parent_dict));
+                    acro_fields.push(Object::Reference(parent_id));
+                }
             }
         }
 
@@ -957,6 +1298,47 @@ mod tests {
     #[test]
     fn rejects_field_bad_page() {
         let f = r#"[{"type":"text","name":"x","page":5,"x":0,"y":0,"width":10,"height":10}]"#;
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+    }
+
+    #[test]
+    fn creates_checkbox_checked() {
+        let f = r#"[{"type":"checkBox","name":"agree","page":0,"x":56,"y":660,"size":14,"checked":true}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let json = crate::forms::read_fields_json(&out).unwrap();
+        assert!(json.contains("agree") && json.contains("\"type\":\"checkbox\""));
+        assert!(json.contains("Yes"));
+    }
+
+    #[test]
+    fn checkbox_custom_on_value() {
+        let f = r#"[{"type":"checkBox","name":"c","page":0,"x":0,"y":0,"size":12,"onValue":"On"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        assert!(crate::forms::read_fields_json(&out).unwrap().contains("On"));
+    }
+
+    #[test]
+    fn creates_radio_group() {
+        let f = r#"[{"type":"radioGroup","name":"plan","selected":"pro","options":[{"value":"free","page":0,"x":56,"y":620,"size":14},{"value":"pro","page":0,"x":56,"y":600,"size":14}]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let json = crate::forms::read_fields_json(&out).unwrap();
+        assert!(json.contains("\"type\":\"radio\""));
+        assert!(json.contains("free") && json.contains("pro"));
+        // parent in /Fields, 2 kids in page Annots
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Annots").unwrap().as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn radio_rejects_unknown_selected() {
+        let f = r#"[{"type":"radioGroup","name":"p","selected":"nope","options":[{"value":"a","page":0,"x":0,"y":0,"size":12}]}]"#;
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+    }
+
+    #[test]
+    fn radio_rejects_empty_options() {
+        let f = r#"[{"type":"radioGroup","name":"p","options":[]}]"#;
         assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
     }
 }
