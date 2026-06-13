@@ -31,6 +31,44 @@ enum DrawOp {
         #[serde(rename = "imageLength")]
         image_length: usize,
     },
+    Line {
+        page: usize,
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        thickness: Option<f32>,
+        color: Option<[f32; 3]>,
+        opacity: Option<f32>,
+    },
+    Rectangle {
+        page: usize,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: Option<[f32; 3]>,
+        #[serde(rename = "borderColor")]
+        border_color: Option<[f32; 3]>,
+        #[serde(rename = "borderWidth")]
+        border_width: Option<f32>,
+        opacity: Option<f32>,
+    },
+    Ellipse {
+        page: usize,
+        x: f32,
+        y: f32,
+        #[serde(rename = "xScale")]
+        x_scale: f32,
+        #[serde(rename = "yScale")]
+        y_scale: f32,
+        color: Option<[f32; 3]>,
+        #[serde(rename = "borderColor")]
+        border_color: Option<[f32; 3]>,
+        #[serde(rename = "borderWidth")]
+        border_width: Option<f32>,
+        opacity: Option<f32>,
+    },
 }
 
 pub(crate) const STANDARD_14: &[&str] = &[
@@ -130,6 +168,207 @@ pub(crate) fn emit_image_op(
     out.extend_from_slice(b"Q\n");
 }
 
+fn paint_op(has_fill: bool, has_stroke: bool) -> &'static str {
+    match (has_fill, has_stroke) {
+        (true, true) => "B",
+        (true, false) => "f",
+        (false, true) => "S",
+        (false, false) => "n",
+    }
+}
+
+pub(crate) fn emit_line(
+    out: &mut Vec<u8>,
+    gs_key: Option<&str>,
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    thickness: f32,
+    color: [f32; 3],
+) {
+    let [r, g, b] = color;
+    out.extend_from_slice(b"q\n");
+    if let Some(k) = gs_key {
+        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+    }
+    out.extend_from_slice(format!("{} w\n", fmt_num(thickness)).as_bytes());
+    out.extend_from_slice(
+        format!("{} {} {} RG\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
+    );
+    out.extend_from_slice(format!("{} {} m\n", fmt_num(x1), fmt_num(y1)).as_bytes());
+    out.extend_from_slice(format!("{} {} l\n", fmt_num(x2), fmt_num(y2)).as_bytes());
+    out.extend_from_slice(b"S\nQ\n");
+}
+
+pub(crate) fn emit_rectangle(
+    out: &mut Vec<u8>,
+    gs_key: Option<&str>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    fill: Option<[f32; 3]>,
+    border: Option<[f32; 3]>,
+    border_width: Option<f32>,
+) {
+    out.extend_from_slice(b"q\n");
+    if let Some(k) = gs_key {
+        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+    }
+    if let Some([r, g, b]) = fill {
+        out.extend_from_slice(
+            format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
+        );
+    }
+    if let Some([r, g, b]) = border {
+        out.extend_from_slice(
+            format!("{} {} {} RG\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
+        );
+        out.extend_from_slice(
+            format!("{} w\n", fmt_num(border_width.unwrap_or(1.0))).as_bytes(),
+        );
+    }
+    out.extend_from_slice(
+        format!("{} {} {} {} re\n", fmt_num(x), fmt_num(y), fmt_num(w), fmt_num(h)).as_bytes(),
+    );
+    out.extend_from_slice(paint_op(fill.is_some(), border.is_some()).as_bytes());
+    out.extend_from_slice(b"\nQ\n");
+}
+
+pub(crate) fn emit_ellipse(
+    out: &mut Vec<u8>,
+    gs_key: Option<&str>,
+    cx: f32,
+    cy: f32,
+    rx: f32,
+    ry: f32,
+    fill: Option<[f32; 3]>,
+    border: Option<[f32; 3]>,
+    border_width: Option<f32>,
+) {
+    // 4-segment cubic Bézier approximation. k = 4/3*(sqrt(2)-1) ≈ 0.5523.
+    let k = 0.552_284_8_f32;
+    let (ox, oy) = (rx * k, ry * k);
+    out.extend_from_slice(b"q\n");
+    if let Some(key) = gs_key {
+        out.extend_from_slice(format!("/{key} gs\n").as_bytes());
+    }
+    if let Some([r, g, b]) = fill {
+        out.extend_from_slice(
+            format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
+        );
+    }
+    if let Some([r, g, b]) = border {
+        out.extend_from_slice(
+            format!("{} {} {} RG\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
+        );
+        out.extend_from_slice(
+            format!("{} w\n", fmt_num(border_width.unwrap_or(1.0))).as_bytes(),
+        );
+    }
+    // Start at right vertex, go counter-clockwise.
+    out.extend_from_slice(format!("{} {} m\n", fmt_num(cx + rx), fmt_num(cy)).as_bytes());
+    out.extend_from_slice(
+        format!(
+            "{} {} {} {} {} {} c\n",
+            fmt_num(cx + rx),
+            fmt_num(cy + oy),
+            fmt_num(cx + ox),
+            fmt_num(cy + ry),
+            fmt_num(cx),
+            fmt_num(cy + ry)
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(
+        format!(
+            "{} {} {} {} {} {} c\n",
+            fmt_num(cx - ox),
+            fmt_num(cy + ry),
+            fmt_num(cx - rx),
+            fmt_num(cy + oy),
+            fmt_num(cx - rx),
+            fmt_num(cy)
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(
+        format!(
+            "{} {} {} {} {} {} c\n",
+            fmt_num(cx - rx),
+            fmt_num(cy - oy),
+            fmt_num(cx - ox),
+            fmt_num(cy - ry),
+            fmt_num(cx),
+            fmt_num(cy - ry)
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(
+        format!(
+            "{} {} {} {} {} {} c\n",
+            fmt_num(cx + ox),
+            fmt_num(cy - ry),
+            fmt_num(cx + rx),
+            fmt_num(cy - oy),
+            fmt_num(cx + rx),
+            fmt_num(cy)
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(paint_op(fill.is_some(), border.is_some()).as_bytes());
+    out.extend_from_slice(b"\nQ\n");
+}
+
+pub(crate) fn extgstate_dict(opacity: f32) -> Dictionary {
+    let mut d = Dictionary::new();
+    d.set("Type", Object::Name(b"ExtGState".to_vec()));
+    d.set("ca", Object::Real(opacity)); // fill alpha
+    d.set("CA", Object::Real(opacity)); // stroke alpha
+    d
+}
+
+pub(crate) fn register_extgstate(
+    inc: &mut IncrementalDocument,
+    page_id: ObjectId,
+    key: &str,
+    gs_id: ObjectId,
+) -> Result<(), String> {
+    let res_ref = match dict_mut(inc, page_id)?.get(b"Resources") {
+        Ok(Object::Reference(id)) => Some(*id),
+        _ => None,
+    };
+    match res_ref {
+        Some(id) => {
+            inc.opt_clone_object_to_new_document(id)
+                .map_err(|e| e.to_string())?;
+            set_extgstate(dict_mut(inc, id)?, key, gs_id);
+        }
+        None => {
+            let page = dict_mut(inc, page_id)?;
+            if !page.has(b"Resources") {
+                page.set("Resources", Object::Dictionary(Dictionary::new()));
+            }
+            let res = page
+                .get_mut(b"Resources")
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
+            set_extgstate(res, key, gs_id);
+        }
+    }
+    Ok(())
+}
+
+fn set_extgstate(res: &mut Dictionary, key: &str, gs_id: ObjectId) {
+    if !res.has(b"ExtGState") {
+        res.set("ExtGState", Object::Dictionary(Dictionary::new()));
+    }
+    if let Ok(gs) = res.get_mut(b"ExtGState").and_then(Object::as_dict_mut) {
+        gs.set(key.as_bytes().to_vec(), Object::Reference(gs_id));
+    }
+}
+
 /// Register key -> xobject_id under the page's /Resources/XObject. Mirrors register_font.
 pub(crate) fn register_xobject(
     inc: &mut IncrementalDocument,
@@ -218,6 +457,121 @@ pub fn apply_draw_ops_json(
                 // Validate that the image bytes are decodable
                 crate::appearance::signature_image(&images[*image_offset..end])?;
             }
+            DrawOp::Line {
+                page,
+                thickness,
+                color,
+                opacity,
+                x1, y1, x2, y2,
+            } => {
+                if *page >= page_count {
+                    return Err(format!("page {page} out of range ({page_count} pages)"));
+                }
+                if let Some(o) = opacity {
+                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                }
+                if let Some(t) = thickness {
+                    if !t.is_finite() || *t < 0.0 {
+                        return Err("thickness must be >= 0".to_string());
+                    }
+                }
+                for &v in &[*x1, *y1, *x2, *y2] {
+                    if !v.is_finite() {
+                        return Err("invalid coordinate".to_string());
+                    }
+                }
+                if let Some(c) = color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+            }
+            DrawOp::Rectangle {
+                page,
+                color,
+                border_color,
+                border_width,
+                opacity,
+                x, y, width, height,
+            } => {
+                if *page >= page_count {
+                    return Err(format!("page {page} out of range ({page_count} pages)"));
+                }
+                if let Some(o) = opacity {
+                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                }
+                if let Some(bw) = border_width {
+                    if !bw.is_finite() || *bw < 0.0 {
+                        return Err("borderWidth must be >= 0".to_string());
+                    }
+                }
+                for &v in &[*x, *y, *width, *height] {
+                    if !v.is_finite() {
+                        return Err("invalid coordinate".to_string());
+                    }
+                }
+                if let Some(c) = color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+                if let Some(c) = border_color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+            }
+            DrawOp::Ellipse {
+                page,
+                color,
+                border_color,
+                border_width,
+                opacity,
+                x, y, x_scale, y_scale,
+            } => {
+                if *page >= page_count {
+                    return Err(format!("page {page} out of range ({page_count} pages)"));
+                }
+                if let Some(o) = opacity {
+                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                }
+                if let Some(bw) = border_width {
+                    if !bw.is_finite() || *bw < 0.0 {
+                        return Err("borderWidth must be >= 0".to_string());
+                    }
+                }
+                for &v in &[*x, *y, *x_scale, *y_scale] {
+                    if !v.is_finite() {
+                        return Err("invalid coordinate".to_string());
+                    }
+                }
+                if let Some(c) = color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+                if let Some(c) = border_color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -227,6 +581,9 @@ pub fn apply_draw_ops_json(
         let page_idx = match op {
             DrawOp::Text { page, .. } => *page,
             DrawOp::Image { page, .. } => *page,
+            DrawOp::Line { page, .. } => *page,
+            DrawOp::Rectangle { page, .. } => *page,
+            DrawOp::Ellipse { page, .. } => *page,
         };
         if let Some(entry) = page_ops.iter_mut().find(|(idx, _)| *idx == page_idx) {
             entry.1.push(op);
@@ -252,6 +609,9 @@ pub fn apply_draw_ops_json(
     // Global image counter for unique XObject keys across all pages
     let mut img_counter: usize = 0;
 
+    // Global ExtGState counter for unique GS keys across all pages
+    let mut gs_counter: usize = 0;
+
     // Process each touched page
     for (page_idx, page_op_list) in &page_ops {
         // Build one stream containing a separate BT...ET block per text op
@@ -262,6 +622,9 @@ pub fn apply_draw_ops_json(
 
         // Collect xobjects to register on this page: (key, xobject_id)
         let mut xobjects_on_page: Vec<(String, ObjectId)> = Vec::new();
+
+        // Collect ExtGState entries to register on this page: (key, gs_id)
+        let mut extgstates_on_page: Vec<(String, ObjectId)> = Vec::new();
 
         for op in page_op_list {
             match op {
@@ -318,6 +681,88 @@ pub fn apply_draw_ops_json(
                     img_counter += 1;
                     emit_image_op(&mut stream_content, &key, *x, *y, *width, *height);
                     xobjects_on_page.push((key, xid));
+                }
+                DrawOp::Line {
+                    x1, y1, x2, y2,
+                    thickness,
+                    color,
+                    opacity,
+                    page: _,
+                } => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("GS{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id = inc.new_document.add_object(
+                            Object::Dictionary(extgstate_dict(*o))
+                        );
+                        extgstates_on_page.push((key.clone(), gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    emit_line(
+                        &mut stream_content,
+                        gs_key.as_deref(),
+                        *x1, *y1, *x2, *y2,
+                        thickness.unwrap_or(1.0),
+                        color.unwrap_or([0.0, 0.0, 0.0]),
+                    );
+                }
+                DrawOp::Rectangle {
+                    x, y, width, height,
+                    color,
+                    border_color,
+                    border_width,
+                    opacity,
+                    page: _,
+                } => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("GS{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id = inc.new_document.add_object(
+                            Object::Dictionary(extgstate_dict(*o))
+                        );
+                        extgstates_on_page.push((key.clone(), gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    emit_rectangle(
+                        &mut stream_content,
+                        gs_key.as_deref(),
+                        *x, *y, *width, *height,
+                        *color,
+                        *border_color,
+                        *border_width,
+                    );
+                }
+                DrawOp::Ellipse {
+                    x, y, x_scale, y_scale,
+                    color,
+                    border_color,
+                    border_width,
+                    opacity,
+                    page: _,
+                } => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("GS{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id = inc.new_document.add_object(
+                            Object::Dictionary(extgstate_dict(*o))
+                        );
+                        extgstates_on_page.push((key.clone(), gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    emit_ellipse(
+                        &mut stream_content,
+                        gs_key.as_deref(),
+                        *x, *y, *x_scale, *y_scale,
+                        *color,
+                        *border_color,
+                        *border_width,
+                    );
                 }
             }
         }
@@ -394,6 +839,11 @@ pub fn apply_draw_ops_json(
         // Register XObjects for image ops on this page
         for (key, xid) in &xobjects_on_page {
             register_xobject(&mut inc, page_id, key, *xid)?;
+        }
+
+        // Register ExtGState entries for shape ops with opacity on this page
+        for (key, gs_id) in &extgstates_on_page {
+            register_extgstate(&mut inc, page_id, key, *gs_id)?;
         }
     }
 
@@ -622,5 +1072,133 @@ mod tests {
         );
         let r = apply_draw_ops_json(FICHA, &json, bad_bytes);
         assert!(r.is_err(), "expected error for invalid image bytes");
+    }
+
+    #[test]
+    fn draws_line() {
+        let out = ops(
+            r#"[{"op":"line","page":0,"x1":50,"y1":100,"x2":250,"y2":100,"thickness":2,"color":[1,0,0]}]"#,
+            &[],
+        );
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains(" m"), "missing m operator, content: {s}");
+        assert!(s.contains(" l"), "missing l operator, content: {s}");
+        assert!(s.contains("S"), "missing S operator, content: {s}");
+        assert!(s.contains("1 0 0 RG"), "missing stroke color, content: {s}");
+    }
+
+    #[test]
+    fn draws_rectangle_fill_and_border() {
+        let out = ops(
+            r#"[{"op":"rectangle","page":0,"x":50,"y":100,"width":200,"height":80,"color":[0.9,0.9,0.9],"borderColor":[0,0,0],"borderWidth":1}]"#,
+            &[],
+        );
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains(" re"), "missing re operator, content: {s}");
+        assert!(s.contains("B"), "missing B paint operator, content: {s}");
+    }
+
+    #[test]
+    fn rectangle_fill_only_uses_f() {
+        let out = ops(
+            r#"[{"op":"rectangle","page":0,"x":10,"y":10,"width":50,"height":30,"color":[0,0,1]}]"#,
+            &[],
+        );
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains(" re"), "missing re operator, content: {s}");
+        // Should have standalone "f" paint (not "B")
+        assert!(
+            s.split_whitespace().any(|w| w == "f"),
+            "missing standalone f paint operator, content: {s}"
+        );
+        assert!(!s.contains('B'), "should not have B when no border, content: {s}");
+    }
+
+    #[test]
+    fn draws_ellipse() {
+        let out = ops(
+            r#"[{"op":"ellipse","page":0,"x":150,"y":140,"xScale":100,"yScale":40,"color":[0,0,1],"borderColor":[0,0,0],"borderWidth":1}]"#,
+            &[],
+        );
+        let s = last_draw_stream_content(&out);
+        assert!(
+            s.matches(" c").count() >= 4,
+            "expected >= 4 cubic bezier segments, content: {s}"
+        );
+        assert!(
+            s.contains("B") || s.contains("f") || s.contains("S"),
+            "missing paint operator, content: {s}"
+        );
+    }
+
+    #[test]
+    fn opacity_registers_extgstate() {
+        let out = ops(
+            r#"[{"op":"rectangle","page":0,"x":50,"y":100,"width":200,"height":80,"color":[0.9,0.9,0.9],"opacity":0.5}]"#,
+            &[],
+        );
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, first) = doc.get_pages().into_iter().next().unwrap();
+        let dict = doc.get_dictionary(first).unwrap();
+        // Resolve Resources
+        let res = match dict.get(b"Resources").unwrap() {
+            lopdf::Object::Reference(r) => doc.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected Resources dict"),
+        };
+        // Resolve ExtGState
+        let extgstate = match res.get(b"ExtGState").unwrap() {
+            lopdf::Object::Reference(r) => doc.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected ExtGState dict"),
+        };
+        // GS0 must exist
+        let gs0_ref = extgstate
+            .get(b"GS0")
+            .expect("GS0 not found in ExtGState resources");
+        let gs0_id = gs0_ref.as_reference().unwrap();
+        let gs0_dict = doc.get_object(gs0_id).unwrap().as_dict().unwrap().clone();
+        let ca = gs0_dict.get(b"ca").unwrap();
+        let ca_val = match ca {
+            lopdf::Object::Real(v) => *v,
+            lopdf::Object::Integer(v) => *v as f32,
+            _ => panic!("ca is not a number"),
+        };
+        assert!(
+            (ca_val - 0.5).abs() < 0.01,
+            "expected ca ~= 0.5, got {ca_val}"
+        );
+        // Content must reference /GS0 gs
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains("/GS0 gs"), "content missing /GS0 gs, got: {s}");
+    }
+
+    #[test]
+    fn opacity_out_of_range_errors() {
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"rectangle","page":0,"x":0,"y":0,"width":10,"height":10,"color":[0,0,0],"opacity":1.5}]"#,
+            &[],
+        );
+        let err = r.unwrap_err();
+        assert!(err.contains("opacity"), "expected opacity error, got: {err}");
+    }
+
+    #[test]
+    fn shapes_compose_with_text_in_order() {
+        let out = ops(
+            r#"[
+                {"op":"text","page":0,"x":50,"y":700,"size":12,"font":"Helvetica","color":[0,0,0],"text":"hello"},
+                {"op":"rectangle","page":0,"x":50,"y":600,"width":100,"height":50,"color":[1,0,0]}
+            ]"#,
+            &[],
+        );
+        let s = last_draw_stream_content(&out);
+        let tj_pos = s.find(") Tj").expect("missing Tj in content");
+        let re_pos = s.find(" re").expect("missing re in content");
+        assert!(
+            tj_pos < re_pos,
+            "text (Tj at {tj_pos}) should appear before rectangle (re at {re_pos}), content: {s}"
+        );
     }
 }
