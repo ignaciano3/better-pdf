@@ -132,6 +132,42 @@ enum FieldDef {
         tooltip: Option<String>,
         options: Vec<RadioOption>,
     },
+    #[serde(rename = "choice")]
+    Choice {
+        name: String,
+        page: usize,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        #[serde(default)]
+        combo: bool,
+        options: Vec<String>,
+        selected: Option<String>,
+        #[serde(default)]
+        required: bool,
+        #[serde(rename = "readOnly", default)]
+        read_only: bool,
+        tooltip: Option<String>,
+        border: Option<Border>,
+        background: Option<[f32; 3]>,
+    },
+    #[serde(rename = "signature")]
+    Signature {
+        name: String,
+        page: usize,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        #[serde(default)]
+        required: bool,
+        #[serde(rename = "readOnly", default)]
+        read_only: bool,
+        tooltip: Option<String>,
+        border: Option<Border>,
+        background: Option<[f32; 3]>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -477,6 +513,60 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                         if !options.iter().any(|o| &o.value == sel) {
                             return Err(format!("radioGroup \"{name}\" selected value \"{sel}\" is not in options"));
                         }
+                    }
+                }
+                FieldDef::Choice { name, page, x, y, width, height, options, selected, .. } => {
+                    if name.is_empty() {
+                        return Err("field name must not be empty".to_string());
+                    }
+                    if !seen_names.insert(name.as_str()) {
+                        return Err(format!("duplicate field name: {name}"));
+                    }
+                    if *page >= pages.len() {
+                        return Err(format!("field page {page} out of range ({} pages)", pages.len()));
+                    }
+                    if !x.is_finite() || !y.is_finite() {
+                        return Err("field x/y must be finite".to_string());
+                    }
+                    if !width.is_finite() || *width <= 0.0 {
+                        return Err("field width must be finite and > 0".to_string());
+                    }
+                    if !height.is_finite() || *height <= 0.0 {
+                        return Err("field height must be finite and > 0".to_string());
+                    }
+                    if options.is_empty() {
+                        return Err(format!("choice field \"{name}\" must have at least one option"));
+                    }
+                    let mut seen_opts: HashSet<&str> = HashSet::new();
+                    for opt in options {
+                        if !seen_opts.insert(opt.as_str()) {
+                            return Err(format!("duplicate choice option: {opt}"));
+                        }
+                    }
+                    if let Some(sel) = selected {
+                        if !options.iter().any(|o| o == sel) {
+                            return Err(format!("choice field \"{name}\" selected value \"{sel}\" is not in options"));
+                        }
+                    }
+                }
+                FieldDef::Signature { name, page, x, y, width, height, .. } => {
+                    if name.is_empty() {
+                        return Err("field name must not be empty".to_string());
+                    }
+                    if !seen_names.insert(name.as_str()) {
+                        return Err(format!("duplicate field name: {name}"));
+                    }
+                    if *page >= pages.len() {
+                        return Err(format!("field page {page} out of range ({} pages)", pages.len()));
+                    }
+                    if !x.is_finite() || !y.is_finite() {
+                        return Err("field x/y must be finite".to_string());
+                    }
+                    if !width.is_finite() || *width <= 0.0 {
+                        return Err("field width must be finite and > 0".to_string());
+                    }
+                    if !height.is_finite() || *height <= 0.0 {
+                        return Err("field height must be finite and > 0".to_string());
                     }
                 }
             }
@@ -999,6 +1089,198 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     doc.set_object(parent_id, Object::Dictionary(parent_dict));
                     acro_fields.push(Object::Reference(parent_id));
                 }
+                FieldDef::Choice {
+                    name,
+                    page,
+                    x,
+                    y,
+                    width,
+                    height,
+                    combo,
+                    options,
+                    selected,
+                    required,
+                    read_only,
+                    tooltip,
+                    border,
+                    background,
+                } => {
+                    let value = selected.clone().unwrap_or_default();
+                    let val_bytes = crate::appearance::encode_winansi(&value);
+
+                    let content = crate::appearance::text_appearance_content(
+                        &val_bytes,
+                        12.0,
+                        *width,
+                        *height,
+                        0,
+                        "0 g",
+                        "Helv",
+                        &widths,
+                    );
+                    let ap_stream = crate::appearance::build_appearance_xobject(
+                        content, *width, *height, "Helv", helv,
+                    );
+                    let ap_id = doc.add_object(Object::Stream(ap_stream));
+
+                    let flags: i64 = ((*read_only as i64) << 0)
+                        | ((*required as i64) << 1)
+                        | ((*combo as i64) << 17);
+
+                    let rect = Object::Array(vec![
+                        Object::Real(*x),
+                        Object::Real(*y),
+                        Object::Real(*x + *width),
+                        Object::Real(*y + *height),
+                    ]);
+
+                    let opt_array: Vec<Object> = options
+                        .iter()
+                        .map(|o| Object::string_literal(o.as_bytes().to_vec()))
+                        .collect();
+
+                    let mut field_dict = Dictionary::new();
+                    field_dict.set("Type", Object::Name(b"Annot".to_vec()));
+                    field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                    field_dict.set("FT", Object::Name(b"Ch".to_vec()));
+                    field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+                    field_dict.set("Rect", rect);
+                    field_dict.set("DA", Object::string_literal("/Helv 12 Tf 0 g"));
+                    field_dict.set("Ff", Object::Integer(flags));
+                    field_dict.set("Opt", Object::Array(opt_array));
+                    field_dict.set("V", Object::string_literal(val_bytes));
+                    if let Some(sel) = selected {
+                        let idx = options.iter().position(|o| o == sel).unwrap() as i64;
+                        field_dict.set("I", Object::Array(vec![Object::Integer(idx)]));
+                    }
+                    field_dict.set(
+                        "AP",
+                        Object::Dictionary(dictionary! {
+                            "N" => Object::Reference(ap_id)
+                        }),
+                    );
+                    field_dict.set("P", Object::Reference(page_ids[*page]));
+
+                    if let Some(tip) = tooltip {
+                        if !tip.is_empty() {
+                            field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
+                        }
+                    }
+
+                    let mut mk = Dictionary::new();
+                    if let Some(bg) = background {
+                        mk.set(
+                            "BG",
+                            Object::Array(vec![
+                                Object::Real(bg[0]),
+                                Object::Real(bg[1]),
+                                Object::Real(bg[2]),
+                            ]),
+                        );
+                    }
+                    if let Some(b) = border {
+                        mk.set(
+                            "BC",
+                            Object::Array(vec![
+                                Object::Real(b.color[0]),
+                                Object::Real(b.color[1]),
+                                Object::Real(b.color[2]),
+                            ]),
+                        );
+                        if (b.width - 1.0).abs() > 0.001 {
+                            field_dict.set(
+                                "BS",
+                                Object::Dictionary(dictionary! {
+                                    "W" => Object::Real(b.width),
+                                    "S" => Object::Name(b"S".to_vec())
+                                }),
+                            );
+                        }
+                    }
+                    if mk.len() > 0 {
+                        field_dict.set("MK", Object::Dictionary(mk));
+                    }
+
+                    let field_id = doc.add_object(Object::Dictionary(field_dict));
+                    acro_fields.push(Object::Reference(field_id));
+                    page_annots[*page].push(field_id);
+                }
+                FieldDef::Signature {
+                    name,
+                    page,
+                    x,
+                    y,
+                    width,
+                    height,
+                    required,
+                    read_only,
+                    tooltip,
+                    border,
+                    background,
+                } => {
+                    let flags: i64 =
+                        ((*read_only as i64) << 0) | ((*required as i64) << 1);
+
+                    let rect = Object::Array(vec![
+                        Object::Real(*x),
+                        Object::Real(*y),
+                        Object::Real(*x + *width),
+                        Object::Real(*y + *height),
+                    ]);
+
+                    let mut field_dict = Dictionary::new();
+                    field_dict.set("Type", Object::Name(b"Annot".to_vec()));
+                    field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                    field_dict.set("FT", Object::Name(b"Sig".to_vec()));
+                    field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+                    field_dict.set("Rect", rect);
+                    field_dict.set("Ff", Object::Integer(flags));
+                    field_dict.set("P", Object::Reference(page_ids[*page]));
+
+                    if let Some(tip) = tooltip {
+                        if !tip.is_empty() {
+                            field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
+                        }
+                    }
+
+                    let mut mk = Dictionary::new();
+                    if let Some(bg) = background {
+                        mk.set(
+                            "BG",
+                            Object::Array(vec![
+                                Object::Real(bg[0]),
+                                Object::Real(bg[1]),
+                                Object::Real(bg[2]),
+                            ]),
+                        );
+                    }
+                    if let Some(b) = border {
+                        mk.set(
+                            "BC",
+                            Object::Array(vec![
+                                Object::Real(b.color[0]),
+                                Object::Real(b.color[1]),
+                                Object::Real(b.color[2]),
+                            ]),
+                        );
+                        if (b.width - 1.0).abs() > 0.001 {
+                            field_dict.set(
+                                "BS",
+                                Object::Dictionary(dictionary! {
+                                    "W" => Object::Real(b.width),
+                                    "S" => Object::Name(b"S".to_vec())
+                                }),
+                            );
+                        }
+                    }
+                    if mk.len() > 0 {
+                        field_dict.set("MK", Object::Dictionary(mk));
+                    }
+
+                    let field_id = doc.add_object(Object::Dictionary(field_dict));
+                    acro_fields.push(Object::Reference(field_id));
+                    page_annots[*page].push(field_id);
+                }
             }
         }
 
@@ -1340,5 +1622,38 @@ mod tests {
     fn radio_rejects_empty_options() {
         let f = r#"[{"type":"radioGroup","name":"p","options":[]}]"#;
         assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+    }
+
+    #[test]
+    fn creates_dropdown() {
+        let f = r#"[{"type":"choice","name":"country","page":0,"x":56,"y":560,"width":120,"height":20,"combo":true,"options":["AR","BR","CL"],"selected":"AR"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let json = crate::forms::read_fields_json(&out).unwrap();
+        assert!(json.contains("\"type\":\"dropdown\""), "json: {json}");
+        assert!(json.contains("AR") && json.contains("BR") && json.contains("CL"), "json: {json}");
+    }
+
+    #[test]
+    fn creates_listbox() {
+        let f = r#"[{"type":"choice","name":"langs","page":0,"x":56,"y":500,"width":120,"height":50,"combo":false,"options":["es","pt"]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        assert!(crate::forms::read_fields_json(&out).unwrap().contains("\"type\":\"listbox\""));
+    }
+
+    #[test]
+    fn choice_rejects_unknown_selected() {
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":50,"height":20,"combo":true,"options":["a"],"selected":"z"}]"#;
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+    }
+
+    #[test]
+    fn creates_signature_field() {
+        let f = r#"[{"type":"signature","name":"sig","page":0,"x":300,"y":560,"width":160,"height":60}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let json = crate::forms::read_fields_json(&out).unwrap();
+        assert!(json.contains("\"type\":\"signature\"") && json.contains("sig"), "json: {json}");
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Annots").unwrap().as_array().unwrap().len(), 1);
     }
 }
