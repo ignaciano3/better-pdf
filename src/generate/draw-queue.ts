@@ -24,6 +24,44 @@ export type ImageOp = {
   imageLength: number;
 };
 
+export type LineOp = {
+  op: "line";
+  page: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  thickness?: number;
+  color?: [number, number, number];
+  opacity?: number;
+};
+
+export type RectangleOp = {
+  op: "rectangle";
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color?: [number, number, number];
+  borderColor?: [number, number, number];
+  borderWidth?: number;
+  opacity?: number;
+};
+
+export type EllipseOp = {
+  op: "ellipse";
+  page: number;
+  x: number;
+  y: number;
+  xScale: number;
+  yScale: number;
+  color?: [number, number, number];
+  borderColor?: [number, number, number];
+  borderWidth?: number;
+  opacity?: number;
+};
+
 export type AddPageOp = { op: "addPage"; width: number; height: number };
 
 type ImageEntry = {
@@ -34,7 +72,7 @@ type ImageEntry = {
 
 /** @internal */
 export class DrawQueue {
-  private readonly drawOps: Array<TextOp | ImageEntry> = [];
+  private readonly drawOps: Array<TextOp | ImageEntry | LineOp | RectangleOp | EllipseOp> = [];
   private readonly pageOps: AddPageOp[] = [];
 
   get length(): number {
@@ -75,10 +113,22 @@ export class DrawQueue {
     });
   }
 
-  private buildDrawOps(): { ops: (TextOp | ImageOp)[]; images: Uint8Array } {
+  pushLine(op: LineOp): void {
+    this.drawOps.push(op);
+  }
+
+  pushRectangle(op: RectangleOp): void {
+    this.drawOps.push(op);
+  }
+
+  pushEllipse(op: EllipseOp): void {
+    this.drawOps.push(op);
+  }
+
+  private buildDrawOps(): { ops: (TextOp | ImageOp | LineOp | RectangleOp | EllipseOp)[]; images: Uint8Array } {
     const chunks: Uint8Array[] = [];
     let offset = 0;
-    const ops: (TextOp | ImageOp)[] = [];
+    const ops: (TextOp | ImageOp | LineOp | RectangleOp | EllipseOp)[] = [];
     for (const entry of this.drawOps) {
       if ("kind" in entry) {
         const len = entry.bytes.length;
