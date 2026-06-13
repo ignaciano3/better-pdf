@@ -71,6 +71,13 @@ export class MissingOnStateError extends PdfError {
  */
 export class PdfCoreError extends PdfError {}
 
+/** Thrown when a page index is outside the document's page range. */
+export class PageOutOfRangeError extends PdfError {
+  constructor(readonly index: number, readonly pageCount: number) {
+    super(`page ${index} out of range (document has ${pageCount} pages)`);
+  }
+}
+
 /** @internal Wrap a core failure so every error this library throws is a PdfError. */
 export function toPdfError(e: unknown): PdfError {
   if (e instanceof PdfError) return e;

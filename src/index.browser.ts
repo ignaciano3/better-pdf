@@ -45,6 +45,12 @@ export class PdfDocument extends PdfDocumentBase {
   }
 }
 
+export { PdfPage } from "./generate/page.js";
+export type { DrawTextOptions } from "./generate/page.js";
+export { StandardFonts } from "./generate/fonts.js";
+export { rgb, grayscale } from "./generate/color.js";
+export type { Color } from "./generate/color.js";
+export { PageOutOfRangeError } from "./core/errors.js";
 export { PdfForm } from "./forms/form.js";
 export type { FieldInfo, FieldType, FieldWidget } from "./forms/form.js";
 export {

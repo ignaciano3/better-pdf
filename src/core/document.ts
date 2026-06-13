@@ -1,6 +1,8 @@
 import { PdfForm } from "../forms/form.js";
-import { toPdfError } from "./errors.js";
+import { toPdfError, PageOutOfRangeError } from "./errors.js";
 import type { FormSchema, TypedPdfForm } from "../forms/schema.js";
+import { PdfPage } from "../generate/page.js";
+import { DrawQueue } from "../generate/draw-queue.js";
 
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
@@ -13,6 +15,8 @@ export interface CoreWasm {
 
 export class PdfDocumentBase {
   private form?: PdfForm;
+  private pages?: PdfPage[];
+  private readonly drawQueue = new DrawQueue();
 
   /** @internal */
   protected constructor(
@@ -53,6 +57,9 @@ export class PdfDocumentBase {
       if (form && form.flattenQueue.length > 0) {
         bytes = this.wasm.flattenFields(bytes, JSON.stringify(form.flattenQueue));
       }
+      if (this.drawQueue.length > 0) {
+        bytes = this.wasm.applyDrawOps(bytes, this.drawQueue.toJson());
+      }
     } catch (e) {
       throw toPdfError(e);
     }
@@ -60,6 +67,39 @@ export class PdfDocumentBase {
       return this.bytes.slice();
     }
     return bytes;
+  }
+
+  /** Number of pages in the document. */
+  getPageCount(): number {
+    return this.loadPages().length;
+  }
+
+  /** All pages, in document order. The same instances are returned every time. */
+  getPages(): PdfPage[] {
+    return [...this.loadPages()];
+  }
+
+  /** Get one page by zero-based index. */
+  getPage(index: number): PdfPage {
+    const pages = this.loadPages();
+    const page = pages[index];
+    if (page === undefined) throw new PageOutOfRangeError(index, pages.length);
+    return page;
+  }
+
+  private loadPages(): PdfPage[] {
+    if (!this.pages) {
+      let infos: { index: number; width: number; height: number; rotation: number }[];
+      try {
+        infos = JSON.parse(this.wasm.readPages(this.bytes));
+      } catch (e) {
+        throw toPdfError(e);
+      }
+      this.pages = infos.map(
+        (p) => new PdfPage(p.index, p.width, p.height, p.rotation, this.drawQueue),
+      );
+    }
+    return this.pages;
   }
 
   /**
