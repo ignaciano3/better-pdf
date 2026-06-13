@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   initSync,
   apply_draw_ops,
+  create_document,
   fill_fields,
   flatten_fields,
   read_fields,
@@ -33,4 +34,8 @@ export function readPages(data: Uint8Array): string {
 
 export function applyDrawOps(data: Uint8Array, opsJson: string): Uint8Array {
   return apply_draw_ops(data, opsJson);
+}
+
+export function createDocument(opsJson: string): Uint8Array {
+  return create_document(opsJson);
 }

@@ -2,6 +2,7 @@
 // Built with `wasm-pack --target web`, so callers must initialize before use.
 import initCore, {
   apply_draw_ops,
+  create_document,
   fill_fields,
   flatten_fields,
   read_fields,
@@ -54,4 +55,9 @@ export function readPages(data: Uint8Array): string {
 export function applyDrawOps(data: Uint8Array, opsJson: string): Uint8Array {
   ensureInitialized();
   return apply_draw_ops(data, opsJson);
+}
+
+export function createDocument(opsJson: string): Uint8Array {
+  ensureInitialized();
+  return create_document(opsJson);
 }
