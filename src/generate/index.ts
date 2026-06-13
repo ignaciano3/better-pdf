@@ -2,7 +2,8 @@
 // PdfDocument or any WASM import. PdfDocument comes from the package root
 // (or /browser) entry.
 export { PdfPage } from "./page.js";
-export type { DrawTextOptions } from "./page.js";
+export type { DrawTextOptions, DrawImageOptions } from "./page.js";
+export { PdfImage } from "./image.js";
 export { StandardFonts } from "./fonts.js";
 export { rgb, grayscale } from "./color.js";
 export type { Color } from "./color.js";

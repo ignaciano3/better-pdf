@@ -49,7 +49,8 @@ export class PdfDocument extends PdfDocumentBase {
 }
 
 export { PdfPage } from "./generate/page.js";
-export type { DrawTextOptions } from "./generate/page.js";
+export type { DrawTextOptions, DrawImageOptions } from "./generate/page.js";
+export { PdfImage } from "./generate/image.js";
 export { PageSizes } from "./generate/page-sizes.js";
 export type { PageSize } from "./generate/page-sizes.js";
 export { StandardFonts } from "./generate/fonts.js";
@@ -74,6 +75,7 @@ export {
   MaxLengthExceededError,
   MissingOnStateError,
   PdfCoreError,
+  InvalidImageError,
 } from "./core/errors.js";
 export { generateFormTypes } from "./forms/typegen.js";
 export type { GenerateFormTypesOptions } from "./forms/typegen.js";
