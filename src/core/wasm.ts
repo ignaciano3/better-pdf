@@ -9,6 +9,7 @@ import {
   fill_fields,
   flatten_fields,
   image_info,
+  measure_text,
   read_fields,
   read_pages,
 } from "../../pkg-web/better_pdf_core.js";
@@ -47,4 +48,8 @@ export function createDocument(opsJson: string, images: Uint8Array = new Uint8Ar
 
 export function imageInfo(data: Uint8Array): string {
   return image_info(data);
+}
+
+export function measureText(font: string, size: number, text: string): number {
+  return measure_text(font, size, text);
 }

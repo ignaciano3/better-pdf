@@ -2,6 +2,7 @@ import { StandardFonts } from "./fonts.js";
 import { rgb, type Color } from "./color.js";
 import type { DrawQueue, LineOp, RectangleOp, EllipseOp } from "./draw-queue.js";
 import { PdfImage } from "./image.js";
+import { PdfFont } from "./font.js";
 
 /** Options for {@link PdfPage.drawText}. Coordinates use the PDF convention: origin bottom-left. */
 export interface DrawTextOptions {
@@ -9,8 +10,8 @@ export interface DrawTextOptions {
   y: number;
   /** Font size in points. Must be > 0. */
   size: number;
-  /** One of the 14 standard fonts. Defaults to Helvetica. */
-  font?: StandardFonts;
+  /** One of the 14 standard fonts, or a {@link PdfFont} handle. Defaults to Helvetica. */
+  font?: StandardFonts | PdfFont;
   /** Text color. Defaults to black. */
   color?: Color;
   /** Distance between baselines for multiline text ("\n"). Defaults to 1.15 * size. */
@@ -125,11 +126,12 @@ export class PdfPage {
     ) {
       throw new RangeError(`lineHeight must be > 0, got ${options.lineHeight}`);
     }
+    const fontName = options.font instanceof PdfFont ? options.font.name : (options.font ?? StandardFonts.Helvetica);
     this.queue.pushText(this.index, text, {
       x: options.x,
       y: options.y,
       size: options.size,
-      font: options.font ?? StandardFonts.Helvetica,
+      font: fontName,
       color: options.color ?? rgb(0, 0, 0),
       lineHeight: options.lineHeight,
     });

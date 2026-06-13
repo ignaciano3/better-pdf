@@ -32,8 +32,52 @@ core and stricter validation. This guide maps the APIs.
   rendering to the viewer); flattening therefore works on PDFs where pdf-lib
   throws `Unexpected N type: undefined`.
 - **Signatures are visual only** — image appearances, not cryptographic signing.
-- **Scope:** existing PDFs only. No document creation, page drawing, or
-  encryption — if you need those pdf-lib features, keep pdf-lib alongside.
+- **Scope (as of 0.2.0):** creation, page drawing, and form filling are all
+  covered. Encryption is not supported.
+
+## Generating documents
+
+better-pdf 0.2.0 covers pdf-lib's document generation API. The method names are
+largely identical; the differences are noted below.
+
+### API mapping
+
+| pdf-lib | better-pdf |
+| --- | --- |
+| `PDFDocument.create()` | `await PdfDocument.create()` (async — returns `Promise<PdfDocument>`) |
+| `pdfDoc.addPage([width, height])` | `doc.addPage([width, height])` or `doc.addPage(PageSizes.A4)` etc. |
+| `pdfDoc.getPageCount()` | `doc.getPageCount()` |
+| `pdfDoc.getPages()` | `doc.getPages()` |
+| `pdfDoc.getPage(i)` | `doc.getPage(i)` — throws `PageOutOfRangeError` instead of returning `undefined` |
+| `pdfDoc.embedJpg(bytes)` | `doc.embedJpg(bytes)` (async) |
+| `pdfDoc.embedPng(bytes)` | `doc.embedPng(bytes)` (async) |
+| `pdfDoc.embedFont(StandardFonts.Helvetica)` | `doc.getFont(StandardFonts.Helvetica)` (sync) |
+| `font.widthOfTextAtSize(text, size)` | same |
+| `page.drawText(text, options)` | same |
+| `page.drawImage(img, options)` | same |
+| `page.drawRectangle(options)` | same |
+| `page.drawLine(options)` | same |
+| `page.drawEllipse(options)` | same — see note below |
+| `rgb(r, g, b)` / `grayscale(v)` | same |
+| `StandardFonts.Helvetica` etc. | same enum values |
+| `pdfDoc.save()` | `doc.save()` — returns `Promise<Uint8Array>` |
+
+### Differences from pdf-lib
+
+- **Standard-14 fonts only.** `getFont()` accepts a `StandardFonts` enum value;
+  custom font embedding (`embedFont` with TTF/OTF bytes) is not yet supported.
+- **No AcroForm field creation on new documents.** `getForm()` is not available
+  on documents created with `PdfDocument.create()`.
+- **RGB and grayscale only.** CMYK color is not supported.
+- **Ellipse center semantics.** `drawEllipse({ x, y, xScale, yScale, … })` uses
+  `(x, y)` as the center and `xScale`/`yScale` as the x and y radii — the same
+  as pdf-lib.
+- **`save()` is always async** and returns `Promise<Uint8Array>`. There is no
+  synchronous `saveSync()`.
+- **`PdfDocument.create()` is async** — it may initialize WASM, so you must
+  `await PdfDocument.create()` (pdf-lib's `PDFDocument.create()` is synchronous).
+- **`PageSizes` constants** are `[width, height]` tuples in PDF points: `A3`,
+  `A4`, `A5`, `Letter`, `Legal`, `Tabloid`.
 
 ## Typed forms (no pdf-lib equivalent)
 

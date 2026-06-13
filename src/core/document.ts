@@ -5,6 +5,8 @@ import { PdfPage } from "../generate/page.js";
 import { DrawQueue } from "../generate/draw-queue.js";
 import { type PageSize, PageSizes } from "../generate/page-sizes.js";
 import { PdfImage } from "../generate/image.js";
+import { PdfFont } from "../generate/font.js";
+import { StandardFonts } from "../generate/fonts.js";
 
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
@@ -15,6 +17,7 @@ export interface CoreWasm {
   applyDrawOps(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array;
   createDocument(opsJson: string, images?: Uint8Array): Uint8Array;
   imageInfo(data: Uint8Array): string;
+  measureText(font: string, size: number, text: string): number;
 }
 
 export class PdfDocumentBase {
@@ -197,5 +200,10 @@ export class PdfDocumentBase {
     }
     if (!this.form) this.form = new PdfForm(this.bytes, this.wasm.readFields);
     return this.form;
+  }
+
+  /** Get a standard-14 font handle for measuring or drawing text. */
+  getFont(font: StandardFonts): PdfFont {
+    return new PdfFont(font, (f, s, t) => this.wasm.measureText(f, s, t));
   }
 }

@@ -51,6 +51,12 @@ pub fn create_document(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, JsError
     create::create_document_json(ops_json, images).map_err(|e| JsError::new(&e))
 }
 
+/// Width in points of `text` in standard-14 `font` at `size`.
+#[wasm_bindgen]
+pub fn measure_text(font: &str, size: f32, text: &str) -> Result<f32, JsError> {
+    appearance::measure_text_width(font, size, text).map_err(|e| JsError::new(&e))
+}
+
 /// Return JSON `{"width":W,"height":H}` (intrinsic pixels) for a JPEG/PNG, or error.
 #[wasm_bindgen]
 pub fn image_info(data: &[u8]) -> Result<String, JsError> {

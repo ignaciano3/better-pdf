@@ -6,6 +6,7 @@ import initCore, {
   fill_fields,
   flatten_fields,
   image_info,
+  measure_text,
   read_fields,
   read_pages,
   type InitInput,
@@ -70,4 +71,9 @@ export function createDocument(opsJson: string, images: Uint8Array = new Uint8Ar
 export function imageInfo(data: Uint8Array): string {
   ensureInitialized();
   return image_info(data);
+}
+
+export function measureText(font: string, size: number, text: string): number {
+  ensureInitialized();
+  return measure_text(font, size, text);
 }
