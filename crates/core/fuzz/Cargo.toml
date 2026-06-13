@@ -39,3 +39,10 @@ path = "fuzz_targets/fill.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "draw_ops"
+path = "fuzz_targets/draw_ops.rs"
+test = false
+doc = false
+bench = false

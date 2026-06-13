@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 mod appearance;
+mod draw;
 mod fill;
 mod flatten;
 mod font_metrics;
@@ -33,10 +34,18 @@ pub fn read_pages(data: &[u8]) -> Result<String, JsError> {
     pages::read_pages_json(data).map_err(|e| JsError::new(&e))
 }
 
+/// Apply draw ops (JSON array of text/shape commands) to an existing PDF and
+/// return new bytes (incremental save).
+#[wasm_bindgen]
+pub fn apply_draw_ops(data: &[u8], ops_json: &str) -> Result<Vec<u8>, JsError> {
+    draw::apply_draw_ops_json(data, ops_json).map_err(|e| JsError::new(&e))
+}
+
 /// Internal re-exports for the fuzz targets in `fuzz/`. Not a public API.
 #[doc(hidden)]
 pub mod fuzz_api {
     pub use crate::appearance::{parse_da, signature_image};
+    pub use crate::draw::apply_draw_ops_json;
     pub use crate::fill::fill_fields_json;
     pub use crate::forms::read_fields_json;
 }
