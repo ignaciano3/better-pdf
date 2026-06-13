@@ -7,3 +7,5 @@ export { StandardFonts } from "./fonts.js";
 export { rgb, grayscale } from "./color.js";
 export type { Color } from "./color.js";
 export { PageOutOfRangeError } from "../core/errors.js";
+export { PageSizes } from "./page-sizes.js";
+export type { PageSize } from "./page-sizes.js";

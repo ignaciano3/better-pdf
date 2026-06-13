@@ -13,9 +13,12 @@ export type DrawOp = {
   lineHeight?: number;
 };
 
+export type AddPageOp = { op: "addPage"; width: number; height: number };
+
 /** @internal */
 export class DrawQueue {
   private readonly ops: DrawOp[] = [];
+  private readonly pageOps: AddPageOp[] = [];
 
   get length(): number {
     return this.ops.length;
@@ -39,7 +42,16 @@ export class DrawQueue {
     });
   }
 
+  pushAddPage(width: number, height: number): void {
+    this.pageOps.push({ op: "addPage", width, height });
+  }
+
   toJson(): string {
     return JSON.stringify(this.ops);
+  }
+
+  /** Ops for create_document: addPage ops first, then all text ops. */
+  toCreateJson(): string {
+    return JSON.stringify([...this.pageOps, ...this.ops]);
   }
 }

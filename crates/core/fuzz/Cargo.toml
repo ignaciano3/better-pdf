@@ -46,3 +46,10 @@ path = "fuzz_targets/draw_ops.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "create_document"
+path = "fuzz_targets/create_document.rs"
+test = false
+doc = false
+bench = false

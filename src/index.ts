@@ -41,10 +41,17 @@ export class PdfDocument extends PdfDocumentBase {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     return new PdfDocument(bytes, wasm);
   }
+
+  /** Create a new, empty document. Add pages with {@link PdfDocument.addPage}. */
+  static async create(): Promise<PdfDocument> {
+    return new PdfDocument(new Uint8Array(), wasm, "create");
+  }
 }
 
 export { PdfPage } from "./generate/page.js";
 export type { DrawTextOptions } from "./generate/page.js";
+export { PageSizes } from "./generate/page-sizes.js";
+export type { PageSize } from "./generate/page-sizes.js";
 export { StandardFonts } from "./generate/fonts.js";
 export { rgb, grayscale } from "./generate/color.js";
 export type { Color } from "./generate/color.js";

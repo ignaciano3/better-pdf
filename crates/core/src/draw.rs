@@ -22,7 +22,7 @@ enum DrawOp {
     },
 }
 
-const STANDARD_14: &[&str] = &[
+pub(crate) const STANDARD_14: &[&str] = &[
     "Helvetica",
     "Helvetica-Bold",
     "Helvetica-Oblique",
@@ -38,7 +38,7 @@ const STANDARD_14: &[&str] = &[
 ];
 
 /// Format a float with up to 2 decimal places, trimming trailing zeros.
-fn fmt_num(v: f32) -> String {
+pub(crate) fn fmt_num(v: f32) -> String {
     let rounded = (v * 100.0).round() / 100.0;
     if (rounded - rounded.floor()).abs() < 0.001 {
         format!("{}", rounded as i64)
@@ -47,6 +47,52 @@ fn fmt_num(v: f32) -> String {
         let s = s.trim_end_matches('0');
         s.to_string()
     }
+}
+
+pub(crate) fn standard_14_index(font: &str) -> Option<usize> {
+    STANDARD_14.iter().position(|&f| f == font)
+}
+
+pub(crate) fn font_dict(base_font: &str) -> lopdf::Dictionary {
+    dictionary! {
+        "Type" => Object::Name(b"Font".to_vec()),
+        "Subtype" => Object::Name(b"Type1".to_vec()),
+        "BaseFont" => Object::Name(base_font.as_bytes().to_vec()),
+        "Encoding" => Object::Name(b"WinAnsiEncoding".to_vec()),
+    }
+}
+
+/// Append one self-contained `BT … ET` text block to `out`. `BT` resets the
+/// text matrix to identity, so `(x, y)` is an absolute page position.
+/// `font_key` is the resource name without leading slash, e.g. "BPF0".
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_text_block(
+    out: &mut Vec<u8>,
+    font_key: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    color: [f32; 3],
+    text: &str,
+    line_height: Option<f32>,
+) {
+    let leading = line_height.unwrap_or(size * 1.15);
+    let [r, g, b] = color;
+    out.extend_from_slice(b"BT\n");
+    out.extend_from_slice(format!("/{font_key} {} Tf\n", fmt_num(size)).as_bytes());
+    out.extend_from_slice(format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes());
+    out.extend_from_slice(format!("{} TL\n", fmt_num(leading)).as_bytes());
+    out.extend_from_slice(format!("{} {} Td\n", fmt_num(x), fmt_num(y)).as_bytes());
+    for (i, line) in text.split('\n').enumerate() {
+        let escaped = escape_pdf_literal(&encode_winansi(line));
+        let escaped_str = String::from_utf8_lossy(&escaped).into_owned();
+        if i == 0 {
+            out.extend_from_slice(format!("({escaped_str}) Tj\n").as_bytes());
+        } else {
+            out.extend_from_slice(format!("T*\n({escaped_str}) Tj\n").as_bytes());
+        }
+    }
+    out.extend_from_slice(b"ET\n");
 }
 
 /// Apply draw ops from a JSON string to `data` and return new PDF bytes
@@ -120,60 +166,28 @@ pub fn apply_draw_ops_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, Strin
                     line_height,
                     page: _,
                 } => {
-                    let font_idx = STANDARD_14.iter().position(|&f| f == font.as_str()).unwrap();
-                    let leading = line_height.unwrap_or(size * 1.15);
-                    let [r, g, b] = color;
+                    let font_idx = standard_14_index(font.as_str()).unwrap();
 
                     // Ensure font object exists
                     if !font_cache.contains_key(&font_idx) {
-                        let font_dict = dictionary! {
-                            "Type" => Object::Name(b"Font".to_vec()),
-                            "Subtype" => Object::Name(b"Type1".to_vec()),
-                            "BaseFont" => Object::Name(font.as_bytes().to_vec()),
-                            "Encoding" => Object::Name(b"WinAnsiEncoding".to_vec()),
-                        };
                         let fid = inc
                             .new_document
-                            .add_object(Object::Dictionary(font_dict));
+                            .add_object(Object::Dictionary(font_dict(font)));
                         font_cache.insert(font_idx, fid);
                     }
 
-                    let lines: Vec<&str> = text.split('\n').collect();
-
                     // One self-contained BT...ET block per op; BT resets the
                     // text matrix to identity so Td gives absolute positioning.
-                    stream_content.extend_from_slice(b"BT\n");
-                    stream_content.extend_from_slice(
-                        format!("/BPF{font_idx} {} Tf\n", fmt_num(*size)).as_bytes(),
+                    emit_text_block(
+                        &mut stream_content,
+                        &format!("BPF{font_idx}"),
+                        *x,
+                        *y,
+                        *size,
+                        *color,
+                        text,
+                        *line_height,
                     );
-                    stream_content.extend_from_slice(
-                        format!(
-                            "{} {} {} rg\n",
-                            fmt_num(*r),
-                            fmt_num(*g),
-                            fmt_num(*b)
-                        )
-                        .as_bytes(),
-                    );
-                    stream_content
-                        .extend_from_slice(format!("{} TL\n", fmt_num(leading)).as_bytes());
-                    stream_content.extend_from_slice(
-                        format!("{} {} Td\n", fmt_num(*x), fmt_num(*y)).as_bytes(),
-                    );
-
-                    for (i, line) in lines.iter().enumerate() {
-                        let encoded = encode_winansi(line);
-                        let escaped = escape_pdf_literal(&encoded);
-                        let escaped_str = String::from_utf8_lossy(&escaped).into_owned();
-                        if i == 0 {
-                            stream_content
-                                .extend_from_slice(format!("({escaped_str}) Tj\n").as_bytes());
-                        } else {
-                            stream_content
-                                .extend_from_slice(format!("T*\n({escaped_str}) Tj\n").as_bytes());
-                        }
-                    }
-                    stream_content.extend_from_slice(b"ET\n");
                 }
             }
         }
@@ -234,7 +248,7 @@ pub fn apply_draw_ops_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, Strin
         let mut fonts_on_page: Vec<(usize, String)> = Vec::new();
         for op in page_op_list {
             let DrawOp::Text { font, .. } = op;
-            let idx = STANDARD_14.iter().position(|&f| f == font.as_str()).unwrap();
+            let idx = standard_14_index(font.as_str()).unwrap();
             if !fonts_on_page.iter().any(|(i, _)| *i == idx) {
                 fonts_on_page.push((idx, font.clone()));
             }

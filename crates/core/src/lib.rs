@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 mod appearance;
+pub mod create;
 mod draw;
 mod fill;
 mod flatten;
@@ -41,10 +42,18 @@ pub fn apply_draw_ops(data: &[u8], ops_json: &str) -> Result<Vec<u8>, JsError> {
     draw::apply_draw_ops_json(data, ops_json).map_err(|e| JsError::new(&e))
 }
 
+/// Build a new PDF document from scratch using a JSON array of create ops
+/// (addPage, text, etc.) and return the PDF bytes.
+#[wasm_bindgen]
+pub fn create_document(ops_json: &str) -> Result<Vec<u8>, JsError> {
+    create::create_document_json(ops_json).map_err(|e| JsError::new(&e))
+}
+
 /// Internal re-exports for the fuzz targets in `fuzz/`. Not a public API.
 #[doc(hidden)]
 pub mod fuzz_api {
     pub use crate::appearance::{parse_da, signature_image};
+    pub use crate::create::create_document_json;
     pub use crate::draw::apply_draw_ops_json;
     pub use crate::fill::fill_fields_json;
     pub use crate::forms::read_fields_json;
