@@ -375,6 +375,19 @@ they showcase the architectural difference, not parser speed.
 | stamp first signature + flatten it | 3.81 ms | n/a | n/a |
 | flatten all + save | 0.96 ms | error | n/a |
 
+### PDF generation
+
+Building or stamping documents from scratch (no fixture). The `create + draw`
+rows compare against `pdf-lib`'s equivalent generation API; vector shapes have
+no direct `pdf-lib` one-liner equivalent.
+
+| Scenario | better-pdf | pdf-lib | speedup |
+| --- | ---: | ---: | ---: |
+| create + draw text | 0.15 ms | 1.25 ms | 8.2× |
+| stamp text on existing | 1.10 ms | 2.16 ms | 2.0× |
+| create + draw image | 0.07 ms | 0.50 ms | 7.3× |
+| create + vector shapes | 0.09 ms | n/a | n/a |
+
 In the two `error` rows, `pdf-lib` threw `Unexpected N type: undefined` while
 flattening real-world fixtures. Absolute timings vary by machine; reproduce
 them on yours with `bun run bench` (set `BENCH_ITER` to change the iteration
