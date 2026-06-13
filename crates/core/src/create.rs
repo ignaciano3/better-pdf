@@ -4,7 +4,10 @@
 use lopdf::{dictionary, Dictionary, Document, Object, Stream};
 use serde::Deserialize;
 
-use crate::draw::{emit_image_op, emit_text_block, font_dict, standard_14_index, STANDARD_14};
+use crate::draw::{
+    emit_ellipse, emit_image_op, emit_line, emit_rectangle, emit_text_block, extgstate_dict,
+    font_dict, standard_14_index, STANDARD_14,
+};
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
@@ -31,6 +34,44 @@ enum CreateOp {
         image_offset: usize,
         #[serde(rename = "imageLength")]
         image_length: usize,
+    },
+    Line {
+        page: usize,
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        thickness: Option<f32>,
+        color: Option<[f32; 3]>,
+        opacity: Option<f32>,
+    },
+    Rectangle {
+        page: usize,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: Option<[f32; 3]>,
+        #[serde(rename = "borderColor")]
+        border_color: Option<[f32; 3]>,
+        #[serde(rename = "borderWidth")]
+        border_width: Option<f32>,
+        opacity: Option<f32>,
+    },
+    Ellipse {
+        page: usize,
+        x: f32,
+        y: f32,
+        #[serde(rename = "xScale")]
+        x_scale: f32,
+        #[serde(rename = "yScale")]
+        y_scale: f32,
+        color: Option<[f32; 3]>,
+        #[serde(rename = "borderColor")]
+        border_color: Option<[f32; 3]>,
+        #[serde(rename = "borderWidth")]
+        border_width: Option<f32>,
+        opacity: Option<f32>,
     },
 }
 
@@ -76,6 +117,106 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
                 }
                 crate::appearance::signature_image(&images[*image_offset..end])?;
             }
+            CreateOp::Line {
+                page,
+                thickness,
+                color,
+                opacity,
+                ..
+            } => {
+                if *page >= pages.len() {
+                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
+                }
+                if let Some(o) = opacity {
+                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                }
+                if let Some(t) = thickness {
+                    if !t.is_finite() || *t < 0.0 {
+                        return Err("thickness must be >= 0".to_string());
+                    }
+                }
+                if let Some(c) = color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+            }
+            CreateOp::Rectangle {
+                page,
+                color,
+                border_color,
+                border_width,
+                opacity,
+                ..
+            } => {
+                if *page >= pages.len() {
+                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
+                }
+                if let Some(o) = opacity {
+                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                }
+                if let Some(bw) = border_width {
+                    if !bw.is_finite() || *bw < 0.0 {
+                        return Err("borderWidth must be >= 0".to_string());
+                    }
+                }
+                if let Some(c) = color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+                if let Some(c) = border_color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+            }
+            CreateOp::Ellipse {
+                page,
+                color,
+                border_color,
+                border_width,
+                opacity,
+                ..
+            } => {
+                if *page >= pages.len() {
+                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
+                }
+                if let Some(o) = opacity {
+                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                }
+                if let Some(bw) = border_width {
+                    if !bw.is_finite() || *bw < 0.0 {
+                        return Err("borderWidth must be >= 0".to_string());
+                    }
+                }
+                if let Some(c) = color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+                if let Some(c) = border_color {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+            }
             CreateOp::AddPage { .. } => {}
         }
     }
@@ -86,11 +227,15 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
     // Global image counter for unique XObject keys
     let mut img_counter: usize = 0;
 
+    // Global ExtGState counter for unique GS keys across all pages
+    let mut gs_counter: usize = 0;
+
     let mut kids: Vec<Object> = Vec::new();
     for (page_index, (w, h)) in pages.iter().enumerate() {
         let mut content = Vec::new();
         let mut font_res = Dictionary::new();
         let mut xobject_res = Dictionary::new();
+        let mut extgstate_res = Dictionary::new();
 
         // Single ordered pass over ops for this page to preserve z-order
         for op in &ops {
@@ -141,6 +286,103 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
                     xobject_res.set(key.clone(), Object::Reference(xid));
                     emit_image_op(&mut content, &key, *x, *y, *width, *height);
                 }
+                CreateOp::Line {
+                    page,
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    thickness,
+                    color,
+                    opacity,
+                } if *page == page_index => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("GS{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id =
+                            doc.add_object(Object::Dictionary(extgstate_dict(*o)));
+                        extgstate_res.set(key.clone(), Object::Reference(gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    emit_line(
+                        &mut content,
+                        gs_key.as_deref(),
+                        *x1,
+                        *y1,
+                        *x2,
+                        *y2,
+                        thickness.unwrap_or(1.0),
+                        color.unwrap_or([0.0, 0.0, 0.0]),
+                    );
+                }
+                CreateOp::Rectangle {
+                    page,
+                    x,
+                    y,
+                    width,
+                    height,
+                    color,
+                    border_color,
+                    border_width,
+                    opacity,
+                } if *page == page_index => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("GS{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id =
+                            doc.add_object(Object::Dictionary(extgstate_dict(*o)));
+                        extgstate_res.set(key.clone(), Object::Reference(gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    emit_rectangle(
+                        &mut content,
+                        gs_key.as_deref(),
+                        *x,
+                        *y,
+                        *width,
+                        *height,
+                        *color,
+                        *border_color,
+                        *border_width,
+                    );
+                }
+                CreateOp::Ellipse {
+                    page,
+                    x,
+                    y,
+                    x_scale,
+                    y_scale,
+                    color,
+                    border_color,
+                    border_width,
+                    opacity,
+                } if *page == page_index => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("GS{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id =
+                            doc.add_object(Object::Dictionary(extgstate_dict(*o)));
+                        extgstate_res.set(key.clone(), Object::Reference(gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    emit_ellipse(
+                        &mut content,
+                        gs_key.as_deref(),
+                        *x,
+                        *y,
+                        *x_scale,
+                        *y_scale,
+                        *color,
+                        *border_color,
+                        *border_width,
+                    );
+                }
                 _ => {}
             }
         }
@@ -152,6 +394,9 @@ pub fn create_document_json(ops_json: &str, images: &[u8]) -> Result<Vec<u8>, St
         }
         if xobject_res.len() > 0 {
             resources.set("XObject", Object::Dictionary(xobject_res));
+        }
+        if extgstate_res.len() > 0 {
+            resources.set("ExtGState", Object::Dictionary(extgstate_res));
         }
 
         let content_id = doc.add_object(Object::Stream(Stream::new(
@@ -330,5 +575,74 @@ mod tests {
         let info = img.info();
         assert_eq!(info.width, 1);
         assert_eq!(info.height, 1);
+    }
+
+    #[test]
+    fn creates_doc_with_rectangle() {
+        let out = create_document_json(
+            r#"[{"op":"addPage","width":595,"height":842},{"op":"rectangle","page":0,"x":50,"y":100,"width":200,"height":80,"color":[0.9,0.9,0.9],"borderColor":[0,0,0],"borderWidth":1}]"#,
+            &[],
+        )
+        .unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let contents_id = page.get(b"Contents").unwrap().as_reference().unwrap();
+        let stream = doc.get_object(contents_id).unwrap().as_stream().unwrap();
+        let s = String::from_utf8_lossy(&stream.content);
+        assert!(s.contains(" re"), "content missing 're' operator: {s}");
+        assert!(s.contains("B"), "content missing 'B' paint operator: {s}");
+    }
+
+    #[test]
+    fn creates_doc_with_opacity() {
+        let out = create_document_json(
+            r#"[{"op":"addPage","width":595,"height":842},{"op":"rectangle","page":0,"x":50,"y":100,"width":200,"height":80,"color":[0.9,0.9,0.9],"opacity":0.5}]"#,
+            &[],
+        )
+        .unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let res = page.get(b"Resources").unwrap().as_dict().unwrap();
+        let extgstate = res.get(b"ExtGState").unwrap().as_dict().unwrap();
+        let gs0_ref = extgstate.get(b"GS0").expect("GS0 not found in ExtGState");
+        let gs0_id = gs0_ref.as_reference().unwrap();
+        let gs0_dict = doc.get_object(gs0_id).unwrap().as_dict().unwrap().clone();
+        let ca = gs0_dict.get(b"ca").unwrap();
+        let ca_val = match ca {
+            lopdf::Object::Real(v) => *v,
+            lopdf::Object::Integer(v) => *v as f32,
+            _ => panic!("ca is not a number"),
+        };
+        assert!(
+            (ca_val - 0.5).abs() < 0.01,
+            "expected ca ~= 0.5, got {ca_val}"
+        );
+        let contents_id = page.get(b"Contents").unwrap().as_reference().unwrap();
+        let stream = doc.get_object(contents_id).unwrap().as_stream().unwrap();
+        let s = String::from_utf8_lossy(&stream.content);
+        assert!(s.contains("/GS0 gs"), "content missing '/GS0 gs': {s}");
+    }
+
+    #[test]
+    fn creates_doc_with_line_and_ellipse() {
+        let out = create_document_json(
+            r#"[{"op":"addPage","width":595,"height":842},{"op":"line","page":0,"x1":50,"y1":100,"x2":250,"y2":100,"thickness":2,"color":[1,0,0]},{"op":"ellipse","page":0,"x":150,"y":400,"xScale":100,"yScale":40,"color":[0,0,1],"borderColor":[0,0,0],"borderWidth":1}]"#,
+            &[],
+        )
+        .unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let contents_id = page.get(b"Contents").unwrap().as_reference().unwrap();
+        let stream = doc.get_object(contents_id).unwrap().as_stream().unwrap();
+        let s = String::from_utf8_lossy(&stream.content);
+        assert!(s.contains(" l"), "content missing 'l' operator: {s}");
+        assert!(s.contains("S"), "content missing 'S' paint operator: {s}");
+        assert!(
+            s.matches(" c").count() >= 4,
+            "expected >= 4 cubic bezier segments for ellipse: {s}"
+        );
     }
 }
