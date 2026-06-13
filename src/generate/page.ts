@@ -46,7 +46,10 @@ export class PdfPage {
     if (!Number.isFinite(options.x) || !Number.isFinite(options.y)) {
       throw new RangeError(`x and y must be finite numbers`);
     }
-    if (options.lineHeight !== undefined && options.lineHeight <= 0) {
+    if (
+      options.lineHeight !== undefined &&
+      (!Number.isFinite(options.lineHeight) || options.lineHeight <= 0)
+    ) {
       throw new RangeError(`lineHeight must be > 0, got ${options.lineHeight}`);
     }
     this.queue.pushText(this.index, text, {

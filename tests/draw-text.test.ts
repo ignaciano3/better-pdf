@@ -70,3 +70,13 @@ describe("drawText", () => {
     expect(() => page.drawText("x", { x: 0, y: 0, size: -3 })).toThrow();
   });
 });
+
+describe("drawText validation", () => {
+  test("non-finite lineHeight throws", async () => {
+    const bytes = new Uint8Array(await Bun.file(FICHA).arrayBuffer());
+    const doc = await PdfDocument.load(bytes);
+    const page = doc.getPage(0);
+    expect(() => page.drawText("x", { x: 0, y: 0, size: 10, lineHeight: NaN })).toThrow(RangeError);
+    expect(() => page.drawText("x", { x: 0, y: 0, size: 10, lineHeight: Infinity })).toThrow(RangeError);
+  });
+});
