@@ -1,10 +1,10 @@
 # better-pdf
 
-A maintained, fast alternative to `pdf-lib` for filling and flattening existing PDF AcroForms.
+A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document generation.
 
-`better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. The current package focuses on existing PDFs: load bytes, inspect form fields, queue field mutations, flatten fields, and save an incremental PDF update.
+`better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.1.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. The public API may still change before 1.0.
+> **Status:** 0.2.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is new in 0.2.0. The public API may still change before 1.0.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -18,6 +18,8 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Add visual-only signature images from JPEG or supported PNG bytes.
 - Flatten one field or all fields after filling.
 - Save append-only incremental PDF updates.
+- Create new PDFs with `PdfDocument.create()` and standard page sizes.
+- Draw text, images, lines, rectangles, and ellipses on new and existing pages.
 
 ## Install
 
@@ -59,6 +61,97 @@ const output = await doc.save();
 await Bun.write("filled.pdf", output);
 ```
 
+## Generating & drawing
+
+Import from the `./generate` subpath (or the package root — both export the same classes):
+
+```ts
+import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf/generate";
+```
+
+### (a) Create a document, draw text
+
+```ts
+import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf/generate";
+
+const doc = PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);               // 595 × 842 pt
+
+const font = doc.getFont(StandardFonts.Helvetica);
+const text = "Hello, world!";
+const textWidth = font.widthOfTextAtSize(text, 24);   // centre-align helper
+
+page.drawText(text, {
+  x: (PageSizes.A4[0] - textWidth) / 2,
+  y: 750,
+  size: 24,
+  font,
+  color: rgb(0.1, 0.2, 0.8),
+});
+
+const output = await doc.save();   // returns Uint8Array
+await Bun.write("hello.pdf", output);
+```
+
+> **Coordinate system:** origin is bottom-left, y increases upward — same as pdf-lib and raw PDF.
+> **Fonts:** standard-14 only (Helvetica, HelveticaBold, Courier, CourierBold, TimesRoman, TimesBold, TimesItalic, TimesBoldItalic, and more). Custom font embedding is not yet supported. Character set is WinAnsi — accented Latin characters work; CJK does not.
+
+### (b) Stamp onto an existing PDF
+
+```ts
+import { PdfDocument, rgb } from "@ignaciano3/better-pdf";
+
+const bytes = new Uint8Array(await Bun.file("existing.pdf").arrayBuffer());
+const doc = await PdfDocument.load(bytes);
+
+const imgBytes = new Uint8Array(await Bun.file("logo.png").arrayBuffer());
+const img = await doc.embedPng(imgBytes);             // PdfImage with .width / .height
+const scaled = img.scale(0.5);                        // { width, height }
+
+const page = doc.getPage(0);
+page.drawImage(img, { x: 40, y: 700, width: scaled.width, height: scaled.height });
+page.drawText("Confidential", { x: 40, y: 680, size: 12, color: rgb(0.8, 0, 0) });
+
+const output = await doc.save();
+```
+
+`embedJpg` works the same way for JPEG files. Both methods are available on loaded and created documents.
+
+### (c) Vector graphics
+
+```ts
+// filled + bordered rectangle with transparency
+page.drawRectangle({
+  x: 50, y: 50, width: 200, height: 100,
+  color: rgb(0.9, 0.95, 1),
+  borderColor: rgb(0.2, 0.4, 0.8),
+  borderWidth: 2,
+  opacity: 0.85,
+});
+
+// line
+page.drawLine({
+  start: { x: 50, y: 40 },
+  end:   { x: 250, y: 40 },
+  thickness: 1.5,
+  color: rgb(0.5, 0.5, 0.5),
+});
+
+// ellipse — (x, y) is the centre; xScale/yScale are the x and y radii
+page.drawEllipse({ x: 150, y: 200, xScale: 60, yScale: 30, color: rgb(1, 0.8, 0) });
+```
+
+### (d) Text layout with `widthOfTextAtSize`
+
+```ts
+const font = doc.getFont(StandardFonts.HelveticaBold);
+const label = "Invoice #1234";
+const w = font.widthOfTextAtSize(label, 16);
+page.drawText(label, { x: pageWidth - w - 40, y: pageHeight - 60, size: 16, font });
+```
+
+---
+
 Browser bundlers can import the explicit browser entry, or use the package root
 when the bundler honors the `browser` export condition:
 
@@ -77,7 +170,15 @@ const output = await doc.save();
 
 ### `PdfDocument`
 
-- `PdfDocument.load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument>`
+- `PdfDocument.load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument>` — open an existing PDF
+- `PdfDocument.create(): PdfDocument` — create a new empty document
+- `doc.addPage(size: [number, number]): PdfPage` — add a page; `PageSizes.A4` etc. are `[width, height]` tuples
+- `doc.getPageCount(): number`
+- `doc.getPages(): PdfPage[]`
+- `doc.getPage(index: number): PdfPage` — throws `PageOutOfRangeError` if out of bounds
+- `doc.getFont(font: StandardFonts): PdfFont`
+- `doc.embedJpg(bytes: Uint8Array): Promise<PdfImage>`
+- `doc.embedPng(bytes: Uint8Array): Promise<PdfImage>`
 - `doc.getForm(): PdfForm`
 - `doc.save(): Promise<Uint8Array>`
 
@@ -85,6 +186,39 @@ const output = await doc.save();
 `save()` always starts from the originally loaded bytes (calling it twice
 returns the same result), and `FieldInfo.value` reflects queued mutations as
 soon as they are made.
+
+**`PageSizes`**: `A3`, `A4`, `A5`, `Letter`, `Legal`, `Tabloid` — each is a `[width, height]` tuple in PDF points.
+
+**`StandardFonts`**: `Helvetica`, `HelveticaBold`, `HelveticaOblique`, `HelveticaBoldOblique`, `Courier`, `CourierBold`, `CourierOblique`, `CourierBoldOblique`, `TimesRoman`, `TimesBold`, `TimesItalic`, `TimesBoldItalic`, `Symbol`, `ZapfDingbats`.
+
+### `PdfPage`
+
+- `page.drawText(text, options)` — `options`: `{ x, y, size, font?, color?, lineHeight?, opacity? }`
+- `page.drawImage(image, options)` — `options`: `{ x, y, width?, height? }`
+- `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
+- `page.drawRectangle(options)` — `options`: `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`
+- `page.drawEllipse(options)` — `options`: `{ x, y, xScale, yScale, color?, borderColor?, borderWidth?, opacity? }` (`x`,`y` = center; `xScale`,`yScale` = radii)
+
+Available on both loaded pages (`doc.getPage(i)`) and created pages (`doc.addPage(...)`).
+
+### `PdfImage`
+
+- `image.width: number`
+- `image.height: number`
+- `image.scale(factor: number): { width: number; height: number }`
+
+### `PdfFont`
+
+- `font.widthOfTextAtSize(text: string, size: number): number`
+
+### Color helpers
+
+```ts
+import { rgb, grayscale } from "@ignaciano3/better-pdf";
+```
+
+- `rgb(r, g, b)` — values 0–1
+- `grayscale(v)` — value 0–1
 
 ### `PdfForm`
 
@@ -113,7 +247,7 @@ List boxes are single-select in this version.
 
 ### Errors
 
-Every error thrown by the form API subclasses `PdfError`, so you can catch the
+Every error thrown by the library subclasses `PdfError`, so you can catch the
 whole family or a specific case:
 
 - `UnknownFieldError` — no field with that name (`.field`).
@@ -126,6 +260,8 @@ whole family or a specific case:
 - `MissingOnStateError` — checking a checkbox with no declared on-state (`.field`).
 - `PdfCoreError` — an operation the core rejected at `save()` time (XFA forms,
   unsupported images, malformed PDFs); the core's message is preserved.
+- `PageOutOfRangeError` — `getPage(i)` called with an index outside `[0, pageCount)`.
+- `InvalidImageError` — `embedJpg`/`embedPng` rejected the image bytes (unsupported format or CMYK JPEG).
 
 ```ts
 import { FieldTypeError } from "@ignaciano3/better-pdf";
@@ -247,16 +383,18 @@ count).
 ## Limitations
 
 - XFA forms are detected and rejected on fill/flatten (reading fields still works).
-- Existing PDFs only. Creating PDFs from scratch is out of scope for v1.
 - No encrypted PDF support.
 - No lenient recovery for malformed PDFs.
 - No cryptographic signing.
 - List boxes are single-select; multi-select list boxes are not yet supported.
 - Text fields are single-line; multi-line wrapping is not yet generated.
+- Drawing APIs use standard-14 fonts only; custom font embedding is not yet supported.
+  Character set is WinAnsi — accented Latin characters work; CJK does not.
 - Appearance metrics cover the standard 14 text fonts (with Arial / Times New
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
-  Text encoding is WinAnsi; characters outside it become `?`.
+- No AcroForm field creation on newly created documents.
+- Color: RGB and grayscale only; CMYK is not supported.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
   plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged
