@@ -222,3 +222,66 @@ The existing `./browser` and `./typegen` subpaths and the CLI bin are unchanged.
    migration guide update, benchmarks for generation, changelog, version bump.
 
 Each milestone is independently shippable and gets its own implementation plan.
+
+---
+
+## Addendum (2026-06-13): Form-field generation (M25) + image fit (M26)
+
+### M25 — Create AcroForm fields on generated documents
+
+Scope: **created documents only** (`PdfDocument.create()`), not loaded PDFs. All field
+types: text, checkbox, radio group, dropdown, list box, signature.
+
+API — a type-accumulating builder in `./generate`, reusing `./forms` types:
+
+```ts
+const doc = await PdfDocument.create();
+doc.addPage(PageSizes.A4);
+const form = doc.createForm()
+  .addTextField("fullName", { page: 0, x: 56, y: 700, width: 200, height: 20, value: "Ada", maxLength: 40 })
+  .addCheckBox("agree",     { page: 0, x: 56, y: 660, size: 14, checked: true })
+  .addRadioGroup("plan",    { selected: "pro", options: [
+      { value: "free", page: 0, x: 56, y: 620, size: 14 },
+      { value: "pro",  page: 0, x: 56, y: 600, size: 14 } ] })
+  .addDropdown("country",   { page: 0, x: 56, y: 560, width: 120, height: 20, options: ["AR","BR","CL"] as const, selected: "AR" })
+  .addListBox("langs",      { page: 0, x: 56, y: 500, width: 120, height: 50, options: ["es","pt","en"] as const })
+  .addSignatureField("sig", { page: 0, x: 300, y: 560, width: 160, height: 60 });
+// form is TypedPdfForm-like, narrowed by accumulated schema S:
+form.getField("fullName");        // name-checked
+const bytes = await doc.save();   // create_document emits the AcroForm + fields + appearances
+```
+
+- Builder accumulates a `FormSchema` `S` so `getField`/`getFields` and choice options are
+  compile-time-typed (string-literal field names required). Reuses `TypedPdfForm<S>`,
+  `FormSchema`, `NameOfType`, `OptionsOf` from `./forms`.
+- Initial values set at creation via options (`value`/`checked`/`selected`); created fields
+  carry their value + a generated appearance, so they render without `/NeedAppearances`.
+- Optional per-field props: `readOnly`, `required`, `tooltip` (`/TU`); text `maxLength`,
+  `multiline`; choice `options`/`selected`. Visual: optional `border` (color+width) and
+  `background` color via `/MK`; **default is transparent (no border/background)**.
+- Coordinates use the PDF convention (origin bottom-left), same as draw ops. Checkboxes and
+  radios take a `size` (square widget); radios take one rect per option.
+- Rust: `create_document` gains a `fields_json` input; emits the `/AcroForm` catalog entry
+  (`/Fields`, `/DR/Font/Helv`, `/DA`, `/NeedAppearances false`), field dicts, widget
+  annotations (with `/Rect`, `/P`, `/AP`, `/MK`), page `/Annots`, and appearance streams:
+  text/choice via `build_appearance_xobject`; buttons via generated **vector** appearances
+  (checkbox on = check/cross path, radio on = filled dot; off = empty); signature widget
+  empty (image optional, via the existing signature path).
+- Out of scope (still): adding fields to loaded PDFs; multiline text *wrapping* (flag set,
+  single-line appearance); JS actions/calculations; field formatting.
+- Version bump to **0.3.0**.
+
+### M26 — Image fit modes for `setImage`
+
+`PdfSignature.setImage(bytes, options?)` gains `fit` and `align`:
+
+- `fit`: `"cover"` (default, current behavior — fill rect, keep aspect, crop), `"contain"`
+  (fit inside, keep aspect, transparent margins), `"fill"` (stretch to rect, ignore aspect),
+  `"none"` (intrinsic size, crop if larger), `"scale-down"` (contain but never upscale).
+- `align`: 9-point keyword — `"center"` (default), `"top"`, `"bottom"`, `"left"`, `"right"`,
+  `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` — controls placement of the
+  letterboxed/cropped image.
+- Localized to `appearance::build_signature_appearance_xobject` (the scale + tx/ty + `cm`
+  math), the fill op JSON, and `PdfSignature.setImage`. Default `cover`+`center` keeps
+  existing behavior (backward compatible). `drawImage` unchanged.
+- Version bump to **0.4.0**.
