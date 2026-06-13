@@ -3,6 +3,7 @@
 // (or /browser) entry.
 export { PdfPage } from "./page.js";
 export type { DrawTextOptions, DrawImageOptions, DrawLineOptions, DrawRectangleOptions, DrawEllipseOptions } from "./page.js";
+export { PdfFont } from "./font.js";
 export { PdfImage } from "./image.js";
 export { StandardFonts } from "./fonts.js";
 export { rgb, grayscale } from "./color.js";

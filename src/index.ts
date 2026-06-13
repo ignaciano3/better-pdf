@@ -50,6 +50,7 @@ export class PdfDocument extends PdfDocumentBase {
 
 export { PdfPage } from "./generate/page.js";
 export type { DrawTextOptions, DrawImageOptions, DrawLineOptions, DrawRectangleOptions, DrawEllipseOptions } from "./generate/page.js";
+export { PdfFont } from "./generate/font.js";
 export { PdfImage } from "./generate/image.js";
 export { PageSizes } from "./generate/page-sizes.js";
 export type { PageSize } from "./generate/page-sizes.js";
