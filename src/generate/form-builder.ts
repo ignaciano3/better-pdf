@@ -148,8 +148,10 @@ function colorToRgb(c: Color): [number, number, number] {
   return [c.red, c.green, c.blue];
 }
 
-function borderToWire(b: FieldBorder): WireBorder {
-  return { color: colorToRgb(b.color), width: b.width ?? 1 };
+function borderToWire(b: FieldBorder, label: string): WireBorder {
+  const width = b.width ?? 1;
+  assertFinite(width, `${label}.border.width`);
+  return { color: colorToRgb(b.color), width };
 }
 
 function assertFinite(v: number, name: string): void {
@@ -173,12 +175,13 @@ function assertGeometry(opts: { x: number; y: number }, label: string): void {
 function buildBase(name: string, opts: BaseFieldOptions, names: Set<string>): WireBase {
   if (!name) throw new Error("Field name must be non-empty");
   if (names.has(name)) throw new Error(`Duplicate field name: "${name}"`);
+  assertFinite(opts.page, `${name}.page`);
   assertGeometry(opts, name);
   const base: WireBase = { name, page: opts.page, x: opts.x, y: opts.y };
   if (opts.required !== undefined) base.required = opts.required;
   if (opts.readOnly !== undefined) base.readOnly = opts.readOnly;
   if (opts.tooltip !== undefined) base.tooltip = opts.tooltip;
-  if (opts.border !== undefined) base.border = borderToWire(opts.border);
+  if (opts.border !== undefined) base.border = borderToWire(opts.border, name);
   if (opts.background !== undefined) base.background = colorToRgb(opts.background);
   return base;
 }
@@ -271,6 +274,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     for (const opt of opts.options) {
       if (seen.has(opt.value)) throw new Error(`${name}: duplicate radio option value: "${opt.value}"`);
       seen.add(opt.value);
+      assertFinite(opt.page, `${name} option(${opt.value}).page`);
       assertFinite(opt.x, `${name} option(${opt.value}).x`);
       assertFinite(opt.y, `${name} option(${opt.value}).y`);
       assertPositive(opt.size, `${name} option(${opt.value}).size`);
