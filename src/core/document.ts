@@ -166,6 +166,11 @@ export class PdfDocumentBase {
    */
   getForm<S extends FormSchema>(): TypedPdfForm<S>;
   getForm(): PdfForm {
+    if (this.mode === "create") {
+      throw new PdfError(
+        "getForm is not available on documents created with PdfDocument.create(); creating AcroForm fields is not supported",
+      );
+    }
     if (!this.form) this.form = new PdfForm(this.bytes, this.wasm.readFields);
     return this.form;
   }

@@ -63,3 +63,12 @@ describe("create", () => {
     await expect(doc.save()).rejects.toThrow();
   });
 });
+
+describe("create mode guards", () => {
+  test("getForm on a created doc throws PdfError", async () => {
+    const { PdfError } = await import("../src/index.ts");
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    expect(() => doc.getForm()).toThrow(PdfError);
+  });
+});
