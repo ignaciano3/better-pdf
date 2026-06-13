@@ -78,6 +78,14 @@ export class PageOutOfRangeError extends PdfError {
   }
 }
 
+/** Thrown when image bytes are not a supported JPEG or PNG. */
+export class InvalidImageError extends PdfError {}
+
+export function toInvalidImageError(e: unknown): InvalidImageError {
+  const message = e instanceof Error ? e.message : String(e);
+  return new InvalidImageError(message);
+}
+
 /** @internal Wrap a core failure so every error this library throws is a PdfError. */
 export function toPdfError(e: unknown): PdfError {
   if (e instanceof PdfError) return e;

@@ -5,6 +5,7 @@ import initCore, {
   create_document,
   fill_fields,
   flatten_fields,
+  image_info,
   read_fields,
   read_pages,
   type InitInput,
@@ -52,12 +53,21 @@ export function readPages(data: Uint8Array): string {
   return read_pages(data);
 }
 
-export function applyDrawOps(data: Uint8Array, opsJson: string): Uint8Array {
+export function applyDrawOps(
+  data: Uint8Array,
+  opsJson: string,
+  images: Uint8Array = new Uint8Array(),
+): Uint8Array {
   ensureInitialized();
-  return apply_draw_ops(data, opsJson);
+  return apply_draw_ops(data, opsJson, images);
 }
 
-export function createDocument(opsJson: string): Uint8Array {
+export function createDocument(opsJson: string, images: Uint8Array = new Uint8Array()): Uint8Array {
   ensureInitialized();
-  return create_document(opsJson);
+  return create_document(opsJson, images);
+}
+
+export function imageInfo(data: Uint8Array): string {
+  ensureInitialized();
+  return image_info(data);
 }

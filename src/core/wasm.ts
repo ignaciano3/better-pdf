@@ -8,6 +8,7 @@ import {
   create_document,
   fill_fields,
   flatten_fields,
+  image_info,
   read_fields,
   read_pages,
 } from "../../pkg-web/better_pdf_core.js";
@@ -32,10 +33,18 @@ export function readPages(data: Uint8Array): string {
   return read_pages(data);
 }
 
-export function applyDrawOps(data: Uint8Array, opsJson: string): Uint8Array {
-  return apply_draw_ops(data, opsJson);
+export function applyDrawOps(
+  data: Uint8Array,
+  opsJson: string,
+  images: Uint8Array = new Uint8Array(),
+): Uint8Array {
+  return apply_draw_ops(data, opsJson, images);
 }
 
-export function createDocument(opsJson: string): Uint8Array {
-  return create_document(opsJson);
+export function createDocument(opsJson: string, images: Uint8Array = new Uint8Array()): Uint8Array {
+  return create_document(opsJson, images);
+}
+
+export function imageInfo(data: Uint8Array): string {
+  return image_info(data);
 }

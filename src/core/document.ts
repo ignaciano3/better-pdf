@@ -1,9 +1,10 @@
 import { PdfForm } from "../forms/form.js";
-import { toPdfError, PageOutOfRangeError, PdfError } from "./errors.js";
+import { toPdfError, PageOutOfRangeError, PdfError, toInvalidImageError } from "./errors.js";
 import type { FormSchema, TypedPdfForm } from "../forms/schema.js";
 import { PdfPage } from "../generate/page.js";
 import { DrawQueue } from "../generate/draw-queue.js";
 import { type PageSize, PageSizes } from "../generate/page-sizes.js";
+import { PdfImage } from "../generate/image.js";
 
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
@@ -11,8 +12,9 @@ export interface CoreWasm {
   fillFields(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array;
   flattenFields(data: Uint8Array, namesJson: string): Uint8Array;
   readPages(data: Uint8Array): string;
-  applyDrawOps(data: Uint8Array, opsJson: string): Uint8Array;
-  createDocument(opsJson: string): Uint8Array;
+  applyDrawOps(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array;
+  createDocument(opsJson: string, images?: Uint8Array): Uint8Array;
+  imageInfo(data: Uint8Array): string;
 }
 
 export class PdfDocumentBase {
@@ -53,7 +55,8 @@ export class PdfDocumentBase {
   async save(): Promise<Uint8Array> {
     if (this.mode === "create") {
       try {
-        return this.wasm.createDocument(this.drawQueue.toCreateJson());
+        const { opsJson, images } = this.drawQueue.toCreatePayload();
+        return this.wasm.createDocument(opsJson, images);
       } catch (e) {
         throw toPdfError(e);
       }
@@ -70,7 +73,8 @@ export class PdfDocumentBase {
         bytes = this.wasm.flattenFields(bytes, JSON.stringify(form.flattenQueue));
       }
       if (this.drawQueue.length > 0) {
-        bytes = this.wasm.applyDrawOps(bytes, this.drawQueue.toJson());
+        const { opsJson, images } = this.drawQueue.toDrawPayload();
+        bytes = this.wasm.applyDrawOps(bytes, opsJson, images);
       }
     } catch (e) {
       throw toPdfError(e);
@@ -125,6 +129,26 @@ export class PdfDocumentBase {
       );
     }
     return this.pages;
+  }
+
+  /** Embed a JPEG image. Returns a {@link PdfImage} with intrinsic size; pass it to `page.drawImage()`. */
+  async embedJpg(bytes: Uint8Array): Promise<PdfImage> {
+    return this.embedImage(bytes);
+  }
+
+  /** Embed a PNG image. Returns a {@link PdfImage} with intrinsic size; pass it to `page.drawImage()`. */
+  async embedPng(bytes: Uint8Array): Promise<PdfImage> {
+    return this.embedImage(bytes);
+  }
+
+  private embedImage(bytes: Uint8Array): PdfImage {
+    let info: { width: number; height: number };
+    try {
+      info = JSON.parse(this.wasm.imageInfo(bytes));
+    } catch (e) {
+      throw toInvalidImageError(e);
+    }
+    return new PdfImage(bytes, info.width, info.height);
   }
 
   /**
