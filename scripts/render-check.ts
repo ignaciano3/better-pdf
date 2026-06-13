@@ -23,10 +23,17 @@ async function build(flatten: boolean): Promise<Uint8Array> {
   return doc.save();
 }
 
+async function buildDrawn(): Promise<Uint8Array> {
+  const doc = await PdfDocument.load(original);
+  doc.getPage(0).drawText("RENDER CHECK", { x: 50, y: 50, size: 14 });
+  return doc.save();
+}
+
 const widget = (await PdfDocument.load(original)).getForm().getField(FIELD)?.widgets[0];
 if (!widget) throw new Error(`field ${FIELD} has no widget`);
 const filled = await build(false);
 const flattened = await build(true);
+const drawn = await buildDrawn();
 
 const page = /* html */ `<!doctype html><meta charset="utf-8"><body>
 <script type="module">
@@ -56,12 +63,20 @@ const page = /* html */ `<!doctype html><meta charset="utf-8"><body>
     }
     return dark;
   };
+  window.extractText = async (url, pageIndex) => {
+    const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    const doc = await pdfjs.getDocument({ data: bytes }).promise;
+    const pdfPage = await doc.getPage(pageIndex + 1);
+    const content = await pdfPage.getTextContent();
+    return content.items.map(item => item.str).join(" ");
+  };
 </script></body>`;
 
 const DOCS: Record<string, Uint8Array> = {
   "/original.pdf": original,
   "/filled.pdf": filled,
   "/flattened.pdf": flattened,
+  "/drawn.pdf": drawn,
 };
 
 const TYPES: Record<string, string> = {
@@ -108,6 +123,15 @@ try {
 
   if (fill < base + MIN_NEW_DARK_PIXELS) throw new Error("filled field rendered no visible text");
   if (flat < base + MIN_NEW_DARK_PIXELS) throw new Error("flattened field lost its text");
+
+  // drawText render check: assert that text drawn on page 0 is extractable by pdfjs
+  const drawnText = await tab.evaluate(
+    `window.extractText("/drawn.pdf", 0)`,
+  ) as string;
+  console.log(`drawText render check — extracted: "${drawnText.slice(0, 80)}"`);
+  if (!drawnText.includes("RENDER CHECK")) {
+    throw new Error(`drawText: extracted text did not contain "RENDER CHECK"; got: "${drawnText.slice(0, 200)}"`);
+  }
 } catch (err) {
   failed = true;
   console.error("render check failed:", err);

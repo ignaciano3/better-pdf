@@ -1,9 +1,11 @@
 // Browser import point for the generated WASM bindings.
 // Built with `wasm-pack --target web`, so callers must initialize before use.
 import initCore, {
+  apply_draw_ops,
   fill_fields,
   flatten_fields,
   read_fields,
+  read_pages,
   type InitInput,
 } from "../../pkg-web/better_pdf_core.js";
 
@@ -42,4 +44,14 @@ export function fillFields(data: Uint8Array, opsJson: string, images: Uint8Array
 export function flattenFields(data: Uint8Array, namesJson: string): Uint8Array {
   ensureInitialized();
   return flatten_fields(data, namesJson);
+}
+
+export function readPages(data: Uint8Array): string {
+  ensureInitialized();
+  return read_pages(data);
+}
+
+export function applyDrawOps(data: Uint8Array, opsJson: string): Uint8Array {
+  ensureInitialized();
+  return apply_draw_ops(data, opsJson);
 }
