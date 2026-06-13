@@ -103,9 +103,10 @@ pub fn apply_draw_ops_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, Strin
 
     // Process each touched page
     for (page_idx, page_op_list) in &page_ops {
-        // Build the draw content stream for this page
+        // Build one stream containing a separate BT...ET block per op.
+        // Each BT resets the text matrix to identity, making each op's Td
+        // absolute rather than relative to the previous line origin.
         let mut stream_content = Vec::new();
-        stream_content.extend_from_slice(b"BT\n");
 
         for op in page_op_list {
             match op {
@@ -139,6 +140,9 @@ pub fn apply_draw_ops_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, Strin
 
                     let lines: Vec<&str> = text.split('\n').collect();
 
+                    // One self-contained BT...ET block per op; BT resets the
+                    // text matrix to identity so Td gives absolute positioning.
+                    stream_content.extend_from_slice(b"BT\n");
                     stream_content.extend_from_slice(
                         format!("/BPF{font_idx} {} Tf\n", fmt_num(*size)).as_bytes(),
                     );
@@ -169,15 +173,16 @@ pub fn apply_draw_ops_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, Strin
                                 .extend_from_slice(format!("T*\n({escaped_str}) Tj\n").as_bytes());
                         }
                     }
+                    stream_content.extend_from_slice(b"ET\n");
                 }
             }
         }
 
-        stream_content.extend_from_slice(b"ET\n");
-
-        let draw_id = inc
-            .new_document
-            .add_object(Object::Stream(Stream::new(Dictionary::new(), stream_content)));
+        let draw_id = inc.new_document.add_object(Object::Stream(Stream::new(
+            Dictionary::new(),
+            stream_content,
+        )));
+        let draw_ids = vec![draw_id];
 
         // Get the page ObjectId from the previous document (page_idx is 0-based)
         let page_id = {
@@ -191,21 +196,37 @@ pub fn apply_draw_ops_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, Strin
         inc.opt_clone_object_to_new_document(page_id)
             .map_err(|e| e.to_string())?;
 
-        // Build new Contents array: [q_ref, ...original, Q_ref, draw_ref]
+        // Build new Contents array: [q_ref, ...original, Q_ref, draw_ref...]
         {
-            let page_dict = dict_mut(&mut inc, page_id)?;
-            let contents = page_dict
+            // Read and clone the existing Contents value first so the borrow ends
+            // before we mutate inc.new_document (needed for Issue 2 below).
+            let existing_contents: Option<Object> = dict_mut(&mut inc, page_id)?
                 .get(b"Contents")
-                .map_err(|e| e.to_string())?
-                .clone();
-            let mut arr = match contents {
-                Object::Array(a) => a,
-                single => vec![single],
+                .ok()
+                .cloned();
+
+            // Issue 3: missing /Contents is valid (blank page); treat as empty.
+            // Issue 2: a direct Stream in /Contents must be made indirect —
+            //          streams must be indirect objects when referenced from an
+            //          array. Promote it by adding it to new_document.
+            let mut arr: Vec<Object> = match existing_contents {
+                Some(Object::Array(a)) => a,
+                Some(Object::Stream(s)) => {
+                    // Direct stream — make it indirect so the array only holds refs.
+                    let indirect_id = inc
+                        .new_document
+                        .add_object(Object::Stream(s));
+                    vec![Object::Reference(indirect_id)]
+                }
+                Some(single) => vec![single],
+                None => Vec::new(), // missing /Contents — blank page
             };
-            // Wrap: q, ...original, Q, draw
+            // Wrap: q, ...original, Q, draw...
             arr.insert(0, Object::Reference(q_id));
             arr.push(Object::Reference(q_ref_id));
-            arr.push(Object::Reference(draw_id));
+            for draw_id in &draw_ids {
+                arr.push(Object::Reference(*draw_id));
+            }
             dict_mut(&mut inc, page_id)?.set("Contents", Object::Array(arr));
         }
 
@@ -368,5 +389,17 @@ mod tests {
         let out = ops(r#"[{"op":"text","page":0,"x":50,"y":700,"size":12,"font":"Helvetica","color":[0,0,0],"text":"a\nb"}]"#);
         let s = last_draw_stream_content(&out);
         assert!(s.matches(" Tj").count() == 2, "content was: {s}");
+    }
+
+    #[test]
+    fn ops_on_same_page_are_absolutely_positioned() {
+        let out = ops(r#"[
+            {"op":"text","page":0,"x":50,"y":700,"size":12,"font":"Helvetica","color":[0,0,0],"text":"first"},
+            {"op":"text","page":0,"x":200,"y":300,"size":12,"font":"Helvetica","color":[0,0,0],"text":"second"}
+        ]"#);
+        let s = last_draw_stream_content(&out);
+        assert_eq!(s.matches("BT").count(), 2, "one BT/ET block per op, content: {s}");
+        assert!(s.contains("50 700 Td"));
+        assert!(s.contains("200 300 Td"), "second op must be absolutely positioned, content: {s}");
     }
 }
