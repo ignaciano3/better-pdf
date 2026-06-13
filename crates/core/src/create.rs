@@ -192,6 +192,12 @@ mod tests {
     }
 
     #[test]
+    fn errors_on_text_page_out_of_range() {
+        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":1,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#);
+        assert!(r.unwrap_err().contains("page"));
+    }
+
+    #[test]
     fn errors_on_unknown_font() {
         let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#);
         assert!(r.unwrap_err().contains("font"));
