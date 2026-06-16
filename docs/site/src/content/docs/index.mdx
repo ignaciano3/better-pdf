@@ -1,0 +1,45 @@
+---
+title: better-pdf
+description: A maintained, fast alternative to pdf-lib for PDF AcroForms and document generation.
+template: splash
+hero:
+  tagline: A maintained, fast alternative to pdf-lib for filling &amp; flattening PDF AcroForms — and generating documents from scratch. TypeScript API, Rust/WebAssembly core.
+  actions:
+    - text: Get started
+      link: /better-pdf/getting-started/introduction/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/ignaciano3/better-pdf
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why better-pdf
+
+<CardGrid stagger>
+	<Card title="AcroForm-first" icon="document">
+		Load a PDF, inspect fields, fill, flatten, and sign — saved as an
+		append-only incremental update.
+	</Card>
+	<Card title="Generate & draw" icon="pencil">
+		Create PDFs from scratch or stamp text, images, and vector graphics onto
+		existing pages.
+	</Card>
+	<Card title="Fast" icon="rocket">
+		A Rust core compiled to WebAssembly. 5–8× faster fills than pdf-lib;
+		up to 186× faster no-op round trips.
+	</Card>
+	<Card title="Strict & typed" icon="approve-check">
+		Unknown fields, wrong-type access, and invalid options become errors —
+		or, with generated types, compile errors.
+	</Card>
+	<Card title="Node & browser" icon="laptop">
+		One TypeScript API, a browser entry that loads the WASM on first use.
+	</Card>
+	<Card title="Agent-ready" icon="seti:robot">
+		Ships an agent skill and a typed workflow that turns hallucinated field
+		names into compile errors.
+	</Card>
+</CardGrid>

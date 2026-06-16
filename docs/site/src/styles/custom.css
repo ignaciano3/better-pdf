@@ -1,0 +1,40 @@
+/* better-pdf — indigo accent theme */
+:root {
+	--sl-color-accent-low: #1c1e54;
+	--sl-color-accent: #5a5fe0;
+	--sl-color-accent-high: #c7c9f5;
+
+	--sl-color-white: #ffffff;
+	--sl-color-gray-1: #e9e9f3;
+	--sl-color-gray-2: #c0c1d4;
+	--sl-color-gray-3: #888bab;
+	--sl-color-gray-4: #565882;
+	--sl-color-gray-5: #353857;
+	--sl-color-gray-6: #24263f;
+	--sl-color-black: #181a2c;
+}
+
+/* Light mode overrides */
+:root[data-theme='light'] {
+	--sl-color-accent-low: #dfe0fb;
+	--sl-color-accent: #4f53d6;
+	--sl-color-accent-high: #25275c;
+
+	--sl-color-white: #181a2c;
+	--sl-color-gray-1: #24263f;
+	--sl-color-gray-2: #353857;
+	--sl-color-gray-3: #565882;
+	--sl-color-gray-4: #888bab;
+	--sl-color-gray-5: #c0c1d4;
+	--sl-color-gray-6: #e9e9f3;
+	--sl-color-gray-7: #f3f3fa;
+	--sl-color-black: #ffffff;
+}
+
+/* Hero gradient accent on the splash page */
+.hero h1 {
+	background: linear-gradient(90deg, var(--sl-color-accent), #8b5cf6);
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+}

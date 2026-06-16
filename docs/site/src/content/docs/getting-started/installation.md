@@ -1,0 +1,46 @@
+---
+title: Installation
+description: Install better-pdf from npm, or build it locally from source.
+---
+
+## From npm
+
+```bash
+bun add @ignaciano3/better-pdf
+```
+
+The package works with any runtime/bundler that can serve the packaged `.wasm`
+asset. Node.js 18+ is supported.
+
+## Importing
+
+The root export and subpaths expose the same classes:
+
+```ts
+import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf";
+```
+
+| Subpath | Contents |
+| --- | --- |
+| `@ignaciano3/better-pdf` | everything (Node default) |
+| `@ignaciano3/better-pdf/browser` | explicit browser entry (loads WASM on first use) |
+| `@ignaciano3/better-pdf/forms` | form types |
+| `@ignaciano3/better-pdf/generate` | generation/drawing classes |
+| `@ignaciano3/better-pdf/typegen` | type generator |
+
+## From source
+
+```bash
+git clone https://github.com/ignaciano3/better-pdf
+cd better-pdf
+bun install
+bun run build      # compile Rust core to pkg-web/ and TypeScript API to dist/
+```
+
+Prerequisites for a source build: `bun`, the Rust toolchain, the
+`wasm32-unknown-unknown` target, and `wasm-pack`.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+```
