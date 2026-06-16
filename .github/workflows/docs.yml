@@ -24,12 +24,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/core
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       # TypeDoc reads ../../src — install the root deps so its imports resolve.
       - name: Install root deps
         run: bun install --frozen-lockfile
+
+      # TypeDoc resolves src/core/wasm.ts -> ../../pkg-web/*. Build it first.
+      - name: Build WASM (browser target)
+        run: bun run build:wasm
+
       - name: Build site
         uses: withastro/action@v6
         with:
