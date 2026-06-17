@@ -87,6 +87,14 @@ enum DrawOp {
         border_width: Option<f32>,
         opacity: Option<f32>,
     },
+    #[serde(rename = "setRotation")]
+    SetRotation { page: usize, degrees: i64 },
+    #[serde(rename = "setMediaBox")]
+    SetMediaBox {
+        page: usize,
+        #[serde(rename = "box")]
+        media_box: [f32; 4],
+    },
 }
 
 pub(crate) const STANDARD_14: &[&str] = &[
@@ -729,6 +737,27 @@ pub fn apply_draw_ops_json(
                     }
                 }
             }
+            DrawOp::SetRotation { page, degrees } => {
+                if *page >= page_count {
+                    return Err(format!("page {page} out of range ({page_count} pages)"));
+                }
+                if degrees.rem_euclid(90) != 0 {
+                    return Err("rotation degrees must be a multiple of 90".to_string());
+                }
+            }
+            DrawOp::SetMediaBox { page, media_box } => {
+                if *page >= page_count {
+                    return Err(format!("page {page} out of range ({page_count} pages)"));
+                }
+                for &v in media_box.iter() {
+                    if !v.is_finite() {
+                        return Err("invalid media box".to_string());
+                    }
+                }
+                if media_box[2] <= media_box[0] || media_box[3] <= media_box[1] {
+                    return Err("invalid media box".to_string());
+                }
+            }
         }
     }
 
@@ -741,6 +770,8 @@ pub fn apply_draw_ops_json(
             DrawOp::Line { page, .. } => *page,
             DrawOp::Rectangle { page, .. } => *page,
             DrawOp::Ellipse { page, .. } => *page,
+            DrawOp::SetRotation { page, .. } => *page,
+            DrawOp::SetMediaBox { page, .. } => *page,
         };
         if let Some(entry) = page_ops.iter_mut().find(|(idx, _)| *idx == page_idx) {
             entry.1.push(op);
@@ -981,14 +1012,10 @@ pub fn apply_draw_ops_json(
                         *border_width,
                     );
                 }
+                // Mutation ops produce no content; applied to the page dict after clone.
+                DrawOp::SetRotation { .. } | DrawOp::SetMediaBox { .. } => {}
             }
         }
-
-        let draw_id = inc.new_document.add_object(Object::Stream(Stream::new(
-            Dictionary::new(),
-            stream_content,
-        )));
-        let draw_ids = vec![draw_id];
 
         // Get the page ObjectId from the previous document (page_idx is 0-based)
         let page_id = {
@@ -1002,8 +1029,31 @@ pub fn apply_draw_ops_json(
         inc.opt_clone_object_to_new_document(page_id)
             .map_err(|e| e.to_string())?;
 
-        // Build new Contents array: [q_ref, ...original, Q_ref, draw_ref...]
-        {
+        // Apply page-dict mutation ops (Rotate / MediaBox) to the cloned page.
+        for op in page_op_list {
+            match op {
+                DrawOp::SetRotation { degrees, .. } => {
+                    let norm = ((degrees % 360) + 360) % 360;
+                    dict_mut(&mut inc, page_id)?.set("Rotate", Object::Integer(norm));
+                }
+                DrawOp::SetMediaBox { media_box, .. } => {
+                    let arr: Vec<Object> = media_box.iter().map(|v| Object::Real(*v)).collect();
+                    dict_mut(&mut inc, page_id)?.set("MediaBox", Object::Array(arr));
+                }
+                _ => {}
+            }
+        }
+
+        // Empty-content guard: a page touched only by mutation ops produces no
+        // draw content — skip the draw-stream creation and Contents rewrite
+        // entirely (the page was still cloned + mutated above).
+        if !stream_content.is_empty() {
+            let draw_id = inc.new_document.add_object(Object::Stream(Stream::new(
+                Dictionary::new(),
+                stream_content,
+            )));
+
+            // Build new Contents array: [q_ref, ...original, Q_ref, draw_ref...]
             // Read and clone the existing Contents value first so the borrow ends
             // before we mutate inc.new_document (needed for Issue 2 below).
             let existing_contents: Option<Object> = dict_mut(&mut inc, page_id)?
@@ -1030,9 +1080,7 @@ pub fn apply_draw_ops_json(
             // Wrap: q, ...original, Q, draw...
             arr.insert(0, Object::Reference(q_id));
             arr.push(Object::Reference(q_ref_id));
-            for draw_id in &draw_ids {
-                arr.push(Object::Reference(*draw_id));
-            }
+            arr.push(Object::Reference(draw_id));
             dict_mut(&mut inc, page_id)?.set("Contents", Object::Array(arr));
         }
 
@@ -1187,6 +1235,53 @@ mod tests {
             0xda, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
             0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
         ]
+    }
+
+    #[test]
+    fn set_rotation_persists() {
+        let out = apply_draw_ops_json(FICHA, r#"[{"op":"setRotation","page":0,"degrees":90}]"#, &[], &[], "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let rot = doc.get_dictionary(pid).unwrap().get(b"Rotate").unwrap().as_i64().unwrap();
+        assert_eq!(rot, 90);
+    }
+
+    #[test]
+    fn set_rotation_normalizes_negative() {
+        let out = apply_draw_ops_json(FICHA, r#"[{"op":"setRotation","page":0,"degrees":-90}]"#, &[], &[], "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Rotate").unwrap().as_i64().unwrap(), 270);
+    }
+
+    #[test]
+    fn set_rotation_rejects_non_multiple_of_90() {
+        let r = apply_draw_ops_json(FICHA, r#"[{"op":"setRotation","page":0,"degrees":45}]"#, &[], &[], "[]");
+        assert!(r.unwrap_err().contains("90"));
+    }
+
+    #[test]
+    fn set_media_box_changes_dimensions() {
+        let out = apply_draw_ops_json(FICHA, r#"[{"op":"setMediaBox","page":0,"box":[0,0,200,300]}]"#, &[], &[], "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let mb = doc.get_dictionary(pid).unwrap().get(b"MediaBox").unwrap().as_array().unwrap();
+        assert!((mb[2].as_float().unwrap() - 200.0).abs() < 0.5);
+        assert!((mb[3].as_float().unwrap() - 300.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn set_media_box_rejects_inverted() {
+        let r = apply_draw_ops_json(FICHA, r#"[{"op":"setMediaBox","page":0,"box":[100,0,50,300]}]"#, &[], &[], "[]");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn rotation_only_page_has_no_empty_draw_stream_corruption() {
+        // a page with only a mutation op must still reload cleanly
+        let out = apply_draw_ops_json(FICHA, r#"[{"op":"setRotation","page":0,"degrees":180}]"#, &[], &[], "[]").unwrap();
+        assert_eq!(&out[..FICHA.len()], FICHA); // incremental
+        assert!(Document::load_mem(&out).is_ok());
     }
 
     #[test]
