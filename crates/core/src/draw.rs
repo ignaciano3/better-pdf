@@ -144,6 +144,38 @@ pub(crate) fn emit_text_block(
     out.extend_from_slice(b"ET\n");
 }
 
+/// Like `emit_text_block`, but for a Type0/Identity-H font: each line is a list
+/// of 2-byte glyph ids, emitted as a hex string `<....>`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_text_block_cid(
+    out: &mut Vec<u8>,
+    font_key: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    color: [f32; 3],
+    gids_per_line: &[Vec<u16>],
+    line_height: Option<f32>,
+) {
+    let leading = line_height.unwrap_or(size * 1.15);
+    let [r, g, b] = color;
+    out.extend_from_slice(b"BT\n");
+    out.extend_from_slice(format!("/{font_key} {} Tf\n", fmt_num(size)).as_bytes());
+    out.extend_from_slice(format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes());
+    out.extend_from_slice(format!("{} TL\n", fmt_num(leading)).as_bytes());
+    out.extend_from_slice(format!("{} {} Td\n", fmt_num(x), fmt_num(y)).as_bytes());
+    for (i, line) in gids_per_line.iter().enumerate() {
+        let mut hex = String::with_capacity(line.len() * 4);
+        for gid in line { hex.push_str(&format!("{gid:04X}")); }
+        if i == 0 {
+            out.extend_from_slice(format!("<{hex}> Tj\n").as_bytes());
+        } else {
+            out.extend_from_slice(format!("T*\n<{hex}> Tj\n").as_bytes());
+        }
+    }
+    out.extend_from_slice(b"ET\n");
+}
+
 /// Append a `q … cm /key Do Q` image-draw block. `(x,y)` is lower-left; width/height in points.
 pub(crate) fn emit_image_op(
     out: &mut Vec<u8>,
@@ -1043,6 +1075,19 @@ mod tests {
             0xda, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
             0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
         ]
+    }
+
+    #[test]
+    fn cid_text_block_emits_hex_glyph_string() {
+        let mut out = Vec::new();
+        // two lines, gids per line
+        emit_text_block_cid(&mut out, "BPE0", 50.0, 700.0, 12.0, [0.0,0.0,0.0],
+            &[vec![0x0048u16, 0x00E9u16], vec![0x0041u16]], None);
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("/BPE0 12 Tf"), "content: {s}");
+        assert!(s.contains("<0048 00E9>") || s.contains("<004800E9>"), "hex glyph string missing: {s}");
+        assert_eq!(s.matches(" Tj").count(), 2, "one Tj per line: {s}");
+        assert!(s.contains("BT") && s.contains("ET"));
     }
 
     #[test]
