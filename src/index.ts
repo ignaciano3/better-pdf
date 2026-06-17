@@ -1,5 +1,6 @@
 import * as wasm from "./core/wasm.js";
 import { PdfDocumentBase } from "./core/document.js";
+import { toPdfError } from "./core/errors.js";
 
 /**
  * Represents a loaded PDF document.
@@ -45,6 +46,65 @@ export class PdfDocument extends PdfDocumentBase {
   /** Create a new, empty document. Add pages with {@link PdfDocument.addPage}. */
   static async create(): Promise<PdfDocument> {
     return new PdfDocument(new Uint8Array(), wasm, "create");
+  }
+
+  /**
+   * Assemble a new PDF from an ordered selection of pages across one or more source documents.
+   *
+   * @param docs - Array of source PDF byte arrays.
+   * @param selections - Ordered list of `{docIndex, pageIndex}` entries describing
+   *   which page from which document to include. Indices are zero-based.
+   * @returns A new PDF containing only the selected pages in the given order.
+   *
+   * @example
+   * ```ts
+   * // Take page 0 of doc A, then page 2 of doc B
+   * const out = await PdfDocument.assemble([docA, docB], [
+   *   { docIndex: 0, pageIndex: 0 },
+   *   { docIndex: 1, pageIndex: 2 },
+   * ]);
+   * ```
+   */
+  static async assemble(
+    docs: Uint8Array[],
+    selections: { docIndex: number; pageIndex: number }[],
+  ): Promise<Uint8Array> {
+    try {
+      return PdfDocumentBase.runAssemble(docs, selections, wasm);
+    } catch (e) {
+      throw toPdfError(e);
+    }
+  }
+
+  /**
+   * Merge multiple PDF documents into a single PDF, preserving all pages in order.
+   *
+   * @param docs - Array of source PDF byte arrays to merge.
+   * @returns A new PDF containing all pages from all source documents in order.
+   *
+   * @example
+   * ```ts
+   * const merged = await PdfDocument.merge([docA, docB, docC]);
+   * ```
+   */
+  static async merge(docs: Uint8Array[]): Promise<Uint8Array> {
+    const selections: { docIndex: number; pageIndex: number }[] = [];
+    for (let docIndex = 0; docIndex < docs.length; docIndex++) {
+      let pageInfos: { index: number }[];
+      try {
+        pageInfos = JSON.parse(wasm.readPages(docs[docIndex]!)) as { index: number }[];
+      } catch (e) {
+        throw toPdfError(e);
+      }
+      for (let pageIndex = 0; pageIndex < pageInfos.length; pageIndex++) {
+        selections.push({ docIndex, pageIndex });
+      }
+    }
+    try {
+      return PdfDocumentBase.runAssemble(docs, selections, wasm);
+    } catch (e) {
+      throw toPdfError(e);
+    }
   }
 }
 

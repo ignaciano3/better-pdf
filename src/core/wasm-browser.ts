@@ -6,6 +6,7 @@ import initCore, {
   fill_fields,
   flatten_fields,
   image_info,
+  manipulate_pages,
   measure_text,
   measure_text_embedded,
   read_fields,
@@ -102,4 +103,13 @@ export function readMetadata(data: Uint8Array): string {
 export function setMetadata(data: Uint8Array, metaJson: string): Uint8Array {
   ensureInitialized();
   return set_metadata(data, metaJson);
+}
+
+export function manipulatePages(
+  docsBlob: Uint8Array,
+  docsJson: string,
+  planJson: string,
+): Uint8Array {
+  ensureInitialized();
+  return manipulate_pages(docsBlob, docsJson, planJson);
 }
