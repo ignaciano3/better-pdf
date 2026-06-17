@@ -10,6 +10,7 @@ import {
   flatten_fields,
   image_info,
   measure_text,
+  measure_text_embedded,
   read_fields,
   read_pages,
 } from "../../pkg-web/better_pdf_core.js";
@@ -38,16 +39,20 @@ export function applyDrawOps(
   data: Uint8Array,
   opsJson: string,
   images: Uint8Array = new Uint8Array(),
+  fonts: Uint8Array = new Uint8Array(),
+  fontsJson = "[]",
 ): Uint8Array {
-  return apply_draw_ops(data, opsJson, images);
+  return apply_draw_ops(data, opsJson, images, fonts, fontsJson);
 }
 
 export function createDocument(
   opsJson: string,
   images: Uint8Array = new Uint8Array(),
+  fonts: Uint8Array = new Uint8Array(),
+  fontsJson = "[]",
   fieldsJson = "[]",
 ): Uint8Array {
-  return create_document(opsJson, images, fieldsJson);
+  return create_document(opsJson, images, fonts, fontsJson, fieldsJson);
 }
 
 export function imageInfo(data: Uint8Array): string {
@@ -56,4 +61,8 @@ export function imageInfo(data: Uint8Array): string {
 
 export function measureText(font: string, size: number, text: string): number {
   return measure_text(font, size, text);
+}
+
+export function measureTextEmbedded(font: Uint8Array, size: number, text: string): number {
+  return measure_text_embedded(font, size, text);
 }

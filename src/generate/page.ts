@@ -126,7 +126,16 @@ export class PdfPage {
     ) {
       throw new RangeError(`lineHeight must be > 0, got ${options.lineHeight}`);
     }
-    const fontName = options.font instanceof PdfFont ? options.font.name : (options.font ?? StandardFonts.Helvetica);
+    const embeddedId =
+      options.font instanceof PdfFont && options.font._fontId !== undefined
+        ? options.font._fontId
+        : undefined;
+    const fontName =
+      embeddedId !== undefined
+        ? ""
+        : options.font instanceof PdfFont
+          ? options.font.name
+          : (options.font ?? StandardFonts.Helvetica);
     this.queue.pushText(this.index, text, {
       x: options.x,
       y: options.y,
@@ -134,6 +143,7 @@ export class PdfPage {
       font: fontName,
       color: options.color ?? rgb(0, 0, 0),
       lineHeight: options.lineHeight,
+      ...(embeddedId !== undefined ? { fontId: embeddedId } : {}),
     });
   }
 
