@@ -1,4 +1,5 @@
 //! Embed TrueType/OpenType fonts as PDF Type0/CIDFontType2 composite fonts.
+pub mod cmap;
 use ttf_parser::Face;
 
 /// Width in points of `text` rendered in `font` at `size`. Sums horizontal
