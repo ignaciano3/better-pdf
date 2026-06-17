@@ -93,6 +93,12 @@ enum CreateOp {
         border_width: Option<f32>,
         opacity: Option<f32>,
     },
+    /// Set document-level Info dictionary. If multiple metadata ops are
+    /// present, the last one wins.
+    Metadata {
+        #[serde(flatten)]
+        meta: crate::metadata::Metadata,
+    },
 }
 
 #[derive(Deserialize)]
@@ -460,6 +466,7 @@ pub fn create_document_json(
                 }
             }
             CreateOp::AddPage { .. } => {}
+            CreateOp::Metadata { .. } => {}
         }
     }
 
@@ -1425,6 +1432,15 @@ pub fn create_document_json(
     let catalog_id = doc.add_object(Object::Dictionary(catalog_dict));
     doc.trailer.set("Root", Object::Reference(catalog_id));
 
+    // Apply metadata if a metadata op was present (last one wins).
+    let meta_op = ops.iter().filter_map(|o| {
+        if let CreateOp::Metadata { meta } = o { Some(meta) } else { None }
+    }).last();
+    if let Some(meta) = meta_op {
+        let info_id = doc.add_object(Object::Dictionary(crate::metadata::build_info_dict(meta)));
+        doc.trailer.set("Info", Object::Reference(info_id));
+    }
+
     let mut out = Vec::new();
     doc.save_to(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
@@ -1820,5 +1836,14 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         let w = get_first_field_dict(&doc);
         assert!(w.has(b"TU"), "field dict missing TU (tooltip)");
+    }
+
+    #[test]
+    fn created_doc_has_metadata() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"metadata","title":"Generated","author":"better-pdf"}]"#;
+        let out = create_document_json(ops, &[], &[], "[]", "[]").unwrap();
+        let json = crate::metadata::read_metadata_json(&out).unwrap();
+        assert!(json.contains("Generated"), "json was {json}");
+        assert!(json.contains("better-pdf"), "json was {json}");
     }
 }
