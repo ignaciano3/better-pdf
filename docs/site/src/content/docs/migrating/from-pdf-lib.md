@@ -121,6 +121,35 @@ typed to the declared names.
   names. Once saved and reloaded with `PdfDocument.load`, the form is a normal
   fillable AcroForm — fill it via `getForm()` and flatten it with this library.
 
+## Document metadata
+
+better-pdf has full parity with pdf-lib's metadata setters and adds a unified async getter.
+
+### API mapping
+
+| pdf-lib | better-pdf |
+| --- | --- |
+| `pdfDoc.setTitle(s)` | `doc.setTitle(s)` |
+| `pdfDoc.setAuthor(s)` | `doc.setAuthor(s)` |
+| `pdfDoc.setSubject(s)` | `doc.setSubject(s)` |
+| `pdfDoc.setKeywords(arr)` | `doc.setKeywords(arr)` — `string[]` |
+| `pdfDoc.setCreator(s)` | `doc.setCreator(s)` |
+| `pdfDoc.setProducer(s)` | `doc.setProducer(s)` |
+| `pdfDoc.setCreationDate(d)` | `doc.setCreationDate(d)` |
+| `pdfDoc.setModificationDate(d)` | `doc.setModificationDate(d)` |
+| `pdfDoc.getTitle()` / `getAuthor()` / … | `await doc.getMetadata()` → `DocumentMetadata` |
+
+### Differences from pdf-lib
+
+- **Unified getter.** pdf-lib exposes individual `getTitle()` / `getAuthor()` / … getters.
+  better-pdf returns everything as a single `DocumentMetadata` object from `await doc.getMetadata()`.
+- **Works on loaded PDFs (incremental).** Setting metadata on a loaded PDF writes only an
+  incremental update — unmodified Info-dict keys from the original document are preserved.
+- **Dates round-trip.** `setCreationDate` / `setModificationDate` accept a JS `Date`; reading
+  back with `getMetadata()` returns `Date` objects (PDF date syntax is handled by the core).
+- **XMP metadata streams are not written** — only the PDF Info dictionary is updated. This
+  matches pdf-lib's default behavior.
+
 ## Typed forms (no pdf-lib equivalent)
 
 Generate a schema module once, then field names, types, and option values are

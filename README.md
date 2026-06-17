@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.4.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, and custom TTF/OTF font embedding with Unicode/CJK support is new in 0.4.0. The public API may still change before 1.0.
+> **Status:** 0.5.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, and document metadata (Info dictionary) read/write is new in 0.5.0. The public API may still change before 1.0.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -22,6 +22,7 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Draw text, images, lines, rectangles, and ellipses on new and existing pages.
 - Embed custom TTF/OTF fonts with glyph subsetting for full Unicode text (CJK, accented Latin, any script) — selectable and searchable in PDF viewers.
 - Create fillable AcroForm fields (text, checkbox, radio, dropdown, listbox, signature) on generated documents with `doc.createForm()`.
+- Read and write document metadata (Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate) via `doc.setTitle()` / `doc.getMetadata()` on both created and loaded documents; dates round-trip to JS `Date`.
 
 ## Install
 
@@ -253,6 +254,35 @@ Every field supports `required`, `readOnly`, `tooltip`, and the optional
 `border` (`{ color, width? }`) / `background` (a `Color`) appearance — colors come
 from `rgb(r, g, b)` and `grayscale(v)` (0–1).
 
+### (g) Document metadata
+
+Set and read the PDF Info dictionary on any document — created or loaded.
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+
+doc.setTitle("Q2 Report");
+doc.setAuthor("Ignacio Garcia P");
+doc.setSubject("Quarterly financials");
+doc.setKeywords(["finance", "Q2", "2026"]);
+doc.setCreator("Acme App");
+doc.setCreationDate(new Date());
+
+const output = await doc.save();
+
+// Read back
+const loaded = await PdfDocument.load(output);
+const meta = await loaded.getMetadata();
+console.log(meta.title);        // "Q2 Report"
+console.log(meta.keywords);     // ["finance", "Q2", "2026"]
+console.log(meta.creationDate); // Date object
+```
+
+On a **loaded** PDF, setters write only an incremental update — Info-dict keys you do not
+touch are preserved. Dates round-trip to JS `Date`. XMP metadata streams are not modified.
+
 ---
 
 Browser bundlers can import the explicit browser entry, or use the package root
@@ -284,6 +314,15 @@ const output = await doc.save();
 - `doc.embedJpg(bytes: Uint8Array): Promise<PdfImage>`
 - `doc.embedPng(bytes: Uint8Array): Promise<PdfImage>`
 - `doc.getForm(): PdfForm`
+- `doc.setTitle(s: string): void`
+- `doc.setAuthor(s: string): void`
+- `doc.setSubject(s: string): void`
+- `doc.setKeywords(arr: string[]): void`
+- `doc.setCreator(s: string): void`
+- `doc.setProducer(s: string): void`
+- `doc.setCreationDate(d: Date): void`
+- `doc.setModificationDate(d: Date): void`
+- `doc.getMetadata(): Promise<DocumentMetadata>` — reads the Info dictionary; all fields are optional
 - `doc.save(): Promise<Uint8Array>`
 
 `save()` applies queued fills first, then queued flattens. With no queued operations it returns a byte-identical round trip.
@@ -513,6 +552,8 @@ count).
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
 - Color: RGB and grayscale only; CMYK is not supported.
+- Document metadata (Info dictionary) is supported (`doc.setTitle()` / `doc.getMetadata()`).
+  XMP metadata streams are not written or modified.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
   plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged

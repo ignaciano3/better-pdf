@@ -8,6 +8,23 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-17
+
+### Added
+
+- Document metadata: read/write the PDF Info dictionary (Title, Author, Subject, Keywords,
+  Creator, Producer, CreationDate, ModDate) on both loaded and created PDFs via
+  `doc.setTitle()` / `doc.setAuthor()` / `doc.setSubject()` / `doc.setKeywords(arr)` /
+  `doc.setCreator()` / `doc.setProducer()` / `doc.setCreationDate(d)` /
+  `doc.setModificationDate(d)`, and `await doc.getMetadata()` → `DocumentMetadata`.
+- On a **loaded** PDF, metadata setters write an incremental update; Info-dict keys that are
+  not set are preserved from the original document.
+- Dates round-trip: setters accept a JS `Date`; `getMetadata()` returns `Date` objects.
+
+### Notes
+
+- XMP metadata streams are not written or modified (only the Info dictionary is updated).
+
 ## [0.4.0] - 2026-06-17
 
 ### Added
@@ -165,7 +182,8 @@ WebAssembly with a fully-typed TypeScript API.
 - Text fields are single-line; multi-line wrapping is not generated.
 - PNG alpha is dropped rather than preserved as a soft mask.
 
-[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ignaciano3/better-pdf/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ignaciano3/better-pdf/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ignaciano3/better-pdf/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ignaciano3/better-pdf/compare/v0.1.2...v0.2.0
