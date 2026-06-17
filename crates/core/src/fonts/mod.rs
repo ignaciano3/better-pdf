@@ -37,25 +37,53 @@ pub fn build_embedded_font(
     }
     let scale = 1000.0 / upem as f32; // PDF glyph space is /1000 em
 
-    // Map used chars -> glyph ids; collect the gid set for subsetting (Task 5).
-    let mut gid_for: HashMap<char, u16> = HashMap::new();
-    let mut gids: BTreeSet<u16> = BTreeSet::new();
-    gids.insert(0); // .notdef
+    // Map used chars -> ORIGINAL glyph ids in the source font.
+    let mut orig_gid_for: HashMap<char, u16> = HashMap::new();
     for &ch in &input.used_chars {
         if let Some(g) = face.glyph_index(ch) {
-            gid_for.insert(ch, g.0);
-            gids.insert(g.0);
+            orig_gid_for.insert(ch, g.0);
         }
     }
 
-    // Font program (full for now; Task 5 swaps in the subset built from `gids`).
-    let program: Vec<u8> = input.data.to_vec();
+    // Font program + char->gid map. When subsetting, the `subsetter` crate REMAPS
+    // glyph ids to a contiguous range (0->0 .notdef, then 1,2,3...), so the gids in
+    // the embedded program differ from the source font. We therefore (a) translate
+    // `gid_for` to the NEW ids and (b) emit /W and ToUnicode against those new ids,
+    // keeping Identity-H + CIDToGIDMap Identity consistent with the embedded program.
+    // When not subsetting, the original gids are used unchanged.
+    let (program, gid_for): (Vec<u8>, HashMap<char, u16>) = if input.subset {
+        let mut remapper = subsetter::GlyphRemapper::new();
+        // Deterministic remap order: sort original gids so output is reproducible.
+        let mut orig_gids: BTreeSet<u16> = BTreeSet::new();
+        orig_gids.insert(0); // .notdef (also implicitly kept by the remapper)
+        orig_gids.extend(orig_gid_for.values().copied());
+        for g in &orig_gids {
+            remapper.remap(*g);
+        }
+        let subset = subsetter::subset(input.data, 0, &remapper)
+            .map_err(|e| format!("subset failed: {e}"))?;
+        let new_gid_for: HashMap<char, u16> = orig_gid_for
+            .iter()
+            .filter_map(|(&ch, &g)| remapper.get(g).map(|ng| (ch, ng)))
+            .collect();
+        (subset, new_gid_for)
+    } else {
+        (input.data.to_vec(), orig_gid_for.clone())
+    };
 
     // /W width array: [ gid [w] gid2 [w2] ... ] in /1000 em, only for used gids.
+    // Advances are looked up by ORIGINAL gid on the source face; the emitted key is
+    // the (possibly remapped) gid used in the embedded program. Sorted by emitted
+    // gid for deterministic output.
+    let mut w_entries: Vec<(u16, u16)> = orig_gid_for
+        .iter()
+        .filter_map(|(&ch, &orig)| gid_for.get(&ch).map(|&emit| (emit, orig)))
+        .collect();
+    w_entries.sort_by_key(|(emit, _)| *emit);
     let mut w_array: Vec<Object> = Vec::new();
-    for (_, &g) in gid_for.iter() {
-        let adv = face.glyph_hor_advance(ttf_parser::GlyphId(g)).unwrap_or(0);
-        w_array.push(Object::Integer(g as i64));
+    for (emit, orig) in w_entries {
+        let adv = face.glyph_hor_advance(ttf_parser::GlyphId(orig)).unwrap_or(0);
+        w_array.push(Object::Integer(emit as i64));
         w_array.push(Object::Array(vec![Object::Real((adv as f32 * scale).round())]));
     }
 
@@ -194,5 +222,32 @@ mod tests {
         // glyph map covers used chars
         assert!(built.gid_for.contains_key(&'H'));
         assert!(built.gid_for.contains_key(&'é'));
+    }
+
+    #[test]
+    fn subsetting_shrinks_and_preserves_gids() {
+        // Build with subset=true and assert the embedded FontFile2 is smaller than
+        // the original font, and that the glyph for 'H' still resolves in the subset.
+        use lopdf::{Document, Object};
+        let mut doc = Document::with_version("1.7");
+        let mut add = |o: Object| doc.add_object(o);
+        let used: std::collections::BTreeSet<char> = "Hé".chars().collect();
+        let input = EmbeddedFontInput { data: FONT, subset: true, used_chars: used };
+        let (font_id, built) = build_embedded_font(&mut add, &input).unwrap();
+
+        // Walk Type0 -> DescendantFonts -> FontDescriptor -> FontFile2
+        let type0 = doc.get_object(font_id).unwrap().as_dict().unwrap();
+        let cid = doc.get_object(type0.get(b"DescendantFonts").unwrap().as_array().unwrap()[0].as_reference().unwrap()).unwrap().as_dict().unwrap();
+        let fd = doc.get_object(cid.get(b"FontDescriptor").unwrap().as_reference().unwrap()).unwrap().as_dict().unwrap();
+        let ff = doc.get_object(fd.get(b"FontFile2").unwrap().as_reference().unwrap()).unwrap().as_stream().unwrap();
+        let subset_len: i64 = ff.dict.get(b"Length1").unwrap().as_i64().unwrap();
+        assert!((subset_len as usize) < FONT.len(), "subset ({subset_len}) should be < original ({})", FONT.len());
+
+        // The subset font must still parse and contain the gid we recorded for 'H'.
+        let raw = ff.decompressed_content().unwrap_or_else(|_| ff.content.clone());
+        let face = ttf_parser::Face::parse(&raw, 0).unwrap();
+        let h_gid = built.gid_for[&'H'];
+        assert!(face.glyph_hor_advance(ttf_parser::GlyphId(h_gid)).is_some(),
+            "gid {h_gid} must survive subsetting with the same id");
     }
 }
