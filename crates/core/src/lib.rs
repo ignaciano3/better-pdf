@@ -40,8 +40,14 @@ pub fn read_pages(data: &[u8]) -> Result<String, JsError> {
 /// return new bytes (incremental save). `images` is the concatenated image blob
 /// that Image ops index into via imageOffset / imageLength.
 #[wasm_bindgen]
-pub fn apply_draw_ops(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, JsError> {
-    draw::apply_draw_ops_json(data, ops_json, images).map_err(|e| JsError::new(&e))
+pub fn apply_draw_ops(
+    data: &[u8],
+    ops_json: &str,
+    images: &[u8],
+    fonts: &[u8],
+    fonts_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    draw::apply_draw_ops_json(data, ops_json, images, fonts, fonts_json).map_err(|e| JsError::new(&e))
 }
 
 /// Build a new PDF document from scratch using a JSON array of create ops

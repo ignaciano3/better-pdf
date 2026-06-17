@@ -5,6 +5,21 @@ use lopdf::{dictionary, Dictionary, Document, IncrementalDocument, Object, Objec
 use serde::Deserialize;
 
 use crate::appearance::{encode_winansi, escape_pdf_literal};
+use crate::fonts::{build_embedded_font, BuiltFont, EmbeddedFontInput};
+
+fn default_true() -> bool {
+    true
+}
+
+/// One embedded font descriptor in the `fonts_json` payload. `offset`/`length`
+/// index into the concatenated `fonts` blob; `subset` controls glyph subsetting.
+#[derive(Deserialize)]
+struct FontDesc {
+    offset: usize,
+    length: usize,
+    #[serde(default = "default_true")]
+    subset: bool,
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
@@ -14,7 +29,10 @@ enum DrawOp {
         x: f32,
         y: f32,
         size: f32,
+        #[serde(default)]
         font: String,
+        #[serde(default, rename = "fontId")]
+        font_id: Option<usize>,
         color: [f32; 3],
         text: String,
         #[serde(rename = "lineHeight")]
@@ -530,9 +548,25 @@ pub fn apply_draw_ops_json(
     data: &[u8],
     ops_json: &str,
     images: &[u8],
+    fonts: &[u8],
+    fonts_json: &str,
 ) -> Result<Vec<u8>, String> {
     let ops: Vec<DrawOp> =
         serde_json::from_str(ops_json).map_err(|e| format!("invalid draw ops: {e}"))?;
+
+    let font_descs: Vec<FontDesc> =
+        serde_json::from_str(fonts_json).map_err(|e| format!("invalid fonts: {e}"))?;
+
+    // Validate font descriptor byte ranges up front.
+    for fd in &font_descs {
+        let end = fd
+            .offset
+            .checked_add(fd.length)
+            .ok_or_else(|| "font range out of bounds".to_string())?;
+        if end > fonts.len() {
+            return Err("font range out of bounds".to_string());
+        }
+    }
 
     let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
     let page_count = doc.get_pages().len();
@@ -540,13 +574,17 @@ pub fn apply_draw_ops_json(
     // Validate ALL ops before mutating anything
     for op in &ops {
         match op {
-            DrawOp::Text { page, font, .. } => {
+            DrawOp::Text { page, font, font_id, .. } => {
                 if *page >= page_count {
                     return Err(format!(
                         "page {page} out of range ({page_count} pages)"
                     ));
                 }
-                if !STANDARD_14.contains(&font.as_str()) {
+                if let Some(i) = font_id {
+                    if *i >= font_descs.len() {
+                        return Err(format!("font id {i} out of range"));
+                    }
+                } else if !STANDARD_14.contains(&font.as_str()) {
                     return Err(format!("unknown font: {font}"));
                 }
             }
@@ -725,6 +763,40 @@ pub fn apply_draw_ops_json(
     let mut font_cache: std::collections::HashMap<usize, ObjectId> =
         std::collections::HashMap::new();
 
+    // PRE-PASS: build each embedded font once, before the per-page mutation loop.
+    // This is required to avoid borrow-checker conflicts: `build_embedded_font`
+    // takes `&mut dyn FnMut(Object)->ObjectId` which borrows `inc.new_document`,
+    // and the page loop also mutates `inc`. Doing all embed work up front keeps
+    // the closure's borrow confined to this block. Cache `(type0_id, BuiltFont)`
+    // keyed by font id.
+    let mut embedded_fonts: std::collections::HashMap<usize, (ObjectId, BuiltFont)> =
+        std::collections::HashMap::new();
+    {
+        // Gather used_chars across ALL text ops referencing each embedded font id.
+        let mut used_per_font: std::collections::HashMap<usize, std::collections::BTreeSet<char>> =
+            std::collections::HashMap::new();
+        for op in &ops {
+            if let DrawOp::Text { font_id: Some(i), text, .. } = op {
+                used_per_font.entry(*i).or_default().extend(text.chars());
+            }
+        }
+        // Deterministic build order by font id.
+        let mut ids: Vec<usize> = used_per_font.keys().copied().collect();
+        ids.sort_unstable();
+        for id in ids {
+            let fd = &font_descs[id];
+            let bytes = &fonts[fd.offset..fd.offset + fd.length];
+            let input = EmbeddedFontInput {
+                data: bytes,
+                subset: fd.subset,
+                used_chars: used_per_font.remove(&id).unwrap_or_default(),
+            };
+            let mut add = |o: Object| inc.new_document.add_object(o);
+            let built = build_embedded_font(&mut add, &input)?;
+            embedded_fonts.insert(id, built);
+        }
+    }
+
     // Global image counter for unique XObject keys across all pages
     let mut img_counter: usize = 0;
 
@@ -752,33 +824,59 @@ pub fn apply_draw_ops_json(
                     y,
                     size,
                     font,
+                    font_id,
                     color,
                     text,
                     line_height,
                     page: _,
                 } => {
-                    let font_idx = standard_14_index(font.as_str()).unwrap();
+                    if let Some(id) = font_id {
+                        // Embedded font: emit a Type0/Identity-H hex glyph string.
+                        // gids come from BuiltFont.gid_for (the REMAPPED subset ids),
+                        // NOT from re-deriving via face.glyph_index.
+                        let (_type0_id, built) = embedded_fonts.get(id).unwrap();
+                        let gids_per_line: Vec<Vec<u16>> = text
+                            .split('\n')
+                            .map(|line| {
+                                line.chars()
+                                    .filter_map(|c| built.gid_for.get(&c).copied())
+                                    .collect()
+                            })
+                            .collect();
+                        emit_text_block_cid(
+                            &mut stream_content,
+                            &format!("BPE{id}"),
+                            *x,
+                            *y,
+                            *size,
+                            *color,
+                            &gids_per_line,
+                            *line_height,
+                        );
+                    } else {
+                        let font_idx = standard_14_index(font.as_str()).unwrap();
 
-                    // Ensure font object exists
-                    if let std::collections::hash_map::Entry::Vacant(e) = font_cache.entry(font_idx) {
-                        let fid = inc
-                            .new_document
-                            .add_object(Object::Dictionary(font_dict(font)));
-                        e.insert(fid);
+                        // Ensure font object exists
+                        if let std::collections::hash_map::Entry::Vacant(e) = font_cache.entry(font_idx) {
+                            let fid = inc
+                                .new_document
+                                .add_object(Object::Dictionary(font_dict(font)));
+                            e.insert(fid);
+                        }
+
+                        // One self-contained BT...ET block per op; BT resets the
+                        // text matrix to identity so Td gives absolute positioning.
+                        emit_text_block(
+                            &mut stream_content,
+                            &format!("BPF{font_idx}"),
+                            *x,
+                            *y,
+                            *size,
+                            *color,
+                            text,
+                            *line_height,
+                        );
                     }
-
-                    // One self-contained BT...ET block per op; BT resets the
-                    // text matrix to identity so Td gives absolute positioning.
-                    emit_text_block(
-                        &mut stream_content,
-                        &format!("BPF{font_idx}"),
-                        *x,
-                        *y,
-                        *size,
-                        *color,
-                        text,
-                        *line_height,
-                    );
                 }
                 DrawOp::Image {
                     x,
@@ -938,13 +1036,20 @@ pub fn apply_draw_ops_json(
             dict_mut(&mut inc, page_id)?.set("Contents", Object::Array(arr));
         }
 
-        // Collect unique fonts used on this page
+        // Collect unique fonts used on this page (standard-14 vs embedded)
         let mut fonts_on_page: Vec<(usize, String)> = Vec::new();
+        let mut embedded_on_page: Vec<usize> = Vec::new();
         for op in page_op_list {
-            if let DrawOp::Text { font, .. } = op {
-                let idx = standard_14_index(font.as_str()).unwrap();
-                if !fonts_on_page.iter().any(|(i, _)| *i == idx) {
-                    fonts_on_page.push((idx, font.clone()));
+            if let DrawOp::Text { font, font_id, .. } = op {
+                if let Some(id) = font_id {
+                    if !embedded_on_page.contains(id) {
+                        embedded_on_page.push(*id);
+                    }
+                } else {
+                    let idx = standard_14_index(font.as_str()).unwrap();
+                    if !fonts_on_page.iter().any(|(i, _)| *i == idx) {
+                        fonts_on_page.push((idx, font.clone()));
+                    }
                 }
             }
         }
@@ -953,6 +1058,13 @@ pub fn apply_draw_ops_json(
             let font_obj_id = *font_cache.get(font_idx).unwrap();
             let key = format!("BPF{font_idx}");
             register_font(&mut inc, page_id, &key, font_obj_id)?;
+        }
+
+        // Register embedded Type0 fonts in the page's /Font subdict (key BPE{id}).
+        for id in &embedded_on_page {
+            let (type0_id, _) = embedded_fonts.get(id).unwrap();
+            let key = format!("BPE{id}");
+            register_font(&mut inc, page_id, &key, *type0_id)?;
         }
 
         // Register XObjects for image ops on this page
@@ -1049,7 +1161,7 @@ mod tests {
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
 
     fn ops(json: &str, images: &[u8]) -> Vec<u8> {
-        apply_draw_ops_json(FICHA, json, images).unwrap()
+        apply_draw_ops_json(FICHA, json, images, &[], "[]").unwrap()
     }
 
     fn last_draw_stream_content(out: &[u8]) -> String {
@@ -1088,6 +1200,36 @@ mod tests {
         assert!(s.contains("<0048 00E9>") || s.contains("<004800E9>"), "hex glyph string missing: {s}");
         assert_eq!(s.matches(" Tj").count(), 2, "one Tj per line: {s}");
         assert!(s.contains("BT") && s.contains("ET"));
+    }
+
+    #[test]
+    fn draws_embedded_font_text() {
+        const FONT: &[u8] =
+            include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+        let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
+        let ops = r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"fontId":0,"color":[0,0,0],"text":"Héllo"}]"#;
+        let out = apply_draw_ops_json(FICHA, ops, &[], FONT, &fonts_json).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, first) = doc.get_pages().into_iter().next().unwrap();
+        let res_dict = doc.get_dictionary(first).unwrap();
+        // a BPE* (embedded) font key is registered in Resources/Font
+        let res = match res_dict.get(b"Resources").unwrap() {
+            lopdf::Object::Reference(r) => doc.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected Resources dict"),
+        };
+        let fonts = match res.get(b"Font").unwrap() {
+            lopdf::Object::Reference(r) => doc.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected Font dict"),
+        };
+        assert!(
+            fonts.iter().any(|(k, _)| k.starts_with(b"BPE")),
+            "expected a BPE* embedded font key in Font resources"
+        );
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains("Tf") && s.contains(" Tj"));
+        assert!(s.contains('<') && s.contains('>'), "should emit hex glyph string: {s}");
     }
 
     #[test]
@@ -1135,13 +1277,13 @@ mod tests {
 
     #[test]
     fn errors_on_bad_page() {
-        let r = apply_draw_ops_json(FICHA, r#"[{"op":"text","page":999,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[]);
+        let r = apply_draw_ops_json(FICHA, r#"[{"op":"text","page":999,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[], &[], "[]");
         assert!(r.unwrap_err().contains("page"));
     }
 
     #[test]
     fn errors_on_unknown_font() {
-        let r = apply_draw_ops_json(FICHA, r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#, &[]);
+        let r = apply_draw_ops_json(FICHA, r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#, &[], &[], "[]");
         assert!(r.unwrap_err().contains("font"));
     }
 
@@ -1171,7 +1313,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = apply_draw_ops_json(FICHA, &json, png).unwrap();
+        let out = apply_draw_ops_json(FICHA, &json, png, &[], "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, first) = doc.get_pages().into_iter().next().unwrap();
         let dict = doc.get_dictionary(first).unwrap();
@@ -1210,7 +1352,7 @@ mod tests {
             r#"[{{"op":"image","page":0,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{}}}]"#,
             len + 1
         );
-        let r = apply_draw_ops_json(FICHA, &json, png);
+        let r = apply_draw_ops_json(FICHA, &json, png, &[], "[]");
         assert!(r.unwrap_err().contains("out of bounds"));
     }
 
@@ -1221,7 +1363,7 @@ mod tests {
             r#"[{{"op":"image","page":0,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{}}}]"#,
             bad_bytes.len()
         );
-        let r = apply_draw_ops_json(FICHA, &json, bad_bytes);
+        let r = apply_draw_ops_json(FICHA, &json, bad_bytes, &[], "[]");
         assert!(r.is_err(), "expected error for invalid image bytes");
     }
 
@@ -1330,6 +1472,8 @@ mod tests {
             FICHA,
             r#"[{"op":"rectangle","page":0,"x":0,"y":0,"width":10,"height":10,"color":[0,0,0],"opacity":1.5}]"#,
             &[],
+            &[],
+            "[]",
         );
         let err = r.unwrap_err();
         assert!(err.contains("opacity"), "expected opacity error, got: {err}");
@@ -1410,6 +1554,8 @@ mod tests {
             &base,
             r#"[{"op":"text","page":0,"x":50,"y":700,"size":12,"font":"Helvetica","color":[0,0,0],"text":"hi"}]"#,
             &[],
+            &[],
+            "[]",
         )
         .expect("apply_draw_ops_json should succeed");
 
@@ -1463,6 +1609,8 @@ mod tests {
             FICHA,
             r#"[{"op":"ellipse","page":0,"x":100,"y":100,"xScale":0,"yScale":50,"color":[0,0,1]}]"#,
             &[],
+            &[],
+            "[]",
         );
         let err = r.unwrap_err();
         assert!(
@@ -1478,6 +1626,8 @@ mod tests {
             FICHA,
             r#"[{"op":"rectangle","page":0,"x":10,"y":10,"width":0,"height":30,"color":[0,0,1]}]"#,
             &[],
+            &[],
+            "[]",
         );
         let err = r.unwrap_err();
         assert!(
