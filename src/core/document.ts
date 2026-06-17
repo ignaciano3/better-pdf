@@ -9,6 +9,7 @@ import { PdfFont } from "../generate/font.js";
 import { StandardFonts } from "../generate/fonts.js";
 import { FormBuilder } from "../generate/form-builder.js";
 import type { FieldDef } from "../generate/form-builder.js";
+import { toPdfDate, type DocumentMetadata } from "../generate/metadata.js";
 
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
@@ -33,6 +34,8 @@ export interface CoreWasm {
   imageInfo(data: Uint8Array): string;
   measureText(font: string, size: number, text: string): number;
   measureTextEmbedded(font: Uint8Array, size: number, text: string): number;
+  readMetadata(data: Uint8Array): string;
+  setMetadata(data: Uint8Array, metaJson: string): Uint8Array;
 }
 
 export class PdfDocumentBase {
@@ -42,6 +45,8 @@ export class PdfDocumentBase {
   private readonly drawQueue = new DrawQueue();
   private readonly fieldDefs: FieldDef[] = [];
   private readonly fieldNames = new Set<string>();
+  private metadata: Record<string, string> = {};
+  private metadataDirty = false;
 
   /** @internal */
   protected constructor(
@@ -75,6 +80,9 @@ export class PdfDocumentBase {
   async save(): Promise<Uint8Array> {
     if (this.mode === "create") {
       try {
+        if (this.metadataDirty) {
+          this.drawQueue.pushMetadata(this.metadata);
+        }
         const { opsJson, images, fonts, fontsJson } = this.drawQueue.toCreatePayload();
         return this.wasm.createDocument(
           opsJson,
@@ -102,6 +110,9 @@ export class PdfDocumentBase {
         const { opsJson, images, fonts, fontsJson } = this.drawQueue.toDrawPayload();
         bytes = this.wasm.applyDrawOps(bytes, opsJson, images, fonts, fontsJson);
       }
+      if (this.metadataDirty) {
+        bytes = this.wasm.setMetadata(bytes, JSON.stringify(this.metadata));
+      }
     } catch (e) {
       throw toPdfError(e);
     }
@@ -109,6 +120,86 @@ export class PdfDocumentBase {
       return this.bytes.slice();
     }
     return bytes;
+  }
+
+  /** Set the document title metadata. */
+  setTitle(value: string): void {
+    this.metadata["title"] = value;
+    this.metadataDirty = true;
+  }
+
+  /** Set the document author metadata. */
+  setAuthor(value: string): void {
+    this.metadata["author"] = value;
+    this.metadataDirty = true;
+  }
+
+  /** Set the document subject metadata. */
+  setSubject(value: string): void {
+    this.metadata["subject"] = value;
+    this.metadataDirty = true;
+  }
+
+  /** Set the document keywords metadata. The array is joined with ", ". */
+  setKeywords(values: string[]): void {
+    this.metadata["keywords"] = values.join(", ");
+    this.metadataDirty = true;
+  }
+
+  /** Set the document creator metadata. */
+  setCreator(value: string): void {
+    this.metadata["creator"] = value;
+    this.metadataDirty = true;
+  }
+
+  /** Set the document producer metadata. */
+  setProducer(value: string): void {
+    this.metadata["producer"] = value;
+    this.metadataDirty = true;
+  }
+
+  /** Set the document creation date metadata. */
+  setCreationDate(date: Date): void {
+    this.metadata["creationDate"] = toPdfDate(date);
+    this.metadataDirty = true;
+  }
+
+  /** Set the document modification date metadata. */
+  setModificationDate(date: Date): void {
+    this.metadata["modDate"] = toPdfDate(date);
+    this.metadataDirty = true;
+  }
+
+  /**
+   * Get the document metadata.
+   *
+   * For loaded documents, reads metadata from the PDF and overlays any locally-set values.
+   * For created documents, returns the locally-set values.
+   */
+  async getMetadata(): Promise<DocumentMetadata> {
+    let wire: Record<string, string> = {};
+
+    if (this.mode === "load") {
+      try {
+        wire = JSON.parse(this.wasm.readMetadata(this.bytes)) as Record<string, string>;
+      } catch {
+        wire = {};
+      }
+    }
+
+    // Locally-set values win
+    const merged = { ...wire, ...this.metadata };
+
+    const result: DocumentMetadata = {};
+    if (merged["title"] !== undefined) result.title = merged["title"];
+    if (merged["author"] !== undefined) result.author = merged["author"];
+    if (merged["subject"] !== undefined) result.subject = merged["subject"];
+    if (merged["keywords"] !== undefined) {
+      result.keywords = merged["keywords"].split(/,\s*/);
+    }
+    if (merged["creator"] !== undefined) result.creator = merged["creator"];
+    if (merged["producer"] !== undefined) result.producer = merged["producer"];
+    return result;
   }
 
   /** Number of pages in the document. */
