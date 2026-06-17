@@ -27,6 +27,15 @@ description: What better-pdf does not (yet) support.
   `doc.getMetadata()` etc. on both created and loaded documents. Dates round-trip to
   JS `Date`. — **XMP metadata streams are not written or modified** (only the Info
   dictionary is updated).
+- **Page operations (merge, copy, reorder, split)** — `PdfDocument.merge`,
+  `PdfDocument.assemble`, `doc.copyPages`, and `doc.splitPages` — are **supported**.
+  - **Caveat — non-interactive AcroForm fields:** Pages assembled or merged from
+    documents that contain AcroForm fields retain their visual appearance (the
+    field appearance stream is baked onto the page), but the fields are **not
+    interactive** in the output — the AcroForm dictionary is not reconstructed.
+    Fill and flatten fields before merging if you need a flat, printable result.
+  - **Not yet available:** In-place page rotation/resize and blank-page insertion.
+    Individual-page rotation and resize are planned for the next milestone (M29).
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3
   forms, plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged

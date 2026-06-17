@@ -150,6 +150,47 @@ better-pdf has full parity with pdf-lib's metadata setters and adds a unified as
 - **XMP metadata streams are not written** — only the PDF Info dictionary is updated. This
   matches pdf-lib's default behavior.
 
+## Merging and copying pages
+
+pdf-lib merges documents by creating a new `PDFDocument`, then calling
+`copyPages` on a source doc and adding each copied page with `addPage`. The
+resulting document must be saved separately.
+
+better-pdf provides two static helpers and two instance methods that cover the
+same patterns with a single `await`:
+
+| pdf-lib | better-pdf |
+| --- | --- |
+| `const dest = await PDFDocument.create();` + `const pages = await dest.copyPages(src, indices);` + `pages.forEach(p => dest.addPage(p));` + `await dest.save()` | `await doc.copyPages(indices)` — extracts those pages into a new PDF |
+| Loop over multiple sources + `copyPages` + `addPage` | `await PdfDocument.merge([a, b, c])` — all pages in order |
+| Manual per-page `copyPages` / `addPage` across sources | `await PdfDocument.assemble(docs, selections)` — full reorder/cross-doc control |
+| (no equivalent) | `await doc.splitPages()` — one single-page PDF per page |
+
+### Example — merge
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const merged = await PdfDocument.merge([bytesA, bytesB, bytesC]);
+```
+
+### Example — extract / reorder pages
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.load(bytes);
+const reordered = await doc.copyPages([2, 0, 1]);   // page 2 first, then 0, then 1
+```
+
+### Notes
+
+- `copyPages` and `splitPages` are available on **loaded** documents only
+  (documents opened with `PdfDocument.load`).
+- Form fields on assembled/merged pages keep their visual appearance but are
+  **not interactive** — no AcroForm is reconstructed. Flatten fields before
+  merging if you need a flat result.
+
 ## Typed forms (no pdf-lib equivalent)
 
 Generate a schema module once, then field names, types, and option values are

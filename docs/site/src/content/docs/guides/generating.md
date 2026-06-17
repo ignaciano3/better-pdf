@@ -212,3 +212,98 @@ On a loaded PDF, keys not set by your code are preserved as-is in the incrementa
 Only the PDF Info dictionary is written. XMP metadata streams embedded in the
 document are not modified or generated.
 :::
+
+## Pages: merge, extract, split
+
+Page operations work across multiple loaded documents (static methods) and on a
+single loaded document (instance methods). All four methods return a new
+`Uint8Array` PDF — no source document is mutated.
+
+### Merge multiple PDFs
+
+Combine an array of PDFs into one, preserving the page order:
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const a = new Uint8Array(await Bun.file("part-a.pdf").arrayBuffer());
+const b = new Uint8Array(await Bun.file("part-b.pdf").arrayBuffer());
+const c = new Uint8Array(await Bun.file("part-c.pdf").arrayBuffer());
+
+const merged = await PdfDocument.merge([a, b, c]);
+await Bun.write("merged.pdf", merged);
+```
+
+### Extract / copy pages
+
+Extract a subset of pages from a loaded document:
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const bytes = new Uint8Array(await Bun.file("report.pdf").arrayBuffer());
+const doc = await PdfDocument.load(bytes);
+
+// Extract pages 0, 2, and 4 (0-based) into a new PDF
+const extracted = await doc.copyPages([0, 2, 4]);
+await Bun.write("pages-0-2-4.pdf", extracted);
+```
+
+Omitting indices leaves them out — a practical way to remove pages.
+
+### Split into single-page PDFs
+
+Produce one PDF per page:
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const bytes = new Uint8Array(await Bun.file("report.pdf").arrayBuffer());
+const doc = await PdfDocument.load(bytes);
+
+const pages = await doc.splitPages();   // Promise<Uint8Array[]>
+for (const [i, page] of pages.entries()) {
+  await Bun.write(`page-${i + 1}.pdf`, page);
+}
+```
+
+### Assemble pages from multiple sources
+
+`PdfDocument.assemble` gives you full control over the output order and source:
+each selection names a document (by index into the input array) and a page
+(0-based index within that document). Pages may be reordered, repeated, or drawn
+from any of the source documents.
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const cover  = new Uint8Array(await Bun.file("cover.pdf").arrayBuffer());
+const body   = new Uint8Array(await Bun.file("body.pdf").arrayBuffer());
+const annex  = new Uint8Array(await Bun.file("annex.pdf").arrayBuffer());
+
+// Build: cover p0, body p0–p2, annex p0, body p3
+const result = await PdfDocument.assemble(
+  [cover, body, annex],
+  [
+    { docIndex: 0, pageIndex: 0 },   // cover p0
+    { docIndex: 1, pageIndex: 0 },   // body  p0
+    { docIndex: 1, pageIndex: 1 },   // body  p1
+    { docIndex: 1, pageIndex: 2 },   // body  p2
+    { docIndex: 2, pageIndex: 0 },   // annex p0
+    { docIndex: 1, pageIndex: 3 },   // body  p3
+  ],
+);
+await Bun.write("assembled.pdf", result);
+```
+
+:::caution[Form fields on assembled pages]
+Pages that originated from documents with AcroForm fields keep their **visual
+appearance** (the field appearance stream is drawn on the page), but the fields
+are **not interactive** — no AcroForm dictionary is reconstructed in the output.
+If you need interactive forms, fill and flatten the fields before merging.
+:::
+
+:::note[Not yet available]
+In-place page rotation/resize and blank-page insertion are not yet available.
+Rotation/resize of individual pages is planned for M29.
+:::
