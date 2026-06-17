@@ -53,10 +53,19 @@ pub fn apply_draw_ops(
 /// Build a new PDF document from scratch using a JSON array of create ops
 /// (addPage, text, image, etc.) and return the PDF bytes. `images` is the
 /// concatenated image blob that Image ops index into via imageOffset / imageLength.
+/// `fonts` is the concatenated font blob that embedded-font text ops index into
+/// via `fonts_json` descriptors (pass `&[]` / "[]" for none).
 /// `fields_json` is a JSON array of field definitions (pass "[]" for none).
 #[wasm_bindgen]
-pub fn create_document(ops_json: &str, images: &[u8], fields_json: &str) -> Result<Vec<u8>, JsError> {
-    create::create_document_json(ops_json, images, fields_json).map_err(|e| JsError::new(&e))
+pub fn create_document(
+    ops_json: &str,
+    images: &[u8],
+    fonts: &[u8],
+    fonts_json: &str,
+    fields_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    create::create_document_json(ops_json, images, fonts, fonts_json, fields_json)
+        .map_err(|e| JsError::new(&e))
 }
 
 /// Width in points of `text` in standard-14 `font` at `size`.
