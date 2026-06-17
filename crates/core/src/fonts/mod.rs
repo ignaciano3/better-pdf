@@ -15,10 +15,9 @@ pub struct EmbeddedFontInput<'a> {
 }
 
 /// What the caller needs after embedding: char->glyph mapping (for writing
-/// Identity-H text) and the font's design units per em (for measuring).
+/// Identity-H text).
 pub struct BuiltFont {
     pub gid_for: HashMap<char, u16>,
-    pub units_per_em: u16,
 }
 
 /// Build the full Type0 object graph and return (Type0 dict id, BuiltFont).
@@ -153,7 +152,7 @@ pub fn build_embedded_font(
     };
     let type0_id = doc_add(Object::Dictionary(type0));
 
-    Ok((type0_id, BuiltFont { gid_for, units_per_em: upem }))
+    Ok((type0_id, BuiltFont { gid_for }))
 }
 
 /// Read the font's PostScript name (name id 6), if present.

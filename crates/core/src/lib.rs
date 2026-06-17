@@ -74,6 +74,12 @@ pub fn measure_text(font: &str, size: f32, text: &str) -> Result<f32, JsError> {
     appearance::measure_text_width(font, size, text).map_err(|e| JsError::new(&e))
 }
 
+/// Width in points of `text` in an embedded font at `size`.
+#[wasm_bindgen]
+pub fn measure_text_embedded(font: &[u8], size: f32, text: &str) -> Result<f32, JsError> {
+    fonts::measure_embedded(font, size, text).map_err(|e| JsError::new(&e))
+}
+
 /// Return JSON `{"width":W,"height":H}` (intrinsic pixels) for a JPEG/PNG, or error.
 #[wasm_bindgen]
 pub fn image_info(data: &[u8]) -> Result<String, JsError> {
