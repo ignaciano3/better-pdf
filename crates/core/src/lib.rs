@@ -8,6 +8,7 @@ mod fill;
 mod flatten;
 mod font_metrics;
 mod forms;
+mod metadata;
 mod pages;
 
 /// Read the AcroForm fields of a PDF, returned as a JSON array string.
@@ -91,6 +92,18 @@ pub fn image_info(data: &[u8]) -> Result<String, JsError> {
         .map_err(|e| JsError::new(&e))
 }
 
+/// Read the document Info dictionary as a JSON object.
+#[wasm_bindgen]
+pub fn read_metadata(data: &[u8]) -> Result<String, JsError> {
+    metadata::read_metadata_json(data).map_err(|e| JsError::new(&e))
+}
+
+/// Set Info-dictionary metadata; returns new PDF bytes (incremental update).
+#[wasm_bindgen]
+pub fn set_metadata(data: &[u8], meta_json: &str) -> Result<Vec<u8>, JsError> {
+    metadata::set_metadata_json(data, meta_json).map_err(|e| JsError::new(&e))
+}
+
 /// Internal re-exports for the fuzz targets in `fuzz/`. Not a public API.
 #[doc(hidden)]
 pub mod fuzz_api {
@@ -99,4 +112,5 @@ pub mod fuzz_api {
     pub use crate::draw::apply_draw_ops_json;
     pub use crate::fill::fill_fields_json;
     pub use crate::forms::read_fields_json;
+    pub use crate::metadata::{read_metadata_json, set_metadata_json};
 }
