@@ -299,16 +299,14 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
                 }
-                if let Some(o) = opacity {
-                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
                         return Err("opacity must be in 0..1".to_string());
                     }
-                }
-                if let Some(t) = thickness {
-                    if !t.is_finite() || *t < 0.0 {
+                if let Some(t) = thickness
+                    && (!t.is_finite() || *t < 0.0) {
                         return Err("thickness must be >= 0".to_string());
                     }
-                }
                 for &v in &[*x1, *y1, *x2, *y2] {
                     if !v.is_finite() {
                         return Err("invalid coordinate".to_string());
@@ -336,16 +334,14 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
                 }
-                if let Some(o) = opacity {
-                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
                         return Err("opacity must be in 0..1".to_string());
                     }
-                }
-                if let Some(bw) = border_width {
-                    if !bw.is_finite() || *bw < 0.0 {
+                if let Some(bw) = border_width
+                    && (!bw.is_finite() || *bw < 0.0) {
                         return Err("borderWidth must be >= 0".to_string());
                     }
-                }
                 for &v in &[*x, *y, *width, *height] {
                     if !v.is_finite() {
                         return Err("invalid coordinate".to_string());
@@ -386,16 +382,14 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
                 }
-                if let Some(o) = opacity {
-                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
                         return Err("opacity must be in 0..1".to_string());
                     }
-                }
-                if let Some(bw) = border_width {
-                    if !bw.is_finite() || *bw < 0.0 {
+                if let Some(bw) = border_width
+                    && (!bw.is_finite() || *bw < 0.0) {
                         return Err("borderWidth must be >= 0".to_string());
                     }
-                }
                 for &v in &[*x, *y, *x_scale, *y_scale] {
                     if !v.is_finite() {
                         return Err("invalid coordinate".to_string());
@@ -450,11 +444,10 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     if !height.is_finite() || *height <= 0.0 {
                         return Err("field height must be finite and > 0".to_string());
                     }
-                    if let Some(ml) = max_length {
-                        if *ml < 0 {
+                    if let Some(ml) = max_length
+                        && *ml < 0 {
                             return Err("field maxLength must be >= 0".to_string());
                         }
-                    }
                 }
                 FieldDef::CheckBox { name, page, x, y, size, on_value, .. } => {
                     if name.is_empty() {
@@ -472,11 +465,10 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     if !size.is_finite() || *size <= 0.0 {
                         return Err("checkbox size must be finite and > 0".to_string());
                     }
-                    if let Some(ov) = on_value {
-                        if ov == "Off" {
+                    if let Some(ov) = on_value
+                        && ov == "Off" {
                             return Err("checkbox onValue must not be \"Off\"".to_string());
                         }
-                    }
                 }
                 FieldDef::RadioGroup { name, selected, options, .. } => {
                     if name.is_empty() {
@@ -509,11 +501,10 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                             return Err("radio option size must be finite and > 0".to_string());
                         }
                     }
-                    if let Some(sel) = selected {
-                        if !options.iter().any(|o| &o.value == sel) {
+                    if let Some(sel) = selected
+                        && !options.iter().any(|o| &o.value == sel) {
                             return Err(format!("radioGroup \"{name}\" selected value \"{sel}\" is not in options"));
                         }
-                    }
                 }
                 FieldDef::Choice { name, page, x, y, width, height, options, selected, .. } => {
                     if name.is_empty() {
@@ -543,11 +534,10 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                             return Err(format!("duplicate choice option: {opt}"));
                         }
                     }
-                    if let Some(sel) = selected {
-                        if !options.iter().any(|o| o == sel) {
+                    if let Some(sel) = selected
+                        && !options.iter().any(|o| o == sel) {
                             return Err(format!("choice field \"{name}\" selected value \"{sel}\" is not in options"));
                         }
-                    }
                 }
                 FieldDef::Signature { name, page, x, y, width, height, .. } => {
                     if name.is_empty() {
@@ -742,13 +732,13 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
 
         // Build resources dict, only including sub-dicts that have entries
         let mut resources = Dictionary::new();
-        if font_res.len() > 0 {
+        if !font_res.is_empty() {
             resources.set("Font", Object::Dictionary(font_res));
         }
-        if xobject_res.len() > 0 {
+        if !xobject_res.is_empty() {
             resources.set("XObject", Object::Dictionary(xobject_res));
         }
-        if extgstate_res.len() > 0 {
+        if !extgstate_res.is_empty() {
             resources.set("ExtGState", Object::Dictionary(extgstate_res));
         }
 
@@ -827,7 +817,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     );
                     let ap_id = doc.add_object(Object::Stream(ap_stream));
 
-                    let flags: i64 = ((*read_only as i64) << 0)
+                    let flags: i64 = (*read_only as i64)
                         | ((*required as i64) << 1)
                         | ((multiline.unwrap_or(false) as i64) << 12);
 
@@ -858,11 +848,10 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     if let Some(ml) = max_length {
                         field_dict.set("MaxLen", Object::Integer(*ml));
                     }
-                    if let Some(tip) = tooltip {
-                        if !tip.is_empty() {
+                    if let Some(tip) = tooltip
+                        && !tip.is_empty() {
                             field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
                         }
-                    }
 
                     // MK dict: BG (background), BC (border color), BS (border style)
                     let mut mk = Dictionary::new();
@@ -896,7 +885,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                             );
                         }
                     }
-                    if mk.len() > 0 {
+                    if !mk.is_empty() {
                         field_dict.set("MK", Object::Dictionary(mk));
                     }
 
@@ -934,7 +923,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     };
                     let v_val = as_val.clone();
 
-                    let flags: i64 = ((*read_only as i64) << 0) | ((*required as i64) << 1);
+                    let flags: i64 = (*read_only as i64) | ((*required as i64) << 1);
 
                     let rect = Object::Array(vec![
                         Object::Real(*x),
@@ -960,11 +949,10 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     );
                     field_dict.set("P", Object::Reference(page_ids[*page]));
 
-                    if let Some(tip) = tooltip {
-                        if !tip.is_empty() {
+                    if let Some(tip) = tooltip
+                        && !tip.is_empty() {
                             field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
                         }
-                    }
 
                     let mut mk = Dictionary::new();
                     if let Some(bg) = background {
@@ -996,7 +984,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                             );
                         }
                     }
-                    if mk.len() > 0 {
+                    if !mk.is_empty() {
                         field_dict.set("MK", Object::Dictionary(mk));
                     }
 
@@ -1021,7 +1009,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     };
 
                     let flags: i64 = (1_i64 << 15)
-                        | ((*read_only as i64) << 0)
+                        | (*read_only as i64)
                         | ((*required as i64) << 1);
 
                     let mut kids_refs: Vec<Object> = Vec::new();
@@ -1079,12 +1067,11 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     parent_dict.set("Kids", Object::Array(kids_refs));
                     parent_dict.set("V", v_val);
 
-                    if let Some(tip) = tooltip {
-                        if !tip.is_empty() {
+                    if let Some(tip) = tooltip
+                        && !tip.is_empty() {
                             parent_dict
                                 .set("TU", Object::string_literal(tip.as_bytes().to_vec()));
                         }
-                    }
 
                     doc.set_object(parent_id, Object::Dictionary(parent_dict));
                     acro_fields.push(Object::Reference(parent_id));
@@ -1123,7 +1110,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     );
                     let ap_id = doc.add_object(Object::Stream(ap_stream));
 
-                    let flags: i64 = ((*read_only as i64) << 0)
+                    let flags: i64 = (*read_only as i64)
                         | ((*required as i64) << 1)
                         | ((*combo as i64) << 17);
 
@@ -1161,11 +1148,10 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     );
                     field_dict.set("P", Object::Reference(page_ids[*page]));
 
-                    if let Some(tip) = tooltip {
-                        if !tip.is_empty() {
+                    if let Some(tip) = tooltip
+                        && !tip.is_empty() {
                             field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
                         }
-                    }
 
                     let mut mk = Dictionary::new();
                     if let Some(bg) = background {
@@ -1197,7 +1183,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                             );
                         }
                     }
-                    if mk.len() > 0 {
+                    if !mk.is_empty() {
                         field_dict.set("MK", Object::Dictionary(mk));
                     }
 
@@ -1219,7 +1205,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     background,
                 } => {
                     let flags: i64 =
-                        ((*read_only as i64) << 0) | ((*required as i64) << 1);
+                        (*read_only as i64) | ((*required as i64) << 1);
 
                     let rect = Object::Array(vec![
                         Object::Real(*x),
@@ -1237,11 +1223,10 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     field_dict.set("Ff", Object::Integer(flags));
                     field_dict.set("P", Object::Reference(page_ids[*page]));
 
-                    if let Some(tip) = tooltip {
-                        if !tip.is_empty() {
+                    if let Some(tip) = tooltip
+                        && !tip.is_empty() {
                             field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
                         }
-                    }
 
                     let mut mk = Dictionary::new();
                     if let Some(bg) = background {
@@ -1273,7 +1258,7 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                             );
                         }
                     }
-                    if mk.len() > 0 {
+                    if !mk.is_empty() {
                         field_dict.set("MK", Object::Dictionary(mk));
                     }
 

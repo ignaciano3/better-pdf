@@ -548,16 +548,14 @@ pub fn apply_draw_ops_json(
                 if *page >= page_count {
                     return Err(format!("page {page} out of range ({page_count} pages)"));
                 }
-                if let Some(o) = opacity {
-                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
                         return Err("opacity must be in 0..1".to_string());
                     }
-                }
-                if let Some(t) = thickness {
-                    if !t.is_finite() || *t < 0.0 {
+                if let Some(t) = thickness
+                    && (!t.is_finite() || *t < 0.0) {
                         return Err("thickness must be >= 0".to_string());
                     }
-                }
                 for &v in &[*x1, *y1, *x2, *y2] {
                     if !v.is_finite() {
                         return Err("invalid coordinate".to_string());
@@ -582,16 +580,14 @@ pub fn apply_draw_ops_json(
                 if *page >= page_count {
                     return Err(format!("page {page} out of range ({page_count} pages)"));
                 }
-                if let Some(o) = opacity {
-                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
                         return Err("opacity must be in 0..1".to_string());
                     }
-                }
-                if let Some(bw) = border_width {
-                    if !bw.is_finite() || *bw < 0.0 {
+                if let Some(bw) = border_width
+                    && (!bw.is_finite() || *bw < 0.0) {
                         return Err("borderWidth must be >= 0".to_string());
                     }
-                }
                 for &v in &[*x, *y, *width, *height] {
                     if !v.is_finite() {
                         return Err("invalid coordinate".to_string());
@@ -629,16 +625,14 @@ pub fn apply_draw_ops_json(
                 if *page >= page_count {
                     return Err(format!("page {page} out of range ({page_count} pages)"));
                 }
-                if let Some(o) = opacity {
-                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
                         return Err("opacity must be in 0..1".to_string());
                     }
-                }
-                if let Some(bw) = border_width {
-                    if !bw.is_finite() || *bw < 0.0 {
+                if let Some(bw) = border_width
+                    && (!bw.is_finite() || *bw < 0.0) {
                         return Err("borderWidth must be >= 0".to_string());
                     }
-                }
                 for &v in &[*x, *y, *x_scale, *y_scale] {
                     if !v.is_finite() {
                         return Err("invalid coordinate".to_string());
@@ -734,11 +728,11 @@ pub fn apply_draw_ops_json(
                     let font_idx = standard_14_index(font.as_str()).unwrap();
 
                     // Ensure font object exists
-                    if !font_cache.contains_key(&font_idx) {
+                    if let std::collections::hash_map::Entry::Vacant(e) = font_cache.entry(font_idx) {
                         let fid = inc
                             .new_document
                             .add_object(Object::Dictionary(font_dict(font)));
-                        font_cache.insert(font_idx, fid);
+                        e.insert(fid);
                     }
 
                     // One self-contained BT...ET block per op; BT resets the
