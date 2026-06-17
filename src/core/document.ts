@@ -9,7 +9,7 @@ import { PdfFont } from "../generate/font.js";
 import { StandardFonts } from "../generate/fonts.js";
 import { FormBuilder } from "../generate/form-builder.js";
 import type { FieldDef } from "../generate/form-builder.js";
-import { toPdfDate, type DocumentMetadata } from "../generate/metadata.js";
+import { toPdfDate, fromPdfDate, type DocumentMetadata } from "../generate/metadata.js";
 
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
@@ -199,6 +199,14 @@ export class PdfDocumentBase {
     }
     if (merged["creator"] !== undefined) result.creator = merged["creator"];
     if (merged["producer"] !== undefined) result.producer = merged["producer"];
+    if (merged["creationDate"] !== undefined) {
+      const d = fromPdfDate(merged["creationDate"]);
+      if (d !== undefined) result.creationDate = d;
+    }
+    if (merged["modDate"] !== undefined) {
+      const d = fromPdfDate(merged["modDate"]);
+      if (d !== undefined) result.modDate = d;
+    }
     return result;
   }
 
