@@ -1,0 +1,9 @@
+Font: Noto Sans Regular
+Source URL: https://github.com/notofonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf
+License: SIL Open Font License, Version 1.1 (OFL-1.1)
+License URL: https://scripts.sil.org/OFL
+Copyright: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)
+
+Coverage: Full Latin + Greek + Cyrillic (includes U+00E9 é and broad Latin coverage)
+File size at fixture creation: 556 KB
+Note: Named .subset.ttf for milestone naming convention; this is the full unhinted TTF.
