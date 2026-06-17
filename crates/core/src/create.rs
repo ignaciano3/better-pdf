@@ -6,9 +6,25 @@ use serde::Deserialize;
 use std::collections::HashSet;
 
 use crate::draw::{
-    emit_ellipse, emit_image_op, emit_line, emit_rectangle, emit_text_block, extgstate_dict,
-    font_dict, standard_14_index, STANDARD_14,
+    emit_ellipse, emit_image_op, emit_line, emit_rectangle, emit_text_block, emit_text_block_cid,
+    extgstate_dict, font_dict, standard_14_index, STANDARD_14,
 };
+use crate::fonts::{build_embedded_font, BuiltFont, EmbeddedFontInput};
+use lopdf::ObjectId;
+
+fn default_true() -> bool {
+    true
+}
+
+/// One embedded font descriptor in the `fonts_json` payload. `offset`/`length`
+/// index into the concatenated `fonts` blob; `subset` controls glyph subsetting.
+#[derive(Deserialize)]
+struct FontDesc {
+    offset: usize,
+    length: usize,
+    #[serde(default = "default_true")]
+    subset: bool,
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
@@ -19,7 +35,10 @@ enum CreateOp {
         x: f32,
         y: f32,
         size: f32,
+        #[serde(default)]
         font: String,
+        #[serde(default, rename = "fontId")]
+        font_id: Option<usize>,
         color: [f32; 3],
         text: String,
         #[serde(rename = "lineHeight")]
@@ -239,9 +258,29 @@ fn radio_on_appearance(size: f32) -> Stream {
     button_xobject(size, content)
 }
 
-pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) -> Result<Vec<u8>, String> {
+pub fn create_document_json(
+    ops_json: &str,
+    images: &[u8],
+    fonts: &[u8],
+    fonts_json: &str,
+    fields_json: &str,
+) -> Result<Vec<u8>, String> {
     let ops: Vec<CreateOp> =
         serde_json::from_str(ops_json).map_err(|e| format!("invalid create ops: {e}"))?;
+
+    let font_descs: Vec<FontDesc> =
+        serde_json::from_str(fonts_json).map_err(|e| format!("invalid fonts: {e}"))?;
+
+    // Validate font descriptor byte ranges up front.
+    for fd in &font_descs {
+        let end = fd
+            .offset
+            .checked_add(fd.length)
+            .ok_or_else(|| "font range out of bounds".to_string())?;
+        if end > fonts.len() {
+            return Err("font range out of bounds".to_string());
+        }
+    }
 
     // Parse fields, treating "" as empty array
     let effective_fields_json = if fields_json.is_empty() { "[]" } else { fields_json };
@@ -261,11 +300,15 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
     // Validation pass: check all ops before building anything
     for op in &ops {
         match op {
-            CreateOp::Text { page, font, .. } => {
+            CreateOp::Text { page, font, font_id, .. } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
                 }
-                if standard_14_index(font).is_none() {
+                if let Some(i) = font_id {
+                    if *i >= font_descs.len() {
+                        return Err(format!("font id {i} out of range"));
+                    }
+                } else if standard_14_index(font).is_none() {
                     return Err(format!("unknown font: {font}"));
                 }
             }
@@ -566,6 +609,38 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
     let mut doc = Document::with_version("1.7");
     let pages_id = doc.new_object_id();
 
+    // PRE-PASS: build each embedded font once, before the page-building loop.
+    // Gather used_chars across ALL text ops referencing each embedded font id,
+    // then build the Type0 object graph once. Cache `(type0_id, BuiltFont)`
+    // keyed by font id. The shared type0_id is referenced from every page that
+    // has a text op for that font.
+    let mut embedded_fonts: std::collections::HashMap<usize, (ObjectId, BuiltFont)> =
+        std::collections::HashMap::new();
+    {
+        let mut used_per_font: std::collections::HashMap<usize, std::collections::BTreeSet<char>> =
+            std::collections::HashMap::new();
+        for op in &ops {
+            if let CreateOp::Text { font_id: Some(i), text, .. } = op {
+                used_per_font.entry(*i).or_default().extend(text.chars());
+            }
+        }
+        // Deterministic build order by font id.
+        let mut ids: Vec<usize> = used_per_font.keys().copied().collect();
+        ids.sort_unstable();
+        for id in ids {
+            let fd = &font_descs[id];
+            let bytes = &fonts[fd.offset..fd.offset + fd.length];
+            let input = EmbeddedFontInput {
+                data: bytes,
+                subset: fd.subset,
+                used_chars: used_per_font.remove(&id).unwrap_or_default(),
+            };
+            let mut add = |o: Object| doc.add_object(o);
+            let built = build_embedded_font(&mut add, &input)?;
+            embedded_fonts.insert(id, built);
+        }
+    }
+
     // Global image counter for unique XObject keys
     let mut img_counter: usize = 0;
 
@@ -589,27 +664,57 @@ pub fn create_document_json(ops_json: &str, images: &[u8], fields_json: &str) ->
                     y,
                     size,
                     font,
+                    font_id,
                     color,
                     text,
                     line_height,
                 } if *page == page_index => {
-                    let idx = standard_14_index(font).unwrap();
-                    // Register font resource if not already added
-                    let key = format!("BPF{idx}");
-                    if !font_res.has(key.as_bytes()) {
-                        let fid = doc.add_object(Object::Dictionary(font_dict(STANDARD_14[idx])));
-                        font_res.set(key.clone(), Object::Reference(fid));
+                    if let Some(id) = font_id {
+                        // Embedded font: emit a Type0/Identity-H hex glyph string.
+                        // gids come from BuiltFont.gid_for (the REMAPPED subset ids),
+                        // NOT from re-deriving via face.glyph_index.
+                        let (type0_id, built) = embedded_fonts.get(id).unwrap();
+                        let key = format!("BPE{id}");
+                        if !font_res.has(key.as_bytes()) {
+                            font_res.set(key.clone(), Object::Reference(*type0_id));
+                        }
+                        let gids_per_line: Vec<Vec<u16>> = text
+                            .split('\n')
+                            .map(|line| {
+                                line.chars()
+                                    .filter_map(|c| built.gid_for.get(&c).copied())
+                                    .collect()
+                            })
+                            .collect();
+                        emit_text_block_cid(
+                            &mut content,
+                            &key,
+                            *x,
+                            *y,
+                            *size,
+                            *color,
+                            &gids_per_line,
+                            *line_height,
+                        );
+                    } else {
+                        let idx = standard_14_index(font).unwrap();
+                        // Register font resource if not already added
+                        let key = format!("BPF{idx}");
+                        if !font_res.has(key.as_bytes()) {
+                            let fid = doc.add_object(Object::Dictionary(font_dict(STANDARD_14[idx])));
+                            font_res.set(key.clone(), Object::Reference(fid));
+                        }
+                        emit_text_block(
+                            &mut content,
+                            &key,
+                            *x,
+                            *y,
+                            *size,
+                            *color,
+                            text,
+                            *line_height,
+                        );
                     }
-                    emit_text_block(
-                        &mut content,
-                        &key,
-                        *x,
-                        *y,
-                        *size,
-                        *color,
-                        text,
-                        *line_height,
-                    );
                 }
                 CreateOp::Image {
                     page,
@@ -1342,7 +1447,7 @@ mod tests {
 
     #[test]
     fn creates_single_page_doc() {
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], "[]").unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         assert_eq!(doc.get_pages().len(), 1);
         let cat = doc.catalog().unwrap();
@@ -1351,7 +1456,7 @@ mod tests {
 
     #[test]
     fn page_has_mediabox() {
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], "[]").unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -1363,7 +1468,7 @@ mod tests {
 
     #[test]
     fn text_drawn_on_created_page() {
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#, &[], "[]").unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#, &[], &[], "[]", "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -1377,8 +1482,24 @@ mod tests {
     }
 
     #[test]
+    fn creates_doc_with_embedded_font() {
+        const FONT: &[u8] = include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+        let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"fontId":0,"color":[0,0,0],"text":"日本語"}]"#;
+        let out = create_document_json(ops, &[], FONT, &fonts_json, "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let res = page.get(b"Resources").unwrap().as_dict().unwrap();
+        let fonts = res.get(b"Font").unwrap().as_dict().unwrap();
+        let (_, fref) = fonts.iter().find(|(k, _)| k.starts_with(b"BPE")).expect("embedded font key");
+        let f = doc.get_object(fref.as_reference().unwrap()).unwrap().as_dict().unwrap();
+        assert_eq!(f.get(b"Subtype").unwrap().as_name().unwrap(), b"Type0");
+    }
+
+    #[test]
     fn multiple_pages_in_order() {
-        let out = create_document_json(r#"[{"op":"addPage","width":100,"height":200},{"op":"addPage","width":300,"height":400}]"#, &[], "[]").unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":100,"height":200},{"op":"addPage","width":300,"height":400}]"#, &[], &[], "[]", "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let pages: Vec<_> = doc.get_pages().into_iter().collect();
         assert_eq!(pages.len(), 2);
@@ -1389,25 +1510,25 @@ mod tests {
 
     #[test]
     fn errors_on_no_pages() {
-        let r = create_document_json(r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[], "[]");
+        let r = create_document_json(r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[], &[], "[]", "[]");
         assert!(r.is_err());
     }
 
     #[test]
     fn errors_on_text_page_out_of_range() {
-        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":1,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[], "[]");
+        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":1,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[], &[], "[]", "[]");
         assert!(r.unwrap_err().contains("page"));
     }
 
     #[test]
     fn errors_on_unknown_font() {
-        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#, &[], "[]");
+        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#, &[], &[], "[]", "[]");
         assert!(r.unwrap_err().contains("font"));
     }
 
     #[test]
     fn output_parses_and_is_nonempty() {
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], "[]").unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", "[]").unwrap();
         assert!(out.starts_with(b"%PDF-"));
         assert!(out.len() > 100);
     }
@@ -1419,7 +1540,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = create_document_json(&json, png, "[]").unwrap();
+        let out = create_document_json(&json, png, &[], "[]", "[]").unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -1440,7 +1561,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":1,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let r = create_document_json(&json, png, "[]");
+        let r = create_document_json(&json, png, &[], "[]", "[]");
         assert!(r.unwrap_err().contains("page"));
     }
 
@@ -1452,7 +1573,7 @@ mod tests {
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{}}}]"#,
             len + 1
         );
-        let r = create_document_json(&json, png, "[]");
+        let r = create_document_json(&json, png, &[], "[]", "[]");
         assert!(r.unwrap_err().contains("out of bounds"));
     }
 
@@ -1469,6 +1590,8 @@ mod tests {
         let out = create_document_json(
             r#"[{"op":"addPage","width":595,"height":842},{"op":"rectangle","page":0,"x":50,"y":100,"width":200,"height":80,"color":[0.9,0.9,0.9],"borderColor":[0,0,0],"borderWidth":1}]"#,
             &[],
+            &[],
+            "[]",
             "[]",
         )
         .unwrap();
@@ -1487,6 +1610,8 @@ mod tests {
         let out = create_document_json(
             r#"[{"op":"addPage","width":595,"height":842},{"op":"rectangle","page":0,"x":50,"y":100,"width":200,"height":80,"color":[0.9,0.9,0.9],"opacity":0.5}]"#,
             &[],
+            &[],
+            "[]",
             "[]",
         )
         .unwrap();
@@ -1519,6 +1644,8 @@ mod tests {
         let out = create_document_json(
             r#"[{"op":"addPage","width":595,"height":842},{"op":"line","page":0,"x1":50,"y1":100,"x2":250,"y2":100,"thickness":2,"color":[1,0,0]},{"op":"ellipse","page":0,"x":150,"y":400,"xScale":100,"yScale":40,"color":[0,0,1],"borderColor":[0,0,0],"borderWidth":1}]"#,
             &[],
+            &[],
+            "[]",
             "[]",
         )
         .unwrap();
@@ -1539,7 +1666,7 @@ mod tests {
     #[test]
     fn creates_text_field() {
         let fields = r#"[{"type":"text","name":"fullName","page":0,"x":56,"y":700,"width":200,"height":20,"value":"Ada"}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], fields).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", fields).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         assert!(doc.catalog().unwrap().has(b"AcroForm"));
         let json = crate::forms::read_fields_json(&out).unwrap();
@@ -1550,7 +1677,7 @@ mod tests {
     #[test]
     fn text_field_on_page_annots() {
         let fields = r#"[{"type":"text","name":"a","page":0,"x":10,"y":10,"width":100,"height":20}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], fields).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", fields).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Annots").unwrap().as_array().unwrap().len(), 1);
@@ -1559,19 +1686,19 @@ mod tests {
     #[test]
     fn rejects_duplicate_field_name() {
         let f = r#"[{"type":"text","name":"x","page":0,"x":0,"y":0,"width":10,"height":10},{"type":"text","name":"x","page":0,"x":0,"y":40,"width":10,"height":10}]"#;
-        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).is_err());
     }
 
     #[test]
     fn rejects_field_bad_page() {
         let f = r#"[{"type":"text","name":"x","page":5,"x":0,"y":0,"width":10,"height":10}]"#;
-        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).is_err());
     }
 
     #[test]
     fn creates_checkbox_checked() {
         let f = r#"[{"type":"checkBox","name":"agree","page":0,"x":56,"y":660,"size":14,"checked":true}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
         assert!(json.contains("agree") && json.contains("\"type\":\"checkbox\""));
         assert!(json.contains("Yes"));
@@ -1580,14 +1707,14 @@ mod tests {
     #[test]
     fn checkbox_custom_on_value() {
         let f = r#"[{"type":"checkBox","name":"c","page":0,"x":0,"y":0,"size":12,"onValue":"On"}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
         assert!(crate::forms::read_fields_json(&out).unwrap().contains("On"));
     }
 
     #[test]
     fn creates_radio_group() {
         let f = r#"[{"type":"radioGroup","name":"plan","selected":"pro","options":[{"value":"free","page":0,"x":56,"y":620,"size":14},{"value":"pro","page":0,"x":56,"y":600,"size":14}]}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
         assert!(json.contains("\"type\":\"radio\""));
         assert!(json.contains("free") && json.contains("pro"));
@@ -1600,19 +1727,19 @@ mod tests {
     #[test]
     fn radio_rejects_unknown_selected() {
         let f = r#"[{"type":"radioGroup","name":"p","selected":"nope","options":[{"value":"a","page":0,"x":0,"y":0,"size":12}]}]"#;
-        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).is_err());
     }
 
     #[test]
     fn radio_rejects_empty_options() {
         let f = r#"[{"type":"radioGroup","name":"p","options":[]}]"#;
-        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).is_err());
     }
 
     #[test]
     fn creates_dropdown() {
         let f = r#"[{"type":"choice","name":"country","page":0,"x":56,"y":560,"width":120,"height":20,"combo":true,"options":["AR","BR","CL"],"selected":"AR"}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
         assert!(json.contains("\"type\":\"dropdown\""), "json: {json}");
         assert!(json.contains("AR") && json.contains("BR") && json.contains("CL"), "json: {json}");
@@ -1621,20 +1748,20 @@ mod tests {
     #[test]
     fn creates_listbox() {
         let f = r#"[{"type":"choice","name":"langs","page":0,"x":56,"y":500,"width":120,"height":50,"combo":false,"options":["es","pt"]}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
         assert!(crate::forms::read_fields_json(&out).unwrap().contains("\"type\":\"listbox\""));
     }
 
     #[test]
     fn choice_rejects_unknown_selected() {
         let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":50,"height":20,"combo":true,"options":["a"],"selected":"z"}]"#;
-        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).is_err());
+        assert!(create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).is_err());
     }
 
     #[test]
     fn creates_signature_field() {
         let f = r#"[{"type":"signature","name":"sig","page":0,"x":300,"y":560,"width":160,"height":60}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
         assert!(json.contains("\"type\":\"signature\"") && json.contains("sig"), "json: {json}");
         let doc = Document::load_mem(&out).unwrap();
@@ -1662,7 +1789,7 @@ mod tests {
     #[test]
     fn field_border_and_background() {
         let f = r#"[{"type":"text","name":"t","page":0,"x":10,"y":10,"width":100,"height":20,"border":{"color":[1,0,0],"width":2},"background":[0.9,0.9,0.9]}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let w = get_first_field_dict(&doc);
         let mk = w.get(b"MK").unwrap().as_dict().unwrap();
@@ -1678,7 +1805,7 @@ mod tests {
     #[test]
     fn field_readonly_required_flags() {
         let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":50,"height":20,"readOnly":true,"required":true}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let w = get_first_field_dict(&doc);
         let ff = w.get(b"Ff").unwrap().as_i64().unwrap();
@@ -1689,7 +1816,7 @@ mod tests {
     #[test]
     fn field_tooltip() {
         let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":50,"height":20,"tooltip":"Your name"}]"#;
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], f).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let w = get_first_field_dict(&doc);
         assert!(w.has(b"TU"), "field dict missing TU (tooltip)");

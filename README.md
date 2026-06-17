@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.2.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is new in 0.2.0. The public API may still change before 1.0.
+> **Status:** 0.4.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, and custom TTF/OTF font embedding with Unicode/CJK support is new in 0.4.0. The public API may still change before 1.0.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -20,6 +20,7 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Save append-only incremental PDF updates.
 - Create new PDFs with `PdfDocument.create()` and standard page sizes.
 - Draw text, images, lines, rectangles, and ellipses on new and existing pages.
+- Embed custom TTF/OTF fonts with glyph subsetting for full Unicode text (CJK, accented Latin, any script) — selectable and searchable in PDF viewers.
 - Create fillable AcroForm fields (text, checkbox, radio, dropdown, listbox, signature) on generated documents with `doc.createForm()`.
 
 ## Install
@@ -95,7 +96,7 @@ await Bun.write("hello.pdf", output);
 ```
 
 > **Coordinate system:** origin is bottom-left, y increases upward — same as pdf-lib and raw PDF.
-> **Fonts:** standard-14 only (Helvetica, HelveticaBold, Courier, CourierBold, TimesRoman, TimesBold, TimesItalic, TimesBoldItalic, and more). Custom font embedding is not yet supported. Character set is WinAnsi — accented Latin characters work; CJK does not.
+> **Fonts:** standard-14 (Helvetica, HelveticaBold, Courier, CourierBold, TimesRoman, TimesBold, TimesItalic, TimesBoldItalic, and more) are the default; use `doc.embedFont(bytes)` for Unicode/CJK text (see [(f) Custom fonts](#f-custom-fonts)).
 
 ### (b) Stamp onto an existing PDF
 
@@ -151,7 +152,42 @@ const w = font.widthOfTextAtSize(label, 16);
 page.drawText(label, { x: pageWidth - w - 40, y: pageHeight - 60, size: 16, font });
 ```
 
-### (e) Creating form fields
+### (e) Custom fonts (Unicode / CJK)
+
+Embed any TTF or OTF font to draw Unicode text. The font is stored as a
+Type0/CIDFontType2 composite with a ToUnicode CMap, so text is selectable and
+searchable. Works on both created and loaded documents.
+
+```ts
+import { PdfDocument, PageSizes } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);
+
+const fontBytes = new Uint8Array(await Bun.file("NotoSansCJK-Regular.ttf").arrayBuffer());
+
+// subset: true (default) — strip unused glyphs; keeps file size small
+const font = await doc.embedFont(fontBytes, { subset: true });
+
+const text = "日本語テキスト — Héllo Wörld";
+const textWidth = font.widthOfTextAtSize(text, 18);
+
+page.drawText(text, {
+  x: (PageSizes.A4[0] - textWidth) / 2,
+  y: 700,
+  size: 18,
+  font,
+});
+
+const output = await doc.save();
+await Bun.write("unicode.pdf", output);
+```
+
+> **OpenType-CFF:** The subsetter supports TrueType (`glyf`) outlines. `.otf`
+> files with CFF outlines may fail to subset — pass `{ subset: false }` for
+> those. Characters with no glyph are silently skipped.
+
+### (f) Creating form fields
 
 On a document created with `PdfDocument.create()`, call `doc.createForm()` to get
 a chainable `FormBuilder` and declare AcroForm fields. There are six field types —
@@ -243,7 +279,8 @@ const output = await doc.save();
 - `doc.getPageCount(): number`
 - `doc.getPages(): PdfPage[]`
 - `doc.getPage(index: number): PdfPage` — throws `PageOutOfRangeError` if out of bounds
-- `doc.getFont(font: StandardFonts): PdfFont`
+- `doc.getFont(font: StandardFonts): PdfFont` — standard-14 fonts (sync)
+- `doc.embedFont(bytes: Uint8Array, options?: { subset?: boolean }): Promise<PdfFont>` — embed a TTF/OTF font; `subset` defaults to `true`
 - `doc.embedJpg(bytes: Uint8Array): Promise<PdfImage>`
 - `doc.embedPng(bytes: Uint8Array): Promise<PdfImage>`
 - `doc.getForm(): PdfForm`
@@ -468,8 +505,10 @@ count).
 - No cryptographic signing.
 - List boxes are single-select; multi-select list boxes are not yet supported.
 - Text fields are single-line; multi-line wrapping is not yet generated.
-- Drawing APIs use standard-14 fonts only; custom font embedding is not yet supported.
-  Character set is WinAnsi — accented Latin characters work; CJK does not.
+- Drawing APIs support standard-14 fonts and custom TTF/OTF font embedding via
+  `doc.embedFont(bytes)` (Type0/CIDFontType2, full Unicode including CJK).
+  OpenType-CFF subsetting may be unsupported — use `{ subset: false }` for CFF-outline `.otf` fonts.
+  Characters with no glyph in the font are silently skipped.
 - Appearance metrics cover the standard 14 text fonts (with Arial / Times New
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.

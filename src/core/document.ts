@@ -16,10 +16,23 @@ export interface CoreWasm {
   fillFields(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array;
   flattenFields(data: Uint8Array, namesJson: string): Uint8Array;
   readPages(data: Uint8Array): string;
-  applyDrawOps(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array;
-  createDocument(opsJson: string, images?: Uint8Array, fieldsJson?: string): Uint8Array;
+  applyDrawOps(
+    data: Uint8Array,
+    opsJson: string,
+    images: Uint8Array,
+    fonts?: Uint8Array,
+    fontsJson?: string,
+  ): Uint8Array;
+  createDocument(
+    opsJson: string,
+    images?: Uint8Array,
+    fonts?: Uint8Array,
+    fontsJson?: string,
+    fieldsJson?: string,
+  ): Uint8Array;
   imageInfo(data: Uint8Array): string;
   measureText(font: string, size: number, text: string): number;
+  measureTextEmbedded(font: Uint8Array, size: number, text: string): number;
 }
 
 export class PdfDocumentBase {
@@ -62,8 +75,14 @@ export class PdfDocumentBase {
   async save(): Promise<Uint8Array> {
     if (this.mode === "create") {
       try {
-        const { opsJson, images } = this.drawQueue.toCreatePayload();
-        return this.wasm.createDocument(opsJson, images, JSON.stringify(this.fieldDefs));
+        const { opsJson, images, fonts, fontsJson } = this.drawQueue.toCreatePayload();
+        return this.wasm.createDocument(
+          opsJson,
+          images,
+          fonts,
+          fontsJson,
+          JSON.stringify(this.fieldDefs),
+        );
       } catch (e) {
         throw toPdfError(e);
       }
@@ -80,8 +99,8 @@ export class PdfDocumentBase {
         bytes = this.wasm.flattenFields(bytes, JSON.stringify(form.flattenQueue));
       }
       if (this.drawQueue.length > 0) {
-        const { opsJson, images } = this.drawQueue.toDrawPayload();
-        bytes = this.wasm.applyDrawOps(bytes, opsJson, images);
+        const { opsJson, images, fonts, fontsJson } = this.drawQueue.toDrawPayload();
+        bytes = this.wasm.applyDrawOps(bytes, opsJson, images, fonts, fontsJson);
       }
     } catch (e) {
       throw toPdfError(e);
@@ -225,5 +244,17 @@ export class PdfDocumentBase {
   /** Get a standard-14 font handle for measuring or drawing text. */
   getFont(font: StandardFonts): PdfFont {
     return new PdfFont(font, (f, s, t) => this.wasm.measureText(f, s, t));
+  }
+
+  /**
+   * Embed a TrueType/OpenType font from raw bytes. Returns a {@link PdfFont}
+   * handle you can pass to `page.drawText({ font })` to render Unicode text.
+   *
+   * By default the font is subset to only the glyphs actually used. Pass
+   * `{ subset: false }` to embed the full font program.
+   */
+  async embedFont(bytes: Uint8Array, opts: { subset?: boolean } = {}): Promise<PdfFont> {
+    const id = this.drawQueue.registerFont(bytes, opts.subset ?? true);
+    return PdfFont.embedded(id, bytes, (b, s, t) => this.wasm.measureTextEmbedded(b, s, t));
   }
 }

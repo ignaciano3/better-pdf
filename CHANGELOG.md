@@ -8,6 +8,27 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-17
+
+### Added
+
+- `doc.embedFont(bytes, { subset? })` — embed any TTF or OTF font and get back a
+  `PdfFont` for use with `drawText`. Fonts are embedded as Type0/CIDFontType2
+  composite fonts with a ToUnicode CMap, enabling full Unicode text (including CJK
+  and accented Latin) that is selectable and searchable in PDF viewers.
+- `{ subset: boolean }` option (default `true`) — strips the embedded font to only
+  the glyphs actually used in the document, keeping output file sizes small.
+- `widthOfTextAtSize` works on embedded fonts, enabling layout calculations.
+- Both `PdfDocument.create()` and `PdfDocument.load()` paths support `embedFont`;
+  embedded fonts can be used on both created and existing pages.
+
+### Known caveats
+
+- The subsetter supports TrueType (`glyf`) outlines. OpenType-CFF (`.otf` files
+  whose outlines are CFF rather than `glyf`) may fail to subset — pass
+  `{ subset: false }` for those fonts.
+- Characters with no glyph in the embedded font are silently skipped.
+
 ## [0.3.0] - 2026-06-13
 
 ### Added
@@ -144,7 +165,8 @@ WebAssembly with a fully-typed TypeScript API.
 - Text fields are single-line; multi-line wrapping is not generated.
 - PNG alpha is dropped rather than preserved as a soft mask.
 
-[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ignaciano3/better-pdf/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ignaciano3/better-pdf/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ignaciano3/better-pdf/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/ignaciano3/better-pdf/compare/v0.1.1...v0.1.2

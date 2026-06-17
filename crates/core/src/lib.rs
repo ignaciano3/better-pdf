@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 
 mod appearance;
 pub mod create;
+mod fonts;
 mod draw;
 mod fill;
 mod flatten;
@@ -39,23 +40,44 @@ pub fn read_pages(data: &[u8]) -> Result<String, JsError> {
 /// return new bytes (incremental save). `images` is the concatenated image blob
 /// that Image ops index into via imageOffset / imageLength.
 #[wasm_bindgen]
-pub fn apply_draw_ops(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, JsError> {
-    draw::apply_draw_ops_json(data, ops_json, images).map_err(|e| JsError::new(&e))
+pub fn apply_draw_ops(
+    data: &[u8],
+    ops_json: &str,
+    images: &[u8],
+    fonts: &[u8],
+    fonts_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    draw::apply_draw_ops_json(data, ops_json, images, fonts, fonts_json).map_err(|e| JsError::new(&e))
 }
 
 /// Build a new PDF document from scratch using a JSON array of create ops
 /// (addPage, text, image, etc.) and return the PDF bytes. `images` is the
 /// concatenated image blob that Image ops index into via imageOffset / imageLength.
+/// `fonts` is the concatenated font blob that embedded-font text ops index into
+/// via `fonts_json` descriptors (pass `&[]` / "[]" for none).
 /// `fields_json` is a JSON array of field definitions (pass "[]" for none).
 #[wasm_bindgen]
-pub fn create_document(ops_json: &str, images: &[u8], fields_json: &str) -> Result<Vec<u8>, JsError> {
-    create::create_document_json(ops_json, images, fields_json).map_err(|e| JsError::new(&e))
+pub fn create_document(
+    ops_json: &str,
+    images: &[u8],
+    fonts: &[u8],
+    fonts_json: &str,
+    fields_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    create::create_document_json(ops_json, images, fonts, fonts_json, fields_json)
+        .map_err(|e| JsError::new(&e))
 }
 
 /// Width in points of `text` in standard-14 `font` at `size`.
 #[wasm_bindgen]
 pub fn measure_text(font: &str, size: f32, text: &str) -> Result<f32, JsError> {
     appearance::measure_text_width(font, size, text).map_err(|e| JsError::new(&e))
+}
+
+/// Width in points of `text` in an embedded font at `size`.
+#[wasm_bindgen]
+pub fn measure_text_embedded(font: &[u8], size: f32, text: &str) -> Result<f32, JsError> {
+    fonts::measure_embedded(font, size, text).map_err(|e| JsError::new(&e))
 }
 
 /// Return JSON `{"width":W,"height":H}` (intrinsic pixels) for a JPEG/PNG, or error.

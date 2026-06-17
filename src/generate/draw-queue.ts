@@ -11,6 +11,7 @@ export type TextOp = {
   color: [number, number, number];
   text: string;
   lineHeight?: number;
+  fontId?: number;
 };
 
 export type ImageOp = {
@@ -70,19 +71,37 @@ type ImageEntry = {
   op: Omit<ImageOp, "imageOffset" | "imageLength">;
 };
 
+type FontEntry = { bytes: Uint8Array; subset: boolean };
+
 /** @internal */
 export class DrawQueue {
   private readonly drawOps: Array<TextOp | ImageEntry | LineOp | RectangleOp | EllipseOp> = [];
   private readonly pageOps: AddPageOp[] = [];
+  private readonly fonts: FontEntry[] = [];
 
   get length(): number {
     return this.drawOps.length;
   }
 
+  /** Register an embedded font's bytes; returns its index for use as `fontId` on text ops. */
+  registerFont(bytes: Uint8Array, subset: boolean): number {
+    const id = this.fonts.length;
+    this.fonts.push({ bytes, subset });
+    return id;
+  }
+
   pushText(
     page: number,
     text: string,
-    opts: { x: number; y: number; size: number; font: string; color: Color; lineHeight?: number },
+    opts: {
+      x: number;
+      y: number;
+      size: number;
+      font: string;
+      color: Color;
+      lineHeight?: number;
+      fontId?: number;
+    },
   ): void {
     this.drawOps.push({
       op: "text",
@@ -94,6 +113,7 @@ export class DrawQueue {
       color: [opts.color.red, opts.color.green, opts.color.blue],
       text,
       ...(opts.lineHeight !== undefined ? { lineHeight: opts.lineHeight } : {}),
+      ...(opts.fontId !== undefined ? { fontId: opts.fontId } : {}),
     });
   }
 
@@ -148,13 +168,33 @@ export class DrawQueue {
     return { ops, images };
   }
 
-  toDrawPayload(): { opsJson: string; images: Uint8Array } {
-    const { ops, images } = this.buildDrawOps();
-    return { opsJson: JSON.stringify(ops), images };
+  private buildFonts(): { fonts: Uint8Array; fontsJson: string } {
+    const chunks: Uint8Array[] = [];
+    let offset = 0;
+    const table = this.fonts.map((f) => {
+      const entry = { offset, length: f.bytes.length, subset: f.subset };
+      chunks.push(f.bytes);
+      offset += f.bytes.length;
+      return entry;
+    });
+    const fonts = new Uint8Array(offset);
+    let pos = 0;
+    for (const c of chunks) {
+      fonts.set(c, pos);
+      pos += c.length;
+    }
+    return { fonts, fontsJson: JSON.stringify(table) };
   }
 
-  toCreatePayload(): { opsJson: string; images: Uint8Array } {
+  toDrawPayload(): { opsJson: string; images: Uint8Array; fonts: Uint8Array; fontsJson: string } {
     const { ops, images } = this.buildDrawOps();
-    return { opsJson: JSON.stringify([...this.pageOps, ...ops]), images };
+    const { fonts, fontsJson } = this.buildFonts();
+    return { opsJson: JSON.stringify(ops), images, fonts, fontsJson };
+  }
+
+  toCreatePayload(): { opsJson: string; images: Uint8Array; fonts: Uint8Array; fontsJson: string } {
+    const { ops, images } = this.buildDrawOps();
+    const { fonts, fontsJson } = this.buildFonts();
+    return { opsJson: JSON.stringify([...this.pageOps, ...ops]), images, fonts, fontsJson };
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, and generate TypeScript types from a PDF form for compile-time-safe filling. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images and vector graphics. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -62,12 +62,41 @@ await doc.save();
 
 Flattened fields are stamped onto the page and removed from the AcroForm (no longer editable).
 
+## Embedded fonts (Unicode / CJK)
+
+Embed any TTF or OTF font to render Unicode text. The embedded font is a Type0/CIDFontType2
+composite PDF font with a ToUnicode CMap — text is selectable and searchable.
+
+```ts
+import { PdfDocument, PageSizes } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);
+
+const fontBytes = new Uint8Array(await Bun.file("NotoSansCJK-Regular.ttf").arrayBuffer());
+// subset: true (default) — keeps only glyphs used in the document
+const font = await doc.embedFont(fontBytes, { subset: true });
+
+const text = "日本語テキスト — Héllo Wörld";
+const w = font.widthOfTextAtSize(text, 18);
+page.drawText(text, { x: (595 - w) / 2, y: 700, size: 18, font });
+
+await doc.save();
+```
+
+- `embedFont` works on both created and loaded documents.
+- `widthOfTextAtSize` works on embedded fonts.
+- Characters with no glyph in the font are silently skipped.
+- OpenType-CFF (`.otf` with CFF outlines) may fail to subset — use `{ subset: false }` for those.
+- Standard-14 fonts (Helvetica, etc.) remain the default when no `font` is passed to `drawText`.
+
 ## API reference
 
 | Call | Purpose |
 |------|---------|
 | `PdfDocument.load(bytes)` → `Promise<PdfDocument>` | Load an existing PDF |
 | `doc.save()` → `Promise<Uint8Array>` | Apply queued fills+flattens (incremental) |
+| `doc.embedFont(bytes, { subset? })` → `Promise<PdfFont>` | Embed TTF/OTF; returns a `PdfFont` for `drawText` |
 | `doc.getForm()` / `doc.getForm<typeof schema>()` | Untyped / type-narrowed form view |
 | `form.getFields()` / `form.getField(name)` | `FieldInfo[]` / one `FieldInfo` |
 | `form.getTextField(name).setText(v)` | Set text |
