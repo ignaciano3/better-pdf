@@ -55,6 +55,7 @@ identical; the differences are noted below.
 | `pdfDoc.embedJpg(bytes)` | `doc.embedJpg(bytes)` (async) |
 | `pdfDoc.embedPng(bytes)` | `doc.embedPng(bytes)` (async) |
 | `pdfDoc.embedFont(StandardFonts.Helvetica)` | `doc.getFont(StandardFonts.Helvetica)` (sync) |
+| `pdfDoc.embedFont(fontBytes, { subset: true })` | `await doc.embedFont(fontBytes, { subset: true })` (async; same `{ subset }` option) |
 | `font.widthOfTextAtSize(text, size)` | same |
 | `page.drawText(text, options)` | same |
 | `page.drawImage(img, options)` | same |
@@ -67,8 +68,13 @@ identical; the differences are noted below.
 
 ### Differences from pdf-lib
 
-- **Standard-14 fonts only.** `getFont()` accepts a `StandardFonts` enum value;
-  custom font embedding (`embedFont` with TTF/OTF bytes) is not yet supported.
+- **Custom font embedding has parity with pdf-lib.** `doc.embedFont(bytes, { subset? })`
+  accepts TTF/OTF bytes and the same `{ subset: boolean }` option as pdf-lib (default
+  `true`). The result is a `PdfFont` you pass to `drawText`. The embedded font is a
+  Unicode-capable Type0/CIDFontType2 composite with a ToUnicode CMap, so CJK, accented
+  Latin, and full Unicode text is selectable and searchable. `widthOfTextAtSize` works
+  for embedded fonts. `getFont()` (sync, no bytes) remains available for standard-14
+  fonts.
 - **Form creation uses a builder.** pdf-lib mutates `form` in place via
   `form.createTextField(...)`; better-pdf accumulates fields through a chainable
   `doc.createForm()` builder (see below). `getForm()` itself is not available on
