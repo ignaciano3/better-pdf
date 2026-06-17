@@ -89,11 +89,11 @@ test("pdfjs can extract embedded-font text content (render verification)", async
   const bytes = await doc.save();
 
   // Use pdfjs-dist legacy build (no DOM required) to parse and extract text
-  const pdfjsDoc = await pdfjs.getDocument({ data: bytes, disableWorker: true }).promise;
+  const pdfjsDoc = await pdfjs.getDocument({ data: bytes }).promise;
   expect(pdfjsDoc.numPages).toBe(1);
   const pdfjsPage = await pdfjsDoc.getPage(1);
   const content = await pdfjsPage.getTextContent();
-  const extracted = content.items.map((i: { str: string }) => i.str).join(" ");
+  const extracted = content.items.map((it) => ("str" in it ? it.str : "")).join(" ");
   // pdfjs should recover the Unicode string from the embedded Type0 font
   expect(extracted).toContain("Héllo Unicode");
 });
