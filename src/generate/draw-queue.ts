@@ -78,6 +78,7 @@ export class DrawQueue {
   private readonly drawOps: Array<TextOp | ImageEntry | LineOp | RectangleOp | EllipseOp> = [];
   private readonly pageOps: AddPageOp[] = [];
   private readonly fonts: FontEntry[] = [];
+  private metadataOp: Record<string, string> | undefined = undefined;
 
   get length(): number {
     return this.drawOps.length;
@@ -119,6 +120,10 @@ export class DrawQueue {
 
   pushAddPage(width: number, height: number): void {
     this.pageOps.push({ op: "addPage", width, height });
+  }
+
+  pushMetadata(meta: Record<string, string>): void {
+    this.metadataOp = meta;
   }
 
   pushImage(
@@ -195,6 +200,7 @@ export class DrawQueue {
   toCreatePayload(): { opsJson: string; images: Uint8Array; fonts: Uint8Array; fontsJson: string } {
     const { ops, images } = this.buildDrawOps();
     const { fonts, fontsJson } = this.buildFonts();
-    return { opsJson: JSON.stringify([...this.pageOps, ...ops]), images, fonts, fontsJson };
+    const metaOps = this.metadataOp ? [{ op: "metadata", ...this.metadataOp }] : [];
+    return { opsJson: JSON.stringify([...metaOps, ...this.pageOps, ...ops]), images, fonts, fontsJson };
   }
 }

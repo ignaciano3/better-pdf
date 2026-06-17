@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images and vector graphics. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images and vector graphics, read/write PDF document metadata (title/author/keywords/dates). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, reading or setting PDF metadata, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -96,6 +96,11 @@ await doc.save();
 |------|---------|
 | `PdfDocument.load(bytes)` → `Promise<PdfDocument>` | Load an existing PDF |
 | `doc.save()` → `Promise<Uint8Array>` | Apply queued fills+flattens (incremental) |
+| `doc.setTitle(s)` / `setAuthor(s)` / `setSubject(s)` | Set Info-dict string fields |
+| `doc.setKeywords(arr)` | Set /Keywords from a `string[]` |
+| `doc.setCreator(s)` / `setProducer(s)` | Set /Creator and /Producer |
+| `doc.setCreationDate(d)` / `setModificationDate(d)` | Set dates from JS `Date` |
+| `await doc.getMetadata()` → `DocumentMetadata` | Read the Info dictionary |
 | `doc.embedFont(bytes, { subset? })` → `Promise<PdfFont>` | Embed TTF/OTF; returns a `PdfFont` for `drawText` |
 | `doc.getForm()` / `doc.getForm<typeof schema>()` | Untyped / type-narrowed form view |
 | `form.getFields()` / `form.getField(name)` | `FieldInfo[]` / one `FieldInfo` |
@@ -109,6 +114,33 @@ await doc.save();
 | `generateFormTypes(fields, { typeName })` | Emit a typed `…Fields` module (string) |
 
 `FieldInfo = { name, type, value, states, options, readOnly, required, exported, maxLength, widgets }`, where `exported` is false only when the `NoExport` flag is set, `maxLength` is a text field's `/MaxLen` (or null), and `widgets: { page, rect: [x0,y0,x1,y1] }[]` gives each widget's 0-based page index and `/Rect` in PDF points (origin bottom-left). `setText` throws if longer than `maxLength`. `type` ∈ `text | checkbox | radio | dropdown | listbox | signature | pushbutton | unknown`.
+
+## Document metadata
+
+Read and write the PDF Info dictionary on both created and loaded documents.
+
+```ts
+// Write (created or loaded doc — works on both)
+doc.setTitle("Report");
+doc.setAuthor("Alice");
+doc.setSubject("Q2 financials");
+doc.setKeywords(["finance", "Q2"]);   // string[]
+doc.setCreator("Acme App");
+doc.setProducer("better-pdf");
+doc.setCreationDate(new Date("2026-01-01T00:00:00Z"));
+doc.setModificationDate(new Date());
+
+// Read back
+const meta = await doc.getMetadata();
+// meta: { title?, author?, subject?, keywords?: string[], creator?, producer?,
+//         creationDate?: Date, modDate?: Date }
+console.log(meta.title, meta.keywords, meta.creationDate);
+```
+
+- On a **loaded** PDF the setters emit an incremental update; Info-dict keys you do not touch are preserved.
+- Dates round-trip: `setCreationDate(d)` / `setModificationDate(d)` accept `Date`; `getMetadata()` returns `Date`.
+- Only the PDF Info dictionary is written — XMP metadata streams are not modified.
+- API: `doc.setTitle | setAuthor | setSubject | setKeywords | setCreator | setProducer | setCreationDate | setModificationDate` + `await doc.getMetadata()` → `DocumentMetadata`.
 
 ## Browser
 

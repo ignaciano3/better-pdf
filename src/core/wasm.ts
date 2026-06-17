@@ -13,6 +13,8 @@ import {
   measure_text_embedded,
   read_fields,
   read_pages,
+  read_metadata,
+  set_metadata,
 } from "../../pkg-web/better_pdf_core.js";
 
 initSync({
@@ -65,4 +67,12 @@ export function measureText(font: string, size: number, text: string): number {
 
 export function measureTextEmbedded(font: Uint8Array, size: number, text: string): number {
   return measure_text_embedded(font, size, text);
+}
+
+export function readMetadata(data: Uint8Array): string {
+  return read_metadata(data);
+}
+
+export function setMetadata(data: Uint8Array, metaJson: string): Uint8Array {
+  return set_metadata(data, metaJson);
 }

@@ -157,3 +157,58 @@ page.drawText("Ünïcödé", { x: 100, y: 400, size: 14, font });
 - **Missing glyphs:** Characters with no glyph in the font are silently skipped.
 - **Standard-14 default:** If you omit `font` from `drawText`, Helvetica is used
   as the default (WinAnsi, standard-14 behavior unchanged).
+
+## Document metadata
+
+Read and write the PDF Info dictionary — title, author, subject, keywords, creator,
+producer, and dates — on both created and loaded documents.
+
+```ts
+import { PdfDocument, PageSizes, StandardFonts } from "@ignaciano3/better-pdf";
+
+// Created document
+const doc = await PdfDocument.create();
+doc.addPage(PageSizes.A4);
+
+doc.setTitle("Q2 Report");
+doc.setAuthor("Ignacio Garcia P");
+doc.setSubject("Quarterly financials");
+doc.setKeywords(["finance", "Q2", "2026"]);
+doc.setCreator("Acme Report Generator");
+doc.setProducer("better-pdf");
+doc.setCreationDate(new Date("2026-06-01T00:00:00Z"));
+doc.setModificationDate(new Date());
+
+const output = await doc.save();
+
+// Read back on a loaded document
+const loaded = await PdfDocument.load(output);
+const meta = await loaded.getMetadata();
+
+console.log(meta.title);        // "Q2 Report"
+console.log(meta.author);       // "Ignacio Garcia P"
+console.log(meta.keywords);     // ["finance", "Q2", "2026"]
+console.log(meta.creationDate); // Date object
+```
+
+### API
+
+| Method | Type | Description |
+|--------|------|-------------|
+| `doc.setTitle(s)` | `string` | Set /Title |
+| `doc.setAuthor(s)` | `string` | Set /Author |
+| `doc.setSubject(s)` | `string` | Set /Subject |
+| `doc.setKeywords(arr)` | `string[]` | Set /Keywords (joined with `, ` in the PDF) |
+| `doc.setCreator(s)` | `string` | Set /Creator |
+| `doc.setProducer(s)` | `string` | Set /Producer |
+| `doc.setCreationDate(d)` | `Date` | Set /CreationDate (PDF date syntax) |
+| `doc.setModificationDate(d)` | `Date` | Set /ModDate (PDF date syntax) |
+| `await doc.getMetadata()` | `Promise<DocumentMetadata>` | Read the Info dictionary |
+
+`DocumentMetadata` fields are all optional (`string | undefined`, `string[] | undefined`, `Date | undefined`).
+On a loaded PDF, keys not set by your code are preserved as-is in the incremental update.
+
+:::note[XMP metadata]
+Only the PDF Info dictionary is written. XMP metadata streams embedded in the
+document are not modified or generated.
+:::
