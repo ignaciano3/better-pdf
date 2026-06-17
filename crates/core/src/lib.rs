@@ -9,6 +9,7 @@ mod flatten;
 mod font_metrics;
 mod forms;
 mod metadata;
+mod pageops;
 mod pages;
 
 /// Read the AcroForm fields of a PDF, returned as a JSON array string.
@@ -69,6 +70,19 @@ pub fn create_document(
         .map_err(|e| JsError::new(&e))
 }
 
+/// Assemble a new PDF from an ordered page selection across source PDFs.
+/// `docs_blob` is the concatenated bytes of every source PDF; `docs_json` is a
+/// JSON array of `{offset,length}` slicing it into documents; `plan_json` is a
+/// JSON array of `{doc,page}` (0-based) giving the ordered output pages.
+#[wasm_bindgen]
+pub fn manipulate_pages(
+    docs_blob: &[u8],
+    docs_json: &str,
+    plan_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    pageops::manipulate_pages_json(docs_blob, docs_json, plan_json).map_err(|e| JsError::new(&e))
+}
+
 /// Width in points of `text` in standard-14 `font` at `size`.
 #[wasm_bindgen]
 pub fn measure_text(font: &str, size: f32, text: &str) -> Result<f32, JsError> {
@@ -113,4 +127,5 @@ pub mod fuzz_api {
     pub use crate::fill::fill_fields_json;
     pub use crate::forms::read_fields_json;
     pub use crate::metadata::{read_metadata_json, set_metadata_json};
+    pub use crate::pageops::manipulate_pages_json;
 }

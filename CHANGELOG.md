@@ -8,6 +8,35 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-17
+
+### Added
+
+- Page operations: merge multiple PDFs, extract/copy/reorder pages, and split
+  into single-page PDFs — `PdfDocument.merge` / `PdfDocument.assemble`,
+  `doc.copyPages` / `doc.splitPages`.
+- `PdfDocument.merge(docs: Uint8Array[]): Promise<Uint8Array>` — combine an
+  array of PDFs into one document (all pages, in order).
+- `PdfDocument.assemble(docs, selections): Promise<Uint8Array>` — build a new
+  PDF from an explicit ordered selection of `{docIndex, pageIndex}` entries
+  across multiple source documents; supports reorder, cross-doc copy, and
+  page removal by omission.
+- `doc.copyPages(indices: number[]): Promise<Uint8Array>` — extract the given
+  pages (0-based) from a loaded document into a new PDF.
+- `doc.splitPages(): Promise<Uint8Array[]>` — split a loaded document into one
+  single-page PDF per page.
+- Inherited page attributes (MediaBox, Resources, Rotate, CropBox) are resolved
+  so extracted pages stand alone.
+
+### Notes
+
+- Form fields on assembled or merged pages keep their **visual appearance** (the
+  field appearance stream is baked onto the page) but are **not interactive** —
+  no AcroForm dictionary is reconstructed in the output. Flatten fields before
+  merging to produce a flat, printable result.
+- In-place page rotation/resize and blank-page insertion are not yet available
+  (rotation/resize is planned for M29).
+
 ## [0.5.0] - 2026-06-17
 
 ### Added
@@ -182,7 +211,8 @@ WebAssembly with a fully-typed TypeScript API.
 - Text fields are single-line; multi-line wrapping is not generated.
 - PNG alpha is dropped rather than preserved as a soft mask.
 
-[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ignaciano3/better-pdf/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ignaciano3/better-pdf/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ignaciano3/better-pdf/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ignaciano3/better-pdf/compare/v0.2.0...v0.3.0

@@ -36,6 +36,7 @@ export interface CoreWasm {
   measureTextEmbedded(font: Uint8Array, size: number, text: string): number;
   readMetadata(data: Uint8Array): string;
   setMetadata(data: Uint8Array, metaJson: string): Uint8Array;
+  manipulatePages(docsBlob: Uint8Array, docsJson: string, planJson: string): Uint8Array;
 }
 
 export class PdfDocumentBase {
@@ -355,5 +356,81 @@ export class PdfDocumentBase {
   async embedFont(bytes: Uint8Array, opts: { subset?: boolean } = {}): Promise<PdfFont> {
     const id = this.drawQueue.registerFont(bytes, opts.subset ?? true);
     return PdfFont.embedded(id, bytes, (b, s, t) => this.wasm.measureTextEmbedded(b, s, t));
+  }
+
+  /**
+   * Extract a subset of pages into a new PDF document.
+   *
+   * Only available on documents opened with {@link PdfDocument.load}.
+   *
+   * @param indices - Zero-based page indices to include, in the order given.
+   * @returns A new PDF containing only the selected pages.
+   * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
+   */
+  async copyPages(indices: number[]): Promise<Uint8Array> {
+    if (this.mode !== "load") {
+      throw new PdfError("copyPages is only available on documents opened with PdfDocument.load()");
+    }
+    const selections = indices.map((i) => ({ docIndex: 0, pageIndex: i }));
+    return PdfDocumentBase.runAssemble([this.bytes], selections, this.wasm);
+  }
+
+  /**
+   * Split the document into individual single-page PDFs.
+   *
+   * Only available on documents opened with {@link PdfDocument.load}.
+   *
+   * @returns An array of PDF byte arrays, one per page, in document order.
+   * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
+   */
+  async splitPages(): Promise<Uint8Array[]> {
+    if (this.mode !== "load") {
+      throw new PdfError(
+        "splitPages is only available on documents opened with PdfDocument.load()",
+      );
+    }
+    const count = this.getPageCount();
+    const results: Uint8Array[] = [];
+    for (let i = 0; i < count; i++) {
+      results.push(
+        await PdfDocumentBase.runAssemble(
+          [this.bytes],
+          [{ docIndex: 0, pageIndex: i }],
+          this.wasm,
+        ),
+      );
+    }
+    return results;
+  }
+
+  /**
+   * @internal
+   * Concatenate docs into a blob+table, call wasm.manipulatePages, return result.
+   */
+  protected static runAssemble(
+    docs: Uint8Array[],
+    selections: { docIndex: number; pageIndex: number }[],
+    wasmBinding: CoreWasm,
+  ): Uint8Array {
+    // Build a single concatenated blob and an offset/length table
+    let totalLength = 0;
+    const table: { offset: number; length: number }[] = [];
+    for (const doc of docs) {
+      table.push({ offset: totalLength, length: doc.length });
+      totalLength += doc.length;
+    }
+    const blob = new Uint8Array(totalLength);
+    for (let i = 0; i < docs.length; i++) {
+      blob.set(docs[i]!, table[i]!.offset);
+    }
+    const docsJson = JSON.stringify(table);
+    const planJson = JSON.stringify(
+      selections.map((s) => ({ doc: s.docIndex, page: s.pageIndex })),
+    );
+    try {
+      return wasmBinding.manipulatePages(blob, docsJson, planJson);
+    } catch (e) {
+      throw toPdfError(e);
+    }
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images and vector graphics, read/write PDF document metadata (title/author/keywords/dates). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, reading or setting PDF metadata, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images and vector graphics, read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -95,6 +95,10 @@ await doc.save();
 | Call | Purpose |
 |------|---------|
 | `PdfDocument.load(bytes)` → `Promise<PdfDocument>` | Load an existing PDF |
+| `PdfDocument.merge(docs)` → `Promise<Uint8Array>` | Merge multiple PDFs into one (all pages, in order) |
+| `PdfDocument.assemble(docs, selections)` → `Promise<Uint8Array>` | Build a new PDF from an explicit ordered page selection across sources |
+| `doc.copyPages(indices)` → `Promise<Uint8Array>` | Extract the given pages into a new PDF (load mode only) |
+| `doc.splitPages()` → `Promise<Uint8Array[]>` | One single-page PDF per page (load mode only) |
 | `doc.save()` → `Promise<Uint8Array>` | Apply queued fills+flattens (incremental) |
 | `doc.setTitle(s)` / `setAuthor(s)` / `setSubject(s)` | Set Info-dict string fields |
 | `doc.setKeywords(arr)` | Set /Keywords from a `string[]` |
@@ -114,6 +118,40 @@ await doc.save();
 | `generateFormTypes(fields, { typeName })` | Emit a typed `…Fields` module (string) |
 
 `FieldInfo = { name, type, value, states, options, readOnly, required, exported, maxLength, widgets }`, where `exported` is false only when the `NoExport` flag is set, `maxLength` is a text field's `/MaxLen` (or null), and `widgets: { page, rect: [x0,y0,x1,y1] }[]` gives each widget's 0-based page index and `/Rect` in PDF points (origin bottom-left). `setText` throws if longer than `maxLength`. `type` ∈ `text | checkbox | radio | dropdown | listbox | signature | pushbutton | unknown`.
+
+## Page operations (merge, extract, split, assemble)
+
+Combine, rearrange, or split PDFs. All methods return a new `Uint8Array`; source
+documents are not mutated.
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+// Merge — combine all pages from multiple PDFs in order
+const merged = await PdfDocument.merge([bytesA, bytesB, bytesC]);
+
+// Extract / copy pages — load mode only
+const doc = await PdfDocument.load(bytes);
+const extracted = await doc.copyPages([0, 2, 4]);   // 0-based page indices
+
+// Split — one single-page PDF per page
+const pages = await doc.splitPages();   // Promise<Uint8Array[]>
+
+// Assemble — full cross-doc reorder/selection control
+const result = await PdfDocument.assemble(
+  [cover, body, annex],
+  [
+    { docIndex: 0, pageIndex: 0 },
+    { docIndex: 1, pageIndex: 2 },
+    { docIndex: 2, pageIndex: 0 },
+  ],
+);
+```
+
+**Rules:**
+- `copyPages` and `splitPages` require a loaded document (`PdfDocument.load`); they throw on created docs.
+- Form fields on merged/assembled pages keep their **visual appearance** but are **not interactive** — the AcroForm is not reconstructed. Flatten before merging if needed.
+- In-place page rotation/resize and blank-page insertion are not yet available.
 
 ## Document metadata
 

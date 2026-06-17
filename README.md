@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.5.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, and document metadata (Info dictionary) read/write is new in 0.5.0. The public API may still change before 1.0.
+> **Status:** 0.6.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, and page operations (merge, copy, reorder, split) in 0.6.0. The public API may still change before 1.0.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -23,6 +23,10 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Embed custom TTF/OTF fonts with glyph subsetting for full Unicode text (CJK, accented Latin, any script) — selectable and searchable in PDF viewers.
 - Create fillable AcroForm fields (text, checkbox, radio, dropdown, listbox, signature) on generated documents with `doc.createForm()`.
 - Read and write document metadata (Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate) via `doc.setTitle()` / `doc.getMetadata()` on both created and loaded documents; dates round-trip to JS `Date`.
+- Merge multiple PDFs into one with `PdfDocument.merge([a, b, c])`.
+- Extract or reorder pages from a loaded document with `doc.copyPages([0, 2, 4])`.
+- Split a loaded document into single-page PDFs with `doc.splitPages()`.
+- Assemble a new PDF from an explicit cross-document page selection with `PdfDocument.assemble(docs, selections)`.
 
 ## Install
 
@@ -254,7 +258,41 @@ Every field supports `required`, `readOnly`, `tooltip`, and the optional
 `border` (`{ color, width? }`) / `background` (a `Color`) appearance — colors come
 from `rgb(r, g, b)` and `grayscale(v)` (0–1).
 
-### (g) Document metadata
+### (g) Page operations (merge, extract, split, assemble)
+
+All four methods return a new `Uint8Array` — no source document is mutated.
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+// Merge: combine all pages from multiple PDFs in order
+const merged = await PdfDocument.merge([bytesA, bytesB, bytesC]);
+
+// Extract / reorder pages (load mode only — open the doc first)
+const doc = await PdfDocument.load(bytes);
+const extracted = await doc.copyPages([2, 0, 1]);   // reorder: page 2 first
+
+// Split into one PDF per page
+const singlePages = await doc.splitPages();         // Promise<Uint8Array[]>
+
+// Assemble from multiple sources with full page control
+const result = await PdfDocument.assemble(
+  [cover, body, annex],
+  [
+    { docIndex: 0, pageIndex: 0 },   // cover page 0
+    { docIndex: 1, pageIndex: 0 },   // body page 0
+    { docIndex: 1, pageIndex: 1 },   // body page 1
+    { docIndex: 2, pageIndex: 0 },   // annex page 0
+  ],
+);
+await Bun.write("assembled.pdf", result);
+```
+
+> **Form fields on merged/assembled pages** keep their visual appearance but are
+> **not interactive** — no AcroForm is reconstructed. Flatten fields before
+> merging if you need interactive form output.
+
+### (h) Document metadata
 
 Set and read the PDF Info dictionary on any document — created or loaded.
 
@@ -305,6 +343,10 @@ const output = await doc.save();
 
 - `PdfDocument.load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument>` — open an existing PDF
 - `PdfDocument.create(): Promise<PdfDocument>` — create a new empty document
+- `PdfDocument.merge(docs: Uint8Array[]): Promise<Uint8Array>` — combine multiple PDFs into one (all pages, in order)
+- `PdfDocument.assemble(docs: Uint8Array[], selections: {docIndex: number, pageIndex: number}[]): Promise<Uint8Array>` — build a new PDF from an explicit ordered page selection across sources
+- `doc.copyPages(indices: number[]): Promise<Uint8Array>` — extract the given pages into a new PDF (load mode only)
+- `doc.splitPages(): Promise<Uint8Array[]>` — one single-page PDF per page (load mode only)
 - `doc.addPage(size: [number, number]): PdfPage` — add a page; `PageSizes.A4` etc. are `[width, height]` tuples
 - `doc.getPageCount(): number`
 - `doc.getPages(): PdfPage[]`
@@ -554,6 +596,9 @@ count).
 - Color: RGB and grayscale only; CMYK is not supported.
 - Document metadata (Info dictionary) is supported (`doc.setTitle()` / `doc.getMetadata()`).
   XMP metadata streams are not written or modified.
+- Page operations (merge, copy/reorder, split, assemble) are supported. Form fields on
+  assembled/merged pages keep their visual appearance but are not interactive — no AcroForm
+  is reconstructed. In-place page rotation/resize and blank-page insertion are not yet available.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
   plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged
