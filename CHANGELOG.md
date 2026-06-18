@@ -8,6 +8,14 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-18
+
+### Added
+
+- PNG transparency: the alpha channel of RGBA and gray+alpha PNGs is preserved
+  as a soft mask (`/SMask`) on embedded images. `embedPng` + `drawImage` just
+  work — no API change. Opaque RGB/grayscale PNGs are unaffected.
+
 ## [0.7.0] - 2026-06-18
 
 ### Added
