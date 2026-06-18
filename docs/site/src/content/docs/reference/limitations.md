@@ -38,6 +38,16 @@ description: What better-pdf does not (yet) support.
     `page.setSize(width, height)`, and `page.setMediaBox(x0, y0, x1, y1)` on both
     loaded and created pages (added in 0.7.0).
   - **Not yet available:** Blank-page insertion.
+- **Link annotations** — `page.drawLink({ x, y, width, height, url })` (external
+  URI) and `page.drawLink({ x, y, width, height, goToPage })` (internal
+  page-index jump) are **supported** on both loaded and created PDFs (added in
+  0.10.0).
+  - **Border styling is minimal** — the annotation border is suppressed by
+    default, producing an invisible clickable region. Custom border colors and
+    widths are not exposed.
+  - **Named destinations are not exposed** — internal links jump by 0-based page
+    index only; PDF named destinations and `GoToR` cross-document jumps are not
+    supported.
 - **Embedding pages from other PDFs** — `doc.embedPdfPage(src, pageIndex)` +
   `page.drawPage(embedded, {x, y, width?, height?})` — is **supported** (added
   in 0.9.0). Works on both loaded and created documents.

@@ -239,6 +239,33 @@ await Bun.write("output.pdf", await doc.save());
   the behavior — `embedPdfPage` and `drawPage` work on both `PdfDocument.load`
   and `PdfDocument.create` documents.
 
+## Link annotations
+
+pdf-lib exposes link annotations through its low-level annotation API —
+`PDFDocument.context.register(...)` / `PDFDocument.catalog.lookup(...)` /
+manually constructing a `PDFDict` with `/Type /Annot`, `/Subtype /Link`, an
+`/A` action dictionary, and a `/Rect` array, then appending the object
+reference to each page's `/Annots` array.
+
+better-pdf provides a higher-level convenience method:
+
+| pdf-lib | better-pdf |
+| --- | --- |
+| Manual annotation API (context/register/lookup/annotDict) | `page.drawLink({ x, y, width, height, url })` — external URI |
+| Manual annotation API | `page.drawLink({ x, y, width, height, goToPage })` — internal page jump (0-based index) |
+
+```ts
+// External URI link
+page.drawLink({ x: 50, y: 746, width: 140, height: 18, url: "https://example.com" });
+
+// Internal jump to page 2 (0-based)
+page.drawLink({ x: 50, y: 700, width: 200, height: 18, goToPage: 2 });
+```
+
+Both work on loaded and created documents. The annotation border is suppressed
+by default (invisible clickable region). Named destinations are not supported —
+internal links use page-index jumps only.
+
 ## Typed forms (no pdf-lib equivalent)
 
 Generate a schema module once, then field names, types, and option values are

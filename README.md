@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.9.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, page rotation/resize in 0.7.0, PNG transparency (RGBA/gray+alpha alpha channel preserved as a soft mask) in 0.8.0, and PDF page embedding (`embedPdfPage` + `drawPage` Form XObject stamping) in 0.9.0. The public API may still change before 1.0.
+> **Status:** 0.10.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, page rotation/resize in 0.7.0, PNG transparency (RGBA/gray+alpha alpha channel preserved as a soft mask) in 0.8.0, PDF page embedding (`embedPdfPage` + `drawPage` Form XObject stamping) in 0.9.0, and clickable link annotations (`page.drawLink`) in 0.10.0. The public API may still change before 1.0.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -30,6 +30,7 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Rotate individual pages with `page.setRotation(degrees)` and resize them with `page.setSize(width, height)` or `page.setMediaBox(x0, y0, x1, y1)` — on both loaded and created pages.
 - Embed transparent PNG images: the alpha channel of RGBA and gray+alpha PNGs is preserved as a PDF soft mask (`/SMask`). `embedPng` just works — no API change.
 - Embed pages from other PDFs as Form XObjects with `doc.embedPdfPage(src, pageIndex)` + `page.drawPage(embedded, {x, y, width?, height?})` — watermarks, letterhead, N-up layouts, overlays. Works on loaded and created documents.
+- Add clickable link annotations with `page.drawLink({ x, y, width, height, url })` (external URI) or `page.drawLink({ x, y, width, height, goToPage })` (internal page-index jump) on loaded and created documents.
 
 ## Install
 
@@ -295,7 +296,29 @@ await Bun.write("assembled.pdf", result);
 > **not interactive** — no AcroForm is reconstructed. Flatten fields before
 > merging if you need interactive form output.
 
-### (h) Rotate & resize pages
+### (h) Link annotations
+
+Add clickable link annotations to any page — external URIs or internal page jumps.
+Works on both loaded and created documents. No visible border is drawn by default.
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.load(bytes);
+const page = doc.getPage(0);
+
+// External URI link — clickable region at (50, 746), 140 × 18 pt
+page.drawLink({ x: 50, y: 746, width: 140, height: 18, url: "https://example.com" });
+
+// Internal page jump — table-of-contents entry pointing to page 2 (0-based)
+page.drawLink({ x: 50, y: 700, width: 200, height: 18, goToPage: 2 });
+
+const output = await doc.save();
+```
+
+> Exactly one of `url` or `goToPage` must be provided; passing both or neither throws. `goToPage` is 0-based (matches `doc.getPage(i)`). Named destinations and cross-document jumps are not supported.
+
+### (j) Rotate & resize pages
 
 ```ts
 import { PdfDocument } from "@ignaciano3/better-pdf";
@@ -322,7 +345,7 @@ const output2 = await doc2.save();
 `setSize(width, height)` is sugar for `setMediaBox(0, 0, width, height)`.
 All three methods work on both `doc.getPage(i)` (loaded) and `doc.addPage(...)` (created).
 
-### (i) Document metadata
+### (k) Document metadata
 
 Set and read the PDF Info dictionary on any document — created or loaded.
 
@@ -411,6 +434,10 @@ soon as they are made.
 - `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
 - `page.drawRectangle(options)` — `options`: `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`
 - `page.drawEllipse(options)` — `options`: `{ x, y, xScale, yScale, color?, borderColor?, borderWidth?, opacity? }` (`x`,`y` = center; `xScale`,`yScale` = radii)
+- `page.drawLink(options): void` — add a clickable link annotation; `options` is one of:
+  - `{ x, y, width, height, url: string }` — external URI
+  - `{ x, y, width, height, goToPage: number }` — internal page jump (0-based); navigates to the top of the target page
+  - Border is suppressed by default (invisible clickable region). Exactly one of `url`/`goToPage` must be supplied.
 - `page.setRotation(degrees: number): void` — rotate the page; must be a multiple of 90; normalised to 0/90/180/270
 - `page.setSize(width: number, height: number): void` — resize the page (sugar for `setMediaBox(0, 0, width, height)`)
 - `page.setMediaBox(x0: number, y0: number, x1: number, y1: number): void` — set the PDF `/MediaBox` directly
