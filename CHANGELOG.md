@@ -8,6 +8,12 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-18
+
+### Added
+
+- Embed PDF pages: `doc.embedPdfPage(src, pageIndex)` + `page.drawPage(embedded, {x, y, width?, height?})` stamp a page from another PDF as a Form XObject, on loaded and created PDFs. `width`/`height` default to the source page's intrinsic MediaBox size. Interactive form fields and annotations on the embedded page are flattened to static visual appearance only.
+
 ## [0.8.0] - 2026-06-18
 
 ### Added

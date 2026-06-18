@@ -197,6 +197,48 @@ const reordered = await doc.copyPages([2, 0, 1]);   // page 2 first, then 0, the
   **not interactive** — no AcroForm is reconstructed. Flatten fields before
   merging if you need a flat result.
 
+## Embedding pages from other PDFs
+
+pdf-lib lets you import pages with `embedPdf` / `embedPage` and stamp them with
+`page.drawPage`. better-pdf has the same workflow under the same method names.
+
+### API mapping
+
+| pdf-lib | better-pdf |
+| --- | --- |
+| `await pdfDoc.embedPdf(srcBytes)` → `EmbeddedPdfPage[]` | `await doc.embedPdfPage(srcBytes, pageIndex)` → `EmbeddedPdfPage` (one page per call) |
+| `page.drawPage(embedded, { x, y, width, height })` | `page.drawPage(embedded, { x, y, width?, height? })` — same; `width`/`height` default to intrinsic source size |
+
+### Example — watermark overlay
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const docBytes        = new Uint8Array(await Bun.file("report.pdf").arrayBuffer());
+const watermarkBytes  = new Uint8Array(await Bun.file("watermark.pdf").arrayBuffer());
+
+const doc = await PdfDocument.load(docBytes);
+const stamp = await doc.embedPdfPage(watermarkBytes, 0);
+
+for (let i = 0; i < doc.getPageCount(); i++) {
+  doc.getPage(i).drawPage(stamp, { x: 0, y: 0 });
+}
+
+await Bun.write("output.pdf", await doc.save());
+```
+
+### Differences from pdf-lib
+
+- **One page per call.** pdf-lib's `embedPdf(bytes)` returns all pages at once
+  as an array; better-pdf's `embedPdfPage(bytes, pageIndex)` imports a single
+  page. Call it once per page you need.
+- **Interactive content flattened.** AcroForm fields, annotations, and links on
+  the embedded page are **not carried over** — only static visual appearance.
+  Flatten fields in the source PDF before embedding if needed.
+- **Works on created documents.** pdf-lib also supports this; better-pdf matches
+  the behavior — `embedPdfPage` and `drawPage` work on both `PdfDocument.load`
+  and `PdfDocument.create` documents.
+
 ## Typed forms (no pdf-lib equivalent)
 
 Generate a schema module once, then field names, types, and option values are

@@ -38,6 +38,14 @@ description: What better-pdf does not (yet) support.
     `page.setSize(width, height)`, and `page.setMediaBox(x0, y0, x1, y1)` on both
     loaded and created pages (added in 0.7.0).
   - **Not yet available:** Blank-page insertion.
+- **Embedding pages from other PDFs** — `doc.embedPdfPage(src, pageIndex)` +
+  `page.drawPage(embedded, {x, y, width?, height?})` — is **supported** (added
+  in 0.9.0). Works on both loaded and created documents.
+  - **Caveat — interactive content flattened:** Only the page's visual content
+    and resources are copied into the Form XObject. AcroForm fields,
+    annotations, and hyperlinks on the embedded page are **not carried over** —
+    they appear as their static visual appearance only. Flatten fields in the
+    source PDF before embedding if their visual state must be exact.
 - **PNG images:** RGBA and gray+alpha PNGs are **supported** — the alpha channel
   is preserved as a soft mask (`/SMask`) on the embedded image XObject (added in
   0.8.0). Opaque RGB / grayscale PNGs are also supported.
