@@ -103,6 +103,14 @@ enum DrawOp {
     },
     #[serde(rename = "setRotation")]
     SetRotation { page: usize, degrees: i64 },
+    #[serde(rename = "link")]
+    Link {
+        page: usize,
+        rect: [f32; 4],
+        uri: Option<String>,
+        #[serde(rename = "goToPage")]
+        go_to_page: Option<usize>,
+    },
     #[serde(rename = "setMediaBox")]
     SetMediaBox {
         page: usize,
@@ -149,6 +157,55 @@ pub(crate) fn font_dict(base_font: &str) -> lopdf::Dictionary {
         "BaseFont" => Object::Name(base_font.as_bytes().to_vec()),
         "Encoding" => Object::Name(b"WinAnsiEncoding".to_vec()),
     }
+}
+
+/// Build a `/Annot /Subtype /Link` dictionary. Exactly one of `uri` /
+/// `dest_page` should be Some (validated by the caller). `/Border [0 0 0]`
+/// suppresses the visible link box. For an internal jump, `/Dest` is
+/// `[Reference(dest_page) /XYZ null null null]` (keep current zoom/position).
+pub(crate) fn link_annot_dict(
+    rect: [f32; 4],
+    uri: Option<&str>,
+    dest_page: Option<ObjectId>,
+) -> Dictionary {
+    let mut d = Dictionary::new();
+    d.set("Type", Object::Name(b"Annot".to_vec()));
+    d.set("Subtype", Object::Name(b"Link".to_vec()));
+    d.set(
+        "Rect",
+        Object::Array(vec![
+            Object::Real(rect[0]),
+            Object::Real(rect[1]),
+            Object::Real(rect[2]),
+            Object::Real(rect[3]),
+        ]),
+    );
+    d.set(
+        "Border",
+        Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(0),
+        ]),
+    );
+    if let Some(uri) = uri {
+        let mut action = Dictionary::new();
+        action.set("S", Object::Name(b"URI".to_vec()));
+        action.set("URI", Object::string_literal(uri.as_bytes().to_vec()));
+        d.set("A", Object::Dictionary(action));
+    } else if let Some(dest) = dest_page {
+        d.set(
+            "Dest",
+            Object::Array(vec![
+                Object::Reference(dest),
+                Object::Name(b"XYZ".to_vec()),
+                Object::Null,
+                Object::Null,
+                Object::Null,
+            ]),
+        );
+    }
+    d
 }
 
 /// Append one self-contained `BT … ET` text block to `out`. `BT` resets the
@@ -798,6 +855,32 @@ pub fn apply_draw_ops_json(
                     return Err("invalid media box".to_string());
                 }
             }
+            DrawOp::Link { page, rect, uri, go_to_page } => {
+                if *page >= page_count {
+                    return Err(format!("page {page} out of range ({page_count} pages)"));
+                }
+                match (uri.is_some(), go_to_page.is_some()) {
+                    (true, true) => {
+                        return Err("link must have exactly one of uri or goToPage".to_string());
+                    }
+                    (false, false) => {
+                        return Err("link must have exactly one of uri or goToPage".to_string());
+                    }
+                    _ => {}
+                }
+                for &v in rect.iter() {
+                    if !v.is_finite() {
+                        return Err("invalid link rect".to_string());
+                    }
+                }
+                if rect[2] <= rect[0] || rect[3] <= rect[1] {
+                    return Err("invalid link rect".to_string());
+                }
+                if let Some(target) = go_to_page
+                    && *target >= page_count {
+                        return Err(format!("goToPage {target} out of range ({page_count} pages)"));
+                    }
+            }
         }
     }
 
@@ -813,6 +896,7 @@ pub fn apply_draw_ops_json(
             DrawOp::Page { page, .. } => *page,
             DrawOp::SetRotation { page, .. } => *page,
             DrawOp::SetMediaBox { page, .. } => *page,
+            DrawOp::Link { page, .. } => *page,
         };
         if let Some(entry) = page_ops.iter_mut().find(|(idx, _)| *idx == page_idx) {
             entry.1.push(op);
@@ -1090,8 +1174,11 @@ pub fn apply_draw_ops_json(
                         *border_width,
                     );
                 }
-                // Mutation ops produce no content; applied to the page dict after clone.
-                DrawOp::SetRotation { .. } | DrawOp::SetMediaBox { .. } => {}
+                // Mutation/annotation ops produce no content; applied to the
+                // page dict after clone.
+                DrawOp::SetRotation { .. }
+                | DrawOp::SetMediaBox { .. }
+                | DrawOp::Link { .. } => {}
             }
         }
 
@@ -1119,6 +1206,23 @@ pub fn apply_draw_ops_json(
                     dict_mut(&mut inc, page_id)?.set("MediaBox", Object::Array(arr));
                 }
                 _ => {}
+            }
+        }
+
+        // Append link annotations to the cloned page's /Annots.
+        for op in page_op_list {
+            if let DrawOp::Link { rect, uri, go_to_page, .. } = op {
+                // Resolve the destination page id (for goToPage) the same way we
+                // resolve the current page id: from the prev doc's sorted pages.
+                let dest_page = go_to_page.map(|target| {
+                    let prev = inc.get_prev_documents();
+                    let mut sorted: Vec<(u32, ObjectId)> = prev.get_pages().into_iter().collect();
+                    sorted.sort_by_key(|(num, _)| *num);
+                    sorted[target].1
+                });
+                let annot = link_annot_dict(*rect, uri.as_deref(), dest_page);
+                let annot_id = inc.new_document.add_object(Object::Dictionary(annot));
+                append_annot_to_page(&mut inc, page_id, annot_id)?;
             }
         }
 
@@ -1269,6 +1373,42 @@ fn set_font(res: &mut Dictionary, key: &str, font_id: ObjectId) {
     if let Ok(font_dict) = res.get_mut(b"Font").and_then(Object::as_dict_mut) {
         font_dict.set(key.as_bytes().to_vec(), Object::Reference(font_id));
     }
+}
+
+/// Append `Reference(annot_id)` to a cloned page's `/Annots`, handling the
+/// three storage forms: inline array (push), indirect reference to an array
+/// (clone into new_document then push), or absent (create a new array).
+fn append_annot_to_page(
+    inc: &mut IncrementalDocument,
+    page_id: ObjectId,
+    annot_id: ObjectId,
+) -> Result<(), String> {
+    // Is /Annots an indirect reference?
+    let annots_ref = match dict_mut(inc, page_id)?.get(b"Annots") {
+        Ok(Object::Reference(id)) => Some(*id),
+        _ => None,
+    };
+    match annots_ref {
+        Some(arr_id) => {
+            // Clone the indirect array object into new_document and push.
+            inc.opt_clone_object_to_new_document(arr_id)
+                .map_err(|e| e.to_string())?;
+            let arr = inc
+                .new_document
+                .get_object_mut(arr_id)
+                .and_then(Object::as_array_mut)
+                .map_err(|e| e.to_string())?;
+            arr.push(Object::Reference(annot_id));
+        }
+        None => {
+            let page = dict_mut(inc, page_id)?;
+            match page.get_mut(b"Annots") {
+                Ok(Object::Array(arr)) => arr.push(Object::Reference(annot_id)),
+                _ => page.set("Annots", Object::Array(vec![Object::Reference(annot_id)])),
+            }
+        }
+    }
+    Ok(())
 }
 
 fn dict_mut(inc: &mut IncrementalDocument, id: ObjectId) -> Result<&mut Dictionary, String> {
@@ -1934,5 +2074,103 @@ mod tests {
             err.contains("must be > 0"),
             "expected 'must be > 0' error for width=0, got: {err}"
         );
+    }
+
+    // ── M32: link annotations ──────────────────────────────────────────────
+
+    /// Resolve a page's /Annots into the dictionaries of its entries, handling
+    /// both an inline array and an indirect reference to the array, and
+    /// dereferencing each entry.
+    fn resolve_annots<'a>(doc: &'a Document, page: &'a Dictionary) -> Vec<&'a Dictionary> {
+        let arr: Vec<Object> = match page.get(b"Annots") {
+            Ok(Object::Array(a)) => a.clone(),
+            Ok(Object::Reference(r)) => match doc.get_object(*r).and_then(|o| o.as_array()) {
+                Ok(a) => a.clone(),
+                Err(_) => return Vec::new(),
+            },
+            _ => return Vec::new(),
+        };
+        let mut result: Vec<&'a Dictionary> = Vec::new();
+        for entry in arr {
+            match entry {
+                Object::Reference(r) => {
+                    if let Ok(d) = doc.get_object(r).and_then(|o| o.as_dict()) {
+                        result.push(d);
+                    }
+                }
+                Object::Dictionary(_) => {
+                    // Inline annot dicts: look them up again by re-reading the page
+                    // would not give a 'a ref; created docs use references, so skip.
+                }
+                _ => {}
+            }
+        }
+        result
+    }
+
+    #[test]
+    fn appends_uri_link_annotation() {
+        let out = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"link","page":0,"rect":[50,50,200,80],"uri":"https://example.com"}]"#,
+            &[],
+            &[],
+            "[]",
+        )
+        .unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let annots = resolve_annots(&doc, page);
+        let link = annots
+            .iter()
+            .find(|a| a.get(b"Subtype").ok().and_then(|s| s.as_name().ok()) == Some(b"Link".as_ref()))
+            .expect("a /Link annot");
+        assert_eq!(link.get(b"Subtype").unwrap().as_name().unwrap(), b"Link");
+        let a = link.get(b"A").unwrap().as_dict().unwrap();
+        assert_eq!(a.get(b"S").unwrap().as_name().unwrap(), b"URI");
+        let uri = a.get(b"URI").unwrap().as_str().unwrap();
+        assert_eq!(uri, b"https://example.com");
+    }
+
+    #[test]
+    fn appends_goto_link_with_dest() {
+        let out = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"link","page":0,"rect":[10,10,100,40],"goToPage":0}]"#,
+            &[],
+            &[],
+            "[]",
+        )
+        .unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let annots = resolve_annots(&doc, doc.get_dictionary(pid).unwrap());
+        let link = annots.iter().find(|a| a.has(b"Dest")).expect("a link with /Dest");
+        assert!(link.get(b"Dest").unwrap().as_array().is_ok());
+    }
+
+    #[test]
+    fn link_rejects_both_uri_and_goto() {
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"link","page":0,"rect":[0,0,10,10],"uri":"x","goToPage":0}]"#,
+            &[],
+            &[],
+            "[]",
+        );
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn link_rejects_neither() {
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"link","page":0,"rect":[0,0,10,10]}]"#,
+            &[],
+            &[],
+            "[]",
+        );
+        assert!(r.is_err());
     }
 }

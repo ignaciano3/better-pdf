@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images (including transparent PNGs with alpha preserved as a soft mask) and vector graphics, read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, rotate or resize individual pages, embed pages from other PDFs as Form XObjects (watermarks, letterhead, N-up). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, embedding transparent PNG images, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, rotating or resizing pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images (including transparent PNGs with alpha preserved as a soft mask) and vector graphics, add clickable link annotations (external URLs and internal page jumps) with page.drawLink(), read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, rotate or resize individual pages, embed pages from other PDFs as Form XObjects (watermarks, letterhead, N-up). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, embedding transparent PNG images, adding hyperlinks or internal navigation links to a PDF, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, rotating or resizing pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -110,6 +110,8 @@ await doc.save();
 | `page.setMediaBox(x0, y0, x1, y1)` | Set PDF /MediaBox directly — loaded or created |
 | `doc.embedPdfPage(src, pageIndex)` → `Promise<EmbeddedPdfPage>` | Import a page from another PDF as a Form XObject (loaded or created doc) |
 | `page.drawPage(embedded, {x, y, width?, height?})` | Stamp the Form XObject; width/height default to intrinsic source size |
+| `page.drawLink({ x, y, width, height, url })` | Add a clickable external-URI link annotation (invisible border by default) |
+| `page.drawLink({ x, y, width, height, goToPage })` | Add a clickable internal page-jump annotation; `goToPage` is 0-based |
 | `doc.embedFont(bytes, { subset? })` → `Promise<PdfFont>` | Embed TTF/OTF; returns a `PdfFont` for `drawText` |
 | `doc.getForm()` / `doc.getForm<typeof schema>()` | Untyped / type-narrowed form view |
 | `form.getFields()` / `form.getField(name)` | `FieldInfo[]` / one `FieldInfo` |
@@ -187,6 +189,31 @@ await Bun.write("report-letterhead.pdf", output);
   the source page's intrinsic MediaBox dimensions; pass explicit values to scale.
 - Interactive form fields and annotations on the embedded page are **not carried
   over** — static visual appearance only.
+
+## Link annotations
+
+Add clickable link annotations to any page — external URIs or internal page
+jumps. Works on both loaded and created documents. The annotation border is
+suppressed by default (invisible clickable region).
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.load(bytes);
+const page = doc.getPage(0);
+
+// External URI link over a text region
+page.drawLink({ x: 50, y: 746, width: 140, height: 18, url: "https://example.com" });
+
+// Internal jump — table-of-contents entry pointing to page 2 (0-based)
+page.drawLink({ x: 50, y: 700, width: 200, height: 18, goToPage: 2 });
+
+const output = await doc.save();
+```
+
+- Exactly one of `url` or `goToPage` must be provided (throws if both or neither).
+- `goToPage` is 0-based (matches `doc.getPage(i)`).
+- Named destinations and cross-document jumps (`GoToR`) are not supported.
 
 ## Rotate & resize pages
 

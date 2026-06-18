@@ -8,6 +8,12 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-18
+
+### Added
+
+- Link annotations: `page.drawLink()` adds clickable external-URI and internal page-jump links on loaded and created PDFs.
+
 ## [0.9.0] - 2026-06-18
 
 ### Added

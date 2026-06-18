@@ -79,6 +79,14 @@ export type SetRotationOp = { op: "setRotation"; page: number; degrees: number }
 
 export type SetMediaBoxOp = { op: "setMediaBox"; page: number; box: [number, number, number, number] };
 
+export type LinkOp = {
+  op: "link";
+  page: number;
+  rect: [number, number, number, number];
+  uri?: string;
+  goToPage?: number;
+};
+
 export type AddPageOp = { op: "addPage"; width: number; height: number };
 
 type ImageEntry = {
@@ -97,7 +105,7 @@ type FontEntry = { bytes: Uint8Array; subset: boolean };
 
 /** @internal */
 export class DrawQueue {
-  private readonly drawOps: Array<TextOp | ImageEntry | PageEntry | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp> = [];
+  private readonly drawOps: Array<TextOp | ImageEntry | PageEntry | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp> = [];
   private readonly pageOps: AddPageOp[] = [];
   private readonly fonts: FontEntry[] = [];
   private metadataOp: Record<string, string> | undefined = undefined;
@@ -192,10 +200,14 @@ export class DrawQueue {
     this.drawOps.push({ op: "setMediaBox", page, box });
   }
 
-  private buildDrawOps(): { ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp)[]; images: Uint8Array } {
+  pushLink(op: LinkOp): void {
+    this.drawOps.push(op);
+  }
+
+  private buildDrawOps(): { ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp)[]; images: Uint8Array } {
     const chunks: Uint8Array[] = [];
     let offset = 0;
-    const ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp)[] = [];
+    const ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp)[] = [];
     for (const entry of this.drawOps) {
       if ("kind" in entry) {
         const len = entry.bytes.length;

@@ -371,6 +371,71 @@ the next `doc.save()`.
 Blank-page insertion is not yet available.
 :::
 
+## Links
+
+`page.drawLink` adds a clickable link annotation — an invisible rectangle that
+opens a URI or jumps to another page when clicked. Works on both loaded and
+created documents. No visible border is drawn by default.
+
+### External URI link
+
+```ts
+import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);
+
+const font = doc.getFont(StandardFonts.Helvetica);
+page.drawText("Visit our website", { x: 50, y: 750, size: 14, font, color: rgb(0, 0, 0.8) });
+
+// Clickable region over the text — (x, y) is the bottom-left corner
+page.drawLink({
+  x: 50, y: 746, width: 140, height: 18,
+  url: "https://example.com",
+});
+
+const output = await doc.save();
+await Bun.write("link.pdf", output);
+```
+
+### Internal page-jump link (table-of-contents style)
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const bytes = new Uint8Array(await Bun.file("report.pdf").arrayBuffer());
+const doc = await PdfDocument.load(bytes);
+
+const toc = doc.getPage(0);
+
+// "Chapter 1" heading on page 0 → jumps to page 2 (0-based)
+toc.drawLink({
+  x: 50, y: 700, width: 200, height: 18,
+  goToPage: 2,
+});
+
+const output = await doc.save();
+await Bun.write("report-toc.pdf", output);
+```
+
+`goToPage` is 0-based (matches `doc.getPage(i)`). The link navigates to the
+top of the target page. Named destinations are not exposed — only page-index
+jumps.
+
+### API
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `x` | `number` | Left edge of the clickable rectangle (PDF points, origin bottom-left) |
+| `y` | `number` | Bottom edge of the clickable rectangle |
+| `width` | `number` | Width of the rectangle |
+| `height` | `number` | Height of the rectangle |
+| `url` | `string` | *(mutually exclusive with `goToPage`)* External URI to open |
+| `goToPage` | `number` | *(mutually exclusive with `url`)* 0-based target page index for an internal jump |
+
+Exactly one of `url` or `goToPage` must be provided; providing both (or
+neither) throws a validation error.
+
 ## Embed pages from other PDFs
 
 `doc.embedPdfPage(src, pageIndex)` imports a page from another PDF as a
