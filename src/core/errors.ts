@@ -81,6 +81,13 @@ export class PageOutOfRangeError extends PdfError {
 /** Thrown when image bytes are not a supported JPEG or PNG. */
 export class InvalidImageError extends PdfError {}
 
+/** Thrown when a rotation value is not a multiple of 90 degrees. */
+export class InvalidRotationError extends PdfError {
+  constructor(readonly degrees: number) {
+    super(`rotation must be a multiple of 90 degrees, got ${degrees}`);
+  }
+}
+
 export function toInvalidImageError(e: unknown): InvalidImageError {
   const message = e instanceof Error ? e.message : String(e);
   return new InvalidImageError(message);

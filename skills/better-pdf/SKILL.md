@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images and vector graphics, read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images and vector graphics, read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, rotate or resize individual pages. Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, rotating or resizing pages, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -105,6 +105,9 @@ await doc.save();
 | `doc.setCreator(s)` / `setProducer(s)` | Set /Creator and /Producer |
 | `doc.setCreationDate(d)` / `setModificationDate(d)` | Set dates from JS `Date` |
 | `await doc.getMetadata()` → `DocumentMetadata` | Read the Info dictionary |
+| `page.setRotation(degrees)` | Rotate page (multiple of 90; normalised) — loaded or created |
+| `page.setSize(width, height)` | Resize page (sugar for setMediaBox(0,0,w,h)) — loaded or created |
+| `page.setMediaBox(x0, y0, x1, y1)` | Set PDF /MediaBox directly — loaded or created |
 | `doc.embedFont(bytes, { subset? })` → `Promise<PdfFont>` | Embed TTF/OTF; returns a `PdfFont` for `drawText` |
 | `doc.getForm()` / `doc.getForm<typeof schema>()` | Untyped / type-narrowed form view |
 | `form.getFields()` / `form.getField(name)` | `FieldInfo[]` / one `FieldInfo` |
@@ -151,7 +154,29 @@ const result = await PdfDocument.assemble(
 **Rules:**
 - `copyPages` and `splitPages` require a loaded document (`PdfDocument.load`); they throw on created docs.
 - Form fields on merged/assembled pages keep their **visual appearance** but are **not interactive** — the AcroForm is not reconstructed. Flatten before merging if needed.
-- In-place page rotation/resize and blank-page insertion are not yet available.
+- In-place page rotation/resize is **supported**: `page.setRotation(degrees)`, `page.setSize(w, h)`, `page.setMediaBox(x0, y0, x1, y1)` — works on loaded and created pages.
+- Blank-page insertion is not yet available.
+
+## Rotate & resize pages
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+// Rotate a loaded page
+const doc = await PdfDocument.load(bytes);
+doc.getPage(0).setRotation(90);   // clockwise 90° — must be multiple of 90
+const output = await doc.save();
+
+// Resize a created page
+const doc2 = await PdfDocument.create();
+const page = doc2.addPage([595, 842]);   // A4
+page.setSize(612, 792);                  // switch to US Letter
+// or equivalently: page.setMediaBox(0, 0, 612, 792);
+const output2 = await doc2.save();
+```
+
+- `setRotation` normalises to 0/90/180/270; non-multiples throw `InvalidRotationError`.
+- All three methods work on both `doc.getPage(i)` (loaded) and `doc.addPage(...)` (created).
 
 ## Document metadata
 

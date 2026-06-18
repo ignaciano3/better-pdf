@@ -93,6 +93,12 @@ enum CreateOp {
         border_width: Option<f32>,
         opacity: Option<f32>,
     },
+    SetRotation { page: usize, degrees: i64 },
+    SetMediaBox {
+        page: usize,
+        #[serde(rename = "box")]
+        media_box: [f32; 4],
+    },
     /// Set document-level Info dictionary. If multiple metadata ops are
     /// present, the last one wins.
     Metadata {
@@ -463,6 +469,27 @@ pub fn create_document_json(
                             return Err("invalid color".to_string());
                         }
                     }
+                }
+            }
+            CreateOp::SetRotation { page, degrees } => {
+                if *page >= pages.len() {
+                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
+                }
+                if degrees.rem_euclid(90) != 0 {
+                    return Err("degrees must be a multiple of 90".to_string());
+                }
+            }
+            CreateOp::SetMediaBox { page, media_box } => {
+                if *page >= pages.len() {
+                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
+                }
+                for &v in media_box.iter() {
+                    if !v.is_finite() {
+                        return Err("invalid media box".to_string());
+                    }
+                }
+                if media_box[2] <= media_box[0] || media_box[3] <= media_box[1] {
+                    return Err("invalid media box".to_string());
                 }
             }
             CreateOp::AddPage { .. } => {}
@@ -838,6 +865,8 @@ pub fn create_document_json(
                         *border_width,
                     );
                 }
+                CreateOp::SetRotation { .. } => {}
+                CreateOp::SetMediaBox { .. } => {}
                 _ => {}
             }
         }
@@ -858,7 +887,7 @@ pub fn create_document_json(
             lopdf::Dictionary::new(),
             content,
         )));
-        let page_dict = dictionary! {
+        let mut page_dict = dictionary! {
             "Type" => Object::Name(b"Page".to_vec()),
             "Parent" => Object::Reference(pages_id),
             "MediaBox" => Object::Array(vec![
@@ -870,6 +899,21 @@ pub fn create_document_json(
             "Contents" => Object::Reference(content_id),
             "Resources" => Object::Dictionary(resources),
         };
+        // Apply page-dict mutation ops (Rotate / MediaBox override).
+        for op in ops.iter() {
+            match op {
+                CreateOp::SetRotation { page, degrees } if *page == page_index => {
+                    let norm = ((degrees % 360) + 360) % 360;
+                    page_dict.set("Rotate", Object::Integer(norm));
+                }
+                CreateOp::SetMediaBox { page, media_box } if *page == page_index => {
+                    page_dict.set("MediaBox", Object::Array(
+                        media_box.iter().map(|v| Object::Real(*v)).collect()
+                    ));
+                }
+                _ => {}
+            }
+        }
         let page_id = doc.add_object(Object::Dictionary(page_dict));
         kids.push(Object::Reference(page_id));
         page_ids.push(page_id);
@@ -1845,5 +1889,30 @@ mod tests {
         let json = crate::metadata::read_metadata_json(&out).unwrap();
         assert!(json.contains("Generated"), "json was {json}");
         assert!(json.contains("better-pdf"), "json was {json}");
+    }
+
+    #[test]
+    fn created_page_rotation_applied() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"setRotation","page":0,"degrees":90}]"#;
+        let out = create_document_json(ops, &[], &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Rotate").unwrap().as_i64().unwrap(), 90);
+    }
+
+    #[test]
+    fn created_page_media_box_override() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"setMediaBox","page":0,"box":[0,0,200,300]}]"#;
+        let out = create_document_json(ops, &[], &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let mb = doc.get_dictionary(pid).unwrap().get(b"MediaBox").unwrap().as_array().unwrap();
+        assert!((mb[2].as_float().unwrap() - 200.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn created_page_rotation_rejects_non_multiple() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"setRotation","page":0,"degrees":33}]"#;
+        assert!(create_document_json(ops, &[], &[], "[]", "[]").is_err());
     }
 }

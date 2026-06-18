@@ -62,6 +62,9 @@ identical; the differences are noted below.
 | `page.drawRectangle(options)` | same |
 | `page.drawLine(options)` | same |
 | `page.drawEllipse(options)` | same — see note below |
+| `page.setRotation(degrees({angle}))` | `page.setRotation(degrees)` — pass a plain `number` (multiple of 90); no `degrees()` wrapper needed |
+| `page.setSize(width, height)` | `page.setSize(width, height)` — same signature |
+| `page.setMediaBox(x0, y0, x1, y1)` | `page.setMediaBox(x0, y0, x1, y1)` — same signature |
 | `rgb(r, g, b)` / `grayscale(v)` | same |
 | `StandardFonts.Helvetica` etc. | same enum values |
 | `pdfDoc.save()` | `doc.save()` — returns `Promise<Uint8Array>` |
@@ -83,6 +86,9 @@ identical; the differences are noted below.
 - **Ellipse center semantics.** `drawEllipse({ x, y, xScale, yScale, … })` uses
   `(x, y)` as the center and `xScale`/`yScale` as the x and y radii — the same
   as pdf-lib.
+- **`setRotation` takes a plain number.** pdf-lib wraps the angle in a `degrees(n)`
+  object from `pdf-lib`; better-pdf takes a plain `number` (e.g. `page.setRotation(90)`).
+  The value must be a multiple of 90; non-multiples throw `InvalidRotationError`.
 - **`save()` is always async** and returns `Promise<Uint8Array>`. There is no
   synchronous `saveSync()`.
 - **`PdfDocument.create()` is async** — it may initialize WASM, so you must
