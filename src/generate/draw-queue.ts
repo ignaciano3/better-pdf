@@ -1,4 +1,5 @@
 import type { Color } from "./color.js";
+import type { Segment } from "./svg-path.js";
 
 /** @internal Wire format consumed by the Rust core's apply_draw_ops. */
 export type TextOp = {
@@ -89,6 +90,16 @@ export type LinkOp = {
 
 export type AddPageOp = { op: "addPage"; width: number; height: number };
 
+export type PathOp = {
+  op: "path";
+  page: number;
+  segments: Segment[];
+  fill?: [number, number, number];
+  stroke?: [number, number, number];
+  strokeWidth?: number;
+  opacity?: number;
+};
+
 type ImageEntry = {
   kind: "image";
   bytes: Uint8Array;
@@ -105,7 +116,7 @@ type FontEntry = { bytes: Uint8Array; subset: boolean };
 
 /** @internal */
 export class DrawQueue {
-  private readonly drawOps: Array<TextOp | ImageEntry | PageEntry | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp> = [];
+  private readonly drawOps: Array<TextOp | ImageEntry | PageEntry | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp | PathOp> = [];
   private readonly pageOps: AddPageOp[] = [];
   private readonly fonts: FontEntry[] = [];
   private metadataOp: Record<string, string> | undefined = undefined;
@@ -204,10 +215,14 @@ export class DrawQueue {
     this.drawOps.push(op);
   }
 
-  private buildDrawOps(): { ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp)[]; images: Uint8Array } {
+  pushPath(op: PathOp): void {
+    this.drawOps.push(op);
+  }
+
+  private buildDrawOps(): { ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp | PathOp)[]; images: Uint8Array } {
     const chunks: Uint8Array[] = [];
     let offset = 0;
-    const ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp)[] = [];
+    const ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp | PathOp)[] = [];
     for (const entry of this.drawOps) {
       if ("kind" in entry) {
         const len = entry.bytes.length;

@@ -1,10 +1,11 @@
 import { StandardFonts } from "./fonts.js";
 import { rgb, type Color } from "./color.js";
-import type { DrawQueue, LineOp, RectangleOp, EllipseOp, LinkOp } from "./draw-queue.js";
+import type { DrawQueue, LineOp, RectangleOp, EllipseOp, LinkOp, PathOp } from "./draw-queue.js";
 import { PdfImage } from "./image.js";
 import { EmbeddedPdfPage } from "./embedded-page.js";
 import { PdfFont } from "./font.js";
 import { InvalidRotationError } from "../core/errors.js";
+import { parseSvgPath, type Segment } from "./svg-path.js";
 
 /** Options for {@link PdfPage.drawText}. Coordinates use the PDF convention: origin bottom-left. */
 export interface DrawTextOptions {
@@ -58,6 +59,32 @@ export interface DrawLinkOptions {
   url?: string;
   /** Zero-based page index to navigate to within the document. Exactly one of `url` or `goToPage` must be provided. */
   goToPage?: number;
+}
+
+/** Options for {@link PdfPage.drawSvgPath}. */
+export interface DrawSvgPathOptions {
+  /** Fill color. Omit for no fill. */
+  fill?: Color;
+  /** Stroke color. Omit for no stroke. */
+  stroke?: Color;
+  /** Stroke width in points. Must be >= 0. */
+  strokeWidth?: number;
+  /** Opacity 0..1. Default 1 (opaque). */
+  opacity?: number;
+}
+
+/** Options for {@link PdfPage.drawPolygon}. */
+export interface DrawPolygonOptions {
+  /** Fill color. Omit for no fill. */
+  fill?: Color;
+  /** Stroke color. Omit for no stroke. */
+  stroke?: Color;
+  /** Stroke width in points. Must be >= 0. */
+  strokeWidth?: number;
+  /** Opacity 0..1. Default 1 (opaque). */
+  opacity?: number;
+  /** Whether to close the polygon by appending a Z segment. Default false. */
+  closed?: boolean;
 }
 
 /** Options for {@link PdfPage.drawEllipse}. `(x, y)` is the center. */
@@ -359,6 +386,68 @@ export class PdfPage {
       ...(opacity !== undefined ? { opacity } : {}),
     };
     this.queue.pushEllipse(op);
+  }
+
+  /**
+   * Draw a vector path described by an SVG path `d` string. Supports M/L/H/V/C/S/Q/T/Z
+   * commands; arc (A) commands throw an error. Coordinates use the PDF convention:
+   * origin bottom-left.
+   *
+   * @param d - SVG path data string.
+   * @param opts - Optional fill, stroke, strokeWidth, and opacity.
+   */
+  drawSvgPath(d: string, opts: DrawSvgPathOptions = {}): void {
+    const { fill, stroke, strokeWidth, opacity } = opts;
+    validateOpacity(opacity);
+    validateBorderWidth(strokeWidth, "strokeWidth");
+    const segments = parseSvgPath(d);
+    const op: PathOp = {
+      op: "path",
+      page: this.index,
+      segments,
+      ...(fill !== undefined ? { fill: tuple(fill) } : {}),
+      ...(stroke !== undefined ? { stroke: tuple(stroke) } : {}),
+      ...(strokeWidth !== undefined ? { strokeWidth } : {}),
+      ...(opacity !== undefined ? { opacity } : {}),
+    };
+    this.queue.pushPath(op);
+  }
+
+  /**
+   * Draw a polygon from an array of points. Coordinates use the PDF convention:
+   * origin bottom-left.
+   *
+   * @param points - At least 2 points, each `{x, y}`.
+   * @param opts - Optional fill, stroke, strokeWidth, opacity, and closed flag.
+   */
+  drawPolygon(points: { x: number; y: number }[], opts: DrawPolygonOptions = {}): void {
+    if (!Array.isArray(points) || points.length < 2) {
+      throw new RangeError(`drawPolygon requires at least 2 points, got ${Array.isArray(points) ? points.length : 0}`);
+    }
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i]!;
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+        throw new RangeError(`points[${i}] coordinates must be finite numbers`);
+      }
+    }
+    const { fill, stroke, strokeWidth, opacity, closed } = opts;
+    validateOpacity(opacity);
+    validateBorderWidth(strokeWidth, "strokeWidth");
+    const segments: Segment[] = [
+      { t: "m", x: points[0]!.x, y: points[0]!.y },
+      ...points.slice(1).map((p) => ({ t: "l" as const, x: p.x, y: p.y })),
+      ...(closed ? [{ t: "z" as const }] : []),
+    ];
+    const op: PathOp = {
+      op: "path",
+      page: this.index,
+      segments,
+      ...(fill !== undefined ? { fill: tuple(fill) } : {}),
+      ...(stroke !== undefined ? { stroke: tuple(stroke) } : {}),
+      ...(strokeWidth !== undefined ? { strokeWidth } : {}),
+      ...(opacity !== undefined ? { opacity } : {}),
+    };
+    this.queue.pushPath(op);
   }
 
   /**
