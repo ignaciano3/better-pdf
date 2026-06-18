@@ -761,8 +761,10 @@ pub fn create_document_json(
                 } if *page == page_index => {
                     let end = image_offset + image_length;
                     let img = crate::appearance::signature_image(&images[*image_offset..end])?;
-                    let stream = crate::appearance::build_signature_image_xobject(img);
-                    let xid = doc.add_object(Object::Stream(stream));
+                    let xid = crate::appearance::build_image_xobjects(
+                        img,
+                        &mut |o| doc.add_object(o),
+                    );
                     let key = format!("BPI{img_counter}");
                     img_counter += 1;
                     xobject_res.set(key.clone(), Object::Reference(xid));
@@ -1496,12 +1498,27 @@ mod tests {
     use lopdf::Document;
 
     fn tiny_png() -> &'static [u8] {
+        // 1×1 RGBA PNG (color_type=6) — same bytes as tiny_rgba_png below
         &[
             0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, b'I', b'H',
             b'D', b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
             0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, b'I', b'D', b'A', b'T', 0x78,
             0xda, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
             0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
+        ]
+    }
+
+    /// Explicit alias used by the new SMask tests.
+    fn tiny_rgba_png() -> &'static [u8] { tiny_png() }
+
+    /// 1×1 opaque RGB PNG (color_type=2) — no alpha channel.
+    fn tiny_rgb_png() -> &'static [u8] {
+        &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xc9, 0xfe, 0x92,
+            0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
         ]
     }
 
@@ -1612,6 +1629,58 @@ mod tests {
         let stream = doc.get_object(contents_id).unwrap().as_stream().unwrap();
         let s = String::from_utf8_lossy(&stream.content);
         assert!(s.contains("/BPI0 Do"), "content stream should contain '/BPI0 Do', got: {s}");
+    }
+
+    #[test]
+    fn created_image_with_alpha_has_smask() {
+        let png = tiny_rgba_png();
+        let len = png.len();
+        let json = format!(
+            r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
+        );
+        let out = create_document_json(&json, png, &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let res = page.get(b"Resources").unwrap().as_dict().unwrap();
+        let xobjs = res.get(b"XObject").unwrap().as_dict().unwrap();
+        let bpi_entry = xobjs.iter().find(|(k, _)| k.starts_with(b"BPI"))
+            .expect("expected a BPI* key in XObject resources");
+        let xobj_id = bpi_entry.1.as_reference().unwrap();
+        let xobj_stream = doc.get_object(xobj_id).unwrap().as_stream().unwrap();
+        let smask_val = xobj_stream.dict.get(b"SMask")
+            .expect("alpha PNG image XObject should have /SMask");
+        let smask_id = smask_val.as_reference()
+            .expect("/SMask should be an indirect reference");
+        let smask_stream = doc.get_object(smask_id).unwrap().as_stream().unwrap();
+        assert_eq!(
+            smask_stream.dict.get(b"ColorSpace").unwrap().as_name().unwrap(),
+            b"DeviceGray",
+            "/SMask image should have DeviceGray color space"
+        );
+    }
+
+    #[test]
+    fn created_opaque_image_has_no_smask() {
+        let png = tiny_rgb_png();
+        let len = png.len();
+        let json = format!(
+            r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
+        );
+        let out = create_document_json(&json, png, &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let res = page.get(b"Resources").unwrap().as_dict().unwrap();
+        let xobjs = res.get(b"XObject").unwrap().as_dict().unwrap();
+        let bpi_entry = xobjs.iter().find(|(k, _)| k.starts_with(b"BPI"))
+            .expect("expected a BPI* key in XObject resources");
+        let xobj_id = bpi_entry.1.as_reference().unwrap();
+        let xobj_stream = doc.get_object(xobj_id).unwrap().as_stream().unwrap();
+        assert!(
+            xobj_stream.dict.get(b"SMask").is_err(),
+            "opaque PNG image XObject should NOT have /SMask"
+        );
     }
 
     #[test]
