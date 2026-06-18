@@ -5,6 +5,7 @@ import { PdfPage } from "../generate/page.js";
 import { DrawQueue } from "../generate/draw-queue.js";
 import { type PageSize, PageSizes } from "../generate/page-sizes.js";
 import { PdfImage } from "../generate/image.js";
+import { EmbeddedPdfPage } from "../generate/embedded-page.js";
 import { PdfFont } from "../generate/font.js";
 import { StandardFonts } from "../generate/fonts.js";
 import { FormBuilder } from "../generate/form-builder.js";
@@ -291,6 +292,33 @@ export class PdfDocumentBase {
       throw toInvalidImageError(e);
     }
     return new PdfImage(bytes, info.width, info.height);
+  }
+
+  /**
+   * Embed a page from a source PDF. Returns an {@link EmbeddedPdfPage} handle
+   * with the intrinsic size of the source page; pass it to `page.drawPage()`.
+   *
+   * The source bytes are not embedded immediately — they ride the image blob
+   * channel and are embedded into the target PDF at save time.
+   *
+   * @param src - The raw bytes of the source PDF.
+   * @param pageIndex - Zero-based index of the page to embed.
+   * @returns An `EmbeddedPdfPage` handle.
+   * @throws `PageOutOfRangeError` when `pageIndex` is out of range.
+   * @throws `PdfError` when the source PDF cannot be parsed.
+   */
+  async embedPdfPage(src: Uint8Array, pageIndex: number): Promise<EmbeddedPdfPage> {
+    let infos: { index: number; width: number; height: number; rotation: number }[];
+    try {
+      infos = JSON.parse(this.wasm.readPages(src));
+    } catch (e) {
+      throw toPdfError(e);
+    }
+    const entry = infos[pageIndex];
+    if (entry === undefined) {
+      throw new PageOutOfRangeError(pageIndex, infos.length);
+    }
+    return new EmbeddedPdfPage(src, pageIndex, entry.width, entry.height);
   }
 
   /**

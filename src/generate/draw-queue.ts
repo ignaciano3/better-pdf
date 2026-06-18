@@ -25,6 +25,18 @@ export type ImageOp = {
   imageLength: number;
 };
 
+export type PageOp = {
+  op: "page";
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  imageOffset: number;
+  imageLength: number;
+  srcPage: number;
+};
+
 export type LineOp = {
   op: "line";
   page: number;
@@ -75,11 +87,17 @@ type ImageEntry = {
   op: Omit<ImageOp, "imageOffset" | "imageLength">;
 };
 
+type PageEntry = {
+  kind: "page";
+  bytes: Uint8Array;
+  op: Omit<PageOp, "imageOffset" | "imageLength">;
+};
+
 type FontEntry = { bytes: Uint8Array; subset: boolean };
 
 /** @internal */
 export class DrawQueue {
-  private readonly drawOps: Array<TextOp | ImageEntry | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp> = [];
+  private readonly drawOps: Array<TextOp | ImageEntry | PageEntry | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp> = [];
   private readonly pageOps: AddPageOp[] = [];
   private readonly fonts: FontEntry[] = [];
   private metadataOp: Record<string, string> | undefined = undefined;
@@ -142,6 +160,18 @@ export class DrawQueue {
     });
   }
 
+  pushPage(
+    page: number,
+    bytes: Uint8Array,
+    opts: { x: number; y: number; width: number; height: number; srcPage: number },
+  ): void {
+    this.drawOps.push({
+      kind: "page",
+      bytes,
+      op: { op: "page", page, x: opts.x, y: opts.y, width: opts.width, height: opts.height, srcPage: opts.srcPage },
+    });
+  }
+
   pushLine(op: LineOp): void {
     this.drawOps.push(op);
   }
@@ -162,14 +192,14 @@ export class DrawQueue {
     this.drawOps.push({ op: "setMediaBox", page, box });
   }
 
-  private buildDrawOps(): { ops: (TextOp | ImageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp)[]; images: Uint8Array } {
+  private buildDrawOps(): { ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp)[]; images: Uint8Array } {
     const chunks: Uint8Array[] = [];
     let offset = 0;
-    const ops: (TextOp | ImageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp)[] = [];
+    const ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp)[] = [];
     for (const entry of this.drawOps) {
       if ("kind" in entry) {
         const len = entry.bytes.length;
-        ops.push({ ...entry.op, imageOffset: offset, imageLength: len });
+        ops.push({ ...entry.op, imageOffset: offset, imageLength: len } as ImageOp | PageOp);
         chunks.push(entry.bytes);
         offset += len;
       } else {
