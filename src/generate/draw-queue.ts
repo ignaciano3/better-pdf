@@ -63,6 +63,10 @@ export type EllipseOp = {
   opacity?: number;
 };
 
+export type SetRotationOp = { op: "setRotation"; page: number; degrees: number };
+
+export type SetMediaBoxOp = { op: "setMediaBox"; page: number; box: [number, number, number, number] };
+
 export type AddPageOp = { op: "addPage"; width: number; height: number };
 
 type ImageEntry = {
@@ -75,7 +79,7 @@ type FontEntry = { bytes: Uint8Array; subset: boolean };
 
 /** @internal */
 export class DrawQueue {
-  private readonly drawOps: Array<TextOp | ImageEntry | LineOp | RectangleOp | EllipseOp> = [];
+  private readonly drawOps: Array<TextOp | ImageEntry | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp> = [];
   private readonly pageOps: AddPageOp[] = [];
   private readonly fonts: FontEntry[] = [];
   private metadataOp: Record<string, string> | undefined = undefined;
@@ -150,10 +154,18 @@ export class DrawQueue {
     this.drawOps.push(op);
   }
 
-  private buildDrawOps(): { ops: (TextOp | ImageOp | LineOp | RectangleOp | EllipseOp)[]; images: Uint8Array } {
+  pushSetRotation(page: number, degrees: number): void {
+    this.drawOps.push({ op: "setRotation", page, degrees });
+  }
+
+  pushSetMediaBox(page: number, box: [number, number, number, number]): void {
+    this.drawOps.push({ op: "setMediaBox", page, box });
+  }
+
+  private buildDrawOps(): { ops: (TextOp | ImageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp)[]; images: Uint8Array } {
     const chunks: Uint8Array[] = [];
     let offset = 0;
-    const ops: (TextOp | ImageOp | LineOp | RectangleOp | EllipseOp)[] = [];
+    const ops: (TextOp | ImageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp)[] = [];
     for (const entry of this.drawOps) {
       if ("kind" in entry) {
         const len = entry.bytes.length;

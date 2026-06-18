@@ -236,6 +236,49 @@ export class PdfPage {
   }
 
   /**
+   * Set the rotation of the page. Must be a multiple of 90 (0, 90, 180, 270, etc.).
+   * Works on both loaded and created documents.
+   */
+  setRotation(degrees: number): void {
+    if (!Number.isFinite(degrees) || degrees % 90 !== 0) {
+      throw new RangeError(`degrees must be a finite multiple of 90, got ${degrees}`);
+    }
+    this.queue.pushSetRotation(this.index, degrees);
+  }
+
+  /**
+   * Set the media box of the page to the given coordinates.
+   * `x1 > x0` and `y1 > y0` must hold. Works on both loaded and created documents.
+   */
+  setMediaBox(x0: number, y0: number, x1: number, y1: number): void {
+    for (const [v, name] of [
+      [x0, "x0"],
+      [y0, "y0"],
+      [x1, "x1"],
+      [y1, "y1"],
+    ] as const) {
+      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
+    }
+    if (x1 <= x0) throw new RangeError(`x1 must be > x0, got x0=${x0} x1=${x1}`);
+    if (y1 <= y0) throw new RangeError(`y1 must be > y0, got y0=${y0} y1=${y1}`);
+    this.queue.pushSetMediaBox(this.index, [x0, y0, x1, y1]);
+  }
+
+  /**
+   * Convenience method to set the page size. Equivalent to `setMediaBox(0, 0, width, height)`.
+   * Works on both loaded and created documents.
+   */
+  setSize(width: number, height: number): void {
+    if (!Number.isFinite(width) || width <= 0) {
+      throw new RangeError(`width must be > 0, got ${width}`);
+    }
+    if (!Number.isFinite(height) || height <= 0) {
+      throw new RangeError(`height must be > 0, got ${height}`);
+    }
+    this.setMediaBox(0, 0, width, height);
+  }
+
+  /**
    * Draw an ellipse centered at `(x, y)` with horizontal radius `xScale` and
    * vertical radius `yScale`. Coordinates use the PDF convention: origin
    * bottom-left.
