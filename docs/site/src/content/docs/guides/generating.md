@@ -99,6 +99,85 @@ page.drawLine({
 page.drawEllipse({ x: 150, y: 200, xScale: 60, yScale: 30, color: rgb(1, 0.8, 0) });
 ```
 
+## Vector paths
+
+Draw arbitrary SVG path-data strings or polygons using `drawSvgPath` and `drawPolygon`.
+Both work on loaded and created documents. Coordinates are PDF user space (origin
+bottom-left, y increases upward).
+
+### `drawSvgPath` — icon / logo
+
+```ts
+import { PdfDocument, PageSizes, rgb } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);
+
+// Simple house icon: move to peak, lines down each side, close
+page.drawSvgPath(
+  "M 150 200 L 100 150 L 100 100 L 200 100 L 200 150 Z",
+  {
+    fill: rgb(0.2, 0.5, 0.9),
+    stroke: rgb(0.1, 0.3, 0.7),
+    strokeWidth: 1.5,
+    opacity: 0.9,
+  },
+);
+
+const output = await doc.save();
+await Bun.write("icon.pdf", output);
+```
+
+Supported commands: `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `S`/`s`,
+`Q`/`q`, `T`/`t`, `Z`/`z` (absolute and relative). SVG arc commands (`A`/`a`) are
+**not yet supported** and will throw.
+
+:::note[Coordinate system]
+Path coordinates are interpreted in PDF user space (y-up). SVG path data authored
+for screen (y-down) will appear vertically flipped — negate y or apply a transform
+when converting SVG artwork.
+:::
+
+### `drawPolygon` — triangle / chart element
+
+```ts
+import { PdfDocument, PageSizes, rgb } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);
+
+// Equilateral-ish triangle pointing up
+page.drawPolygon(
+  [
+    { x: 150, y: 300 },   // apex
+    { x: 80,  y: 180 },   // bottom-left
+    { x: 220, y: 180 },   // bottom-right
+  ],
+  {
+    fill: rgb(0.95, 0.7, 0.1),
+    stroke: rgb(0.6, 0.4, 0),
+    strokeWidth: 2,
+    closed: true,          // default — draws the closing edge back to the first point
+  },
+);
+
+const output = await doc.save();
+await Bun.write("triangle.pdf", output);
+```
+
+`closed: false` leaves the last segment open (polyline). Both `fill` and `stroke`
+are optional; passing neither draws nothing visible.
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `fill` | `Color` | none | Fill color |
+| `stroke` | `Color` | none | Stroke (outline) color |
+| `strokeWidth` | `number` | `1` | Stroke width in PDF points |
+| `opacity` | `number` | `1` | Opacity 0–1 applied to fill and stroke |
+| `closed` | `boolean` | `true` | (`drawPolygon` only) Close the path back to the first point |
+
 ## Text layout with `widthOfTextAtSize`
 
 ```ts

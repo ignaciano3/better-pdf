@@ -6,8 +6,9 @@ use serde::Deserialize;
 use std::collections::HashSet;
 
 use crate::draw::{
-    emit_ellipse, emit_image_op, emit_line, emit_rectangle, emit_text_block, emit_text_block_cid,
-    extgstate_dict, font_dict, link_annot_dict, standard_14_index, STANDARD_14,
+    emit_ellipse, emit_image_op, emit_line, emit_path, emit_rectangle, emit_text_block,
+    emit_text_block_cid, extgstate_dict, font_dict, link_annot_dict, standard_14_index, Seg,
+    STANDARD_14,
 };
 use crate::fonts::{build_embedded_font, BuiltFont, EmbeddedFontInput};
 use lopdf::ObjectId;
@@ -124,6 +125,15 @@ enum CreateOp {
     Metadata {
         #[serde(flatten)]
         meta: crate::metadata::Metadata,
+    },
+    Path {
+        page: usize,
+        segments: Vec<Seg>,
+        fill: Option<[f32; 3]>,
+        stroke: Option<[f32; 3]>,
+        #[serde(rename = "strokeWidth")]
+        stroke_width: Option<f32>,
+        opacity: Option<f32>,
     },
 }
 
@@ -561,6 +571,55 @@ pub fn create_document_json(
             }
             CreateOp::AddPage { .. } => {}
             CreateOp::Metadata { .. } => {}
+            CreateOp::Path {
+                page,
+                segments,
+                fill,
+                stroke,
+                stroke_width,
+                opacity,
+            } => {
+                if *page >= pages.len() {
+                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
+                }
+                if segments.is_empty() {
+                    return Err("path must have at least one segment".to_string());
+                }
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                if let Some(sw) = stroke_width
+                    && (!sw.is_finite() || *sw < 0.0) {
+                        return Err("strokeWidth must be >= 0".to_string());
+                    }
+                for seg in segments.iter() {
+                    let coords: Vec<f32> = match seg {
+                        Seg::M { x, y } | Seg::L { x, y } => vec![*x, *y],
+                        Seg::C { x1, y1, x2, y2, x, y } => vec![*x1, *y1, *x2, *y2, *x, *y],
+                        Seg::Z => vec![],
+                    };
+                    for &v in &coords {
+                        if !v.is_finite() {
+                            return Err("invalid coordinate".to_string());
+                        }
+                    }
+                }
+                if let Some(c) = fill {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+                if let Some(c) = stroke {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -967,6 +1026,33 @@ pub fn create_document_json(
                         *color,
                         *border_color,
                         *border_width,
+                    );
+                }
+                CreateOp::Path {
+                    page,
+                    segments,
+                    fill,
+                    stroke,
+                    stroke_width,
+                    opacity,
+                } if *page == page_index => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("BPG{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id =
+                            doc.add_object(Object::Dictionary(extgstate_dict(*o)));
+                        extgstate_res.set(key.clone(), Object::Reference(gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    emit_path(
+                        &mut content,
+                        gs_key.as_deref(),
+                        segments,
+                        *fill,
+                        *stroke,
+                        *stroke_width,
                     );
                 }
                 CreateOp::SetRotation { .. } => {}
@@ -2187,5 +2273,32 @@ mod tests {
             }
         }
         assert!(found, "created page should have a /Link annot");
+    }
+
+    #[test]
+    fn path_create() {
+        let ops = r#"[
+            {"op":"addPage","width":595,"height":842},
+            {"op":"path","page":0,"segments":[
+                {"t":"m","x":10,"y":10},
+                {"t":"l","x":100,"y":10},
+                {"t":"l","x":100,"y":100},
+                {"t":"z"}
+            ],"fill":[0,0,1],"stroke":[0,0,0],"strokeWidth":1.5}
+        ]"#;
+        let out = create_document_json(ops, &[], &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let contents = doc.get_dictionary(pid).unwrap().get(b"Contents").unwrap();
+        let content_id = match contents {
+            lopdf::Object::Reference(r) => *r,
+            _ => panic!("expected a reference"),
+        };
+        let stream = doc.get_object(content_id).unwrap().as_stream().unwrap();
+        let bytes = stream.decompressed_content().unwrap_or_else(|_| stream.content.clone());
+        let s = String::from_utf8_lossy(&bytes).into_owned();
+        assert!(s.contains("10 10 m"), "expected moveto: {s}");
+        assert!(s.contains(" l"), "expected lineto: {s}");
+        assert!(s.contains('B'), "expected fill+stroke paint op B: {s}");
     }
 }

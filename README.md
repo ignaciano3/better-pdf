@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.10.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, page rotation/resize in 0.7.0, PNG transparency (RGBA/gray+alpha alpha channel preserved as a soft mask) in 0.8.0, PDF page embedding (`embedPdfPage` + `drawPage` Form XObject stamping) in 0.9.0, and clickable link annotations (`page.drawLink`) in 0.10.0. The public API may still change before 1.0.
+> **Status:** 0.11.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, page rotation/resize in 0.7.0, PNG transparency (RGBA/gray+alpha alpha channel preserved as a soft mask) in 0.8.0, PDF page embedding (`embedPdfPage` + `drawPage` Form XObject stamping) in 0.9.0, clickable link annotations (`page.drawLink`) in 0.10.0, and vector paths (`page.drawSvgPath` + `page.drawPolygon`) in 0.11.0. The public API may still change before 1.0.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -31,6 +31,7 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Embed transparent PNG images: the alpha channel of RGBA and gray+alpha PNGs is preserved as a PDF soft mask (`/SMask`). `embedPng` just works — no API change.
 - Embed pages from other PDFs as Form XObjects with `doc.embedPdfPage(src, pageIndex)` + `page.drawPage(embedded, {x, y, width?, height?})` — watermarks, letterhead, N-up layouts, overlays. Works on loaded and created documents.
 - Add clickable link annotations with `page.drawLink({ x, y, width, height, url })` (external URI) or `page.drawLink({ x, y, width, height, goToPage })` (internal page-index jump) on loaded and created documents.
+- Draw vector paths: `page.drawSvgPath(d, { fill?, stroke?, strokeWidth?, opacity? })` (SVG path-data string; supports M/L/H/V/C/S/Q/T/Z) and `page.drawPolygon(points, { fill?, stroke?, strokeWidth?, opacity?, closed? })` on loaded and created documents. SVG arc commands (A/a) are not yet supported.
 
 ## Install
 
@@ -318,6 +319,38 @@ const output = await doc.save();
 
 > Exactly one of `url` or `goToPage` must be provided; passing both or neither throws. `goToPage` is 0-based (matches `doc.getPage(i)`). Named destinations and cross-document jumps are not supported.
 
+### (i) Vector paths
+
+Draw SVG path-data strings or polygons. Coordinates are PDF user space (origin
+bottom-left, y increases upward). Works on loaded and created documents.
+
+```ts
+import { PdfDocument, PageSizes, rgb } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);
+
+// SVG path — house icon outline
+page.drawSvgPath(
+  "M 150 200 L 100 150 L 100 100 L 200 100 L 200 150 Z",
+  { fill: rgb(0.2, 0.5, 0.9), stroke: rgb(0.1, 0.3, 0.7), strokeWidth: 1.5 },
+);
+
+// Polygon — triangle
+page.drawPolygon(
+  [{ x: 300, y: 250 }, { x: 240, y: 150 }, { x: 360, y: 150 }],
+  { fill: rgb(0.9, 0.6, 0.1), strokeWidth: 1, closed: true },
+);
+
+const output = await doc.save();
+await Bun.write("paths.pdf", output);
+```
+
+> Supported SVG commands: `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `S`/`s`,
+> `Q`/`q`, `T`/`t`, `Z`/`z`. Arc commands (`A`/`a`) are **not yet supported** and throw.
+> SVG artwork authored for screen (y-down) will appear flipped — negate y or apply a
+> transform before passing path data.
+
 ### (j) Rotate & resize pages
 
 ```ts
@@ -434,6 +467,8 @@ soon as they are made.
 - `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
 - `page.drawRectangle(options)` — `options`: `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`
 - `page.drawEllipse(options)` — `options`: `{ x, y, xScale, yScale, color?, borderColor?, borderWidth?, opacity? }` (`x`,`y` = center; `xScale`,`yScale` = radii)
+- `page.drawSvgPath(d: string, options): void` — draw an SVG path-data string; `options`: `{ fill?, stroke?, strokeWidth?, opacity? }`; supports M/L/H/V/C/S/Q/T/Z (arcs A/a throw)
+- `page.drawPolygon(points: {x,y}[], options): void` — draw a polygon; `options`: `{ fill?, stroke?, strokeWidth?, opacity?, closed? }` (`closed` defaults to `true`)
 - `page.drawLink(options): void` — add a clickable link annotation; `options` is one of:
   - `{ x, y, width, height, url: string }` — external URI
   - `{ x, y, width, height, goToPage: number }` — internal page jump (0-based); navigates to the top of the target page
@@ -660,6 +695,9 @@ count).
 - Page rotation and resize are supported: `page.setRotation(degrees)`, `page.setSize(w, h)`,
   `page.setMediaBox(x0, y0, x1, y1)` on loaded and created pages (0.7.0).
   Blank-page insertion is not yet available.
+- Vector paths (`page.drawSvgPath`, `page.drawPolygon`) are supported (0.11.0).
+  SVG arc commands (A/a) are not yet supported. Path coordinates are PDF user space (y-up);
+  SVG artwork authored y-down will appear flipped.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
   plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged

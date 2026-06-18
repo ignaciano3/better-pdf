@@ -8,6 +8,12 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-18
+
+### Added
+
+- Vector paths: `page.drawSvgPath()` (SVG path data) and `page.drawPolygon()` with fill/stroke/opacity, on loaded and created PDFs. SVG arcs (A/a) not yet supported.
+
 ## [0.10.0] - 2026-06-18
 
 ### Added

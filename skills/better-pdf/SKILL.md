@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images (including transparent PNGs with alpha preserved as a soft mask) and vector graphics, add clickable link annotations (external URLs and internal page jumps) with page.drawLink(), read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, rotate or resize individual pages, embed pages from other PDFs as Form XObjects (watermarks, letterhead, N-up). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, embedding transparent PNG images, adding hyperlinks or internal navigation links to a PDF, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, rotating or resizing pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images (including transparent PNGs with alpha preserved as a soft mask) and vector graphics, draw SVG path-data strings with page.drawSvgPath() or polygons with page.drawPolygon(), add clickable link annotations (external URLs and internal page jumps) with page.drawLink(), read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, rotate or resize individual pages, embed pages from other PDFs as Form XObjects (watermarks, letterhead, N-up). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, embedding transparent PNG images, drawing vector paths or polygons, adding hyperlinks or internal navigation links to a PDF, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, rotating or resizing pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -110,6 +110,8 @@ await doc.save();
 | `page.setMediaBox(x0, y0, x1, y1)` | Set PDF /MediaBox directly — loaded or created |
 | `doc.embedPdfPage(src, pageIndex)` → `Promise<EmbeddedPdfPage>` | Import a page from another PDF as a Form XObject (loaded or created doc) |
 | `page.drawPage(embedded, {x, y, width?, height?})` | Stamp the Form XObject; width/height default to intrinsic source size |
+| `page.drawSvgPath(d, { fill?, stroke?, strokeWidth?, opacity? })` | Draw an SVG path-data string; supports M/L/H/V/C/S/Q/T/Z (arcs A/a not supported); coordinates are PDF user space (y-up) |
+| `page.drawPolygon(points, { fill?, stroke?, strokeWidth?, opacity?, closed? })` | Draw a polygon from `{x,y}[]`; `closed` defaults to `true` |
 | `page.drawLink({ x, y, width, height, url })` | Add a clickable external-URI link annotation (invisible border by default) |
 | `page.drawLink({ x, y, width, height, goToPage })` | Add a clickable internal page-jump annotation; `goToPage` is 0-based |
 | `doc.embedFont(bytes, { subset? })` → `Promise<PdfFont>` | Embed TTF/OTF; returns a `PdfFont` for `drawText` |
@@ -189,6 +191,39 @@ await Bun.write("report-letterhead.pdf", output);
   the source page's intrinsic MediaBox dimensions; pass explicit values to scale.
 - Interactive form fields and annotations on the embedded page are **not carried
   over** — static visual appearance only.
+
+## Vector paths
+
+Draw SVG path-data strings or polygons onto any page. Both work on loaded and
+created documents. Coordinates are **PDF user space** (origin bottom-left, y-up).
+
+```ts
+import { PdfDocument, PageSizes, rgb } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);
+
+// SVG path — simple triangle
+page.drawSvgPath("M 150 250 L 80 120 L 220 120 Z", {
+  fill: rgb(0.2, 0.5, 0.9),
+  stroke: rgb(0.1, 0.3, 0.7),
+  strokeWidth: 1.5,
+  opacity: 0.9,
+});
+
+// Polygon from point array
+page.drawPolygon(
+  [{ x: 300, y: 250 }, { x: 250, y: 150 }, { x: 350, y: 150 }],
+  { fill: rgb(0.9, 0.6, 0.1), strokeWidth: 1 },
+);
+
+const output = await doc.save();
+```
+
+- Supported SVG commands: `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `S`/`s`,
+  `Q`/`q`, `T`/`t`, `Z`/`z` (absolute and relative variants).
+- **SVG arc commands (`A`/`a`) are not yet supported** — they throw at call time.
+- SVG artwork authored y-down will appear flipped — negate y or transform before passing.
 
 ## Link annotations
 

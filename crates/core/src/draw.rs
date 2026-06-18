@@ -117,6 +117,26 @@ enum DrawOp {
         #[serde(rename = "box")]
         media_box: [f32; 4],
     },
+    #[serde(rename = "path")]
+    Path {
+        page: usize,
+        segments: Vec<Seg>,
+        fill: Option<[f32; 3]>,
+        stroke: Option<[f32; 3]>,
+        #[serde(rename = "strokeWidth")]
+        stroke_width: Option<f32>,
+        opacity: Option<f32>,
+    },
+}
+
+/// A single path segment, tagged by `t`.
+#[derive(Deserialize, Clone)]
+#[serde(tag = "t", rename_all = "lowercase")]
+pub(crate) enum Seg {
+    M { x: f32, y: f32 },
+    L { x: f32, y: f32 },
+    C { x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32 },
+    Z,
 }
 
 pub(crate) const STANDARD_14: &[&str] = &[
@@ -448,6 +468,59 @@ pub(crate) fn emit_ellipse(
     );
     out.extend_from_slice(b"h\n");
     out.extend_from_slice(paint_op(fill.is_some(), border.is_some()).as_bytes());
+    out.extend_from_slice(b"\nQ\n");
+}
+
+pub(crate) fn emit_path(
+    out: &mut Vec<u8>,
+    gs_key: Option<&str>,
+    segments: &[Seg],
+    fill: Option<[f32; 3]>,
+    stroke: Option<[f32; 3]>,
+    stroke_width: Option<f32>,
+) {
+    out.extend_from_slice(b"q\n");
+    if let Some(k) = gs_key {
+        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+    }
+    if let Some([r, g, b]) = fill {
+        out.extend_from_slice(
+            format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
+        );
+    }
+    if let Some([r, g, b]) = stroke {
+        out.extend_from_slice(
+            format!("{} {} {} RG\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
+        );
+        out.extend_from_slice(
+            format!("{} w\n", fmt_num(stroke_width.unwrap_or(1.0))).as_bytes(),
+        );
+    }
+    for seg in segments {
+        match seg {
+            Seg::M { x, y } => {
+                out.extend_from_slice(format!("{} {} m\n", fmt_num(*x), fmt_num(*y)).as_bytes());
+            }
+            Seg::L { x, y } => {
+                out.extend_from_slice(format!("{} {} l\n", fmt_num(*x), fmt_num(*y)).as_bytes());
+            }
+            Seg::C { x1, y1, x2, y2, x, y } => {
+                out.extend_from_slice(
+                    format!(
+                        "{} {} {} {} {} {} c\n",
+                        fmt_num(*x1), fmt_num(*y1),
+                        fmt_num(*x2), fmt_num(*y2),
+                        fmt_num(*x),  fmt_num(*y)
+                    )
+                    .as_bytes(),
+                );
+            }
+            Seg::Z => {
+                out.extend_from_slice(b"h\n");
+            }
+        }
+    }
+    out.extend_from_slice(paint_op(fill.is_some(), stroke.is_some()).as_bytes());
     out.extend_from_slice(b"\nQ\n");
 }
 
@@ -881,6 +954,55 @@ pub fn apply_draw_ops_json(
                         return Err(format!("goToPage {target} out of range ({page_count} pages)"));
                     }
             }
+            DrawOp::Path {
+                page,
+                segments,
+                fill,
+                stroke,
+                stroke_width,
+                opacity,
+            } => {
+                if *page >= page_count {
+                    return Err(format!("page {page} out of range ({page_count} pages)"));
+                }
+                if segments.is_empty() {
+                    return Err("path must have at least one segment".to_string());
+                }
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                if let Some(sw) = stroke_width
+                    && (!sw.is_finite() || *sw < 0.0) {
+                        return Err("strokeWidth must be >= 0".to_string());
+                    }
+                for seg in segments.iter() {
+                    let coords: Vec<f32> = match seg {
+                        Seg::M { x, y } | Seg::L { x, y } => vec![*x, *y],
+                        Seg::C { x1, y1, x2, y2, x, y } => vec![*x1, *y1, *x2, *y2, *x, *y],
+                        Seg::Z => vec![],
+                    };
+                    for &v in &coords {
+                        if !v.is_finite() {
+                            return Err("invalid coordinate".to_string());
+                        }
+                    }
+                }
+                if let Some(c) = fill {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+                if let Some(c) = stroke {
+                    for &v in c.iter() {
+                        if !v.is_finite() {
+                            return Err("invalid color".to_string());
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -897,6 +1019,7 @@ pub fn apply_draw_ops_json(
             DrawOp::SetRotation { page, .. } => *page,
             DrawOp::SetMediaBox { page, .. } => *page,
             DrawOp::Link { page, .. } => *page,
+            DrawOp::Path { page, .. } => *page,
         };
         if let Some(entry) = page_ops.iter_mut().find(|(idx, _)| *idx == page_idx) {
             entry.1.push(op);
@@ -1172,6 +1295,34 @@ pub fn apply_draw_ops_json(
                         *color,
                         *border_color,
                         *border_width,
+                    );
+                }
+                DrawOp::Path {
+                    segments,
+                    fill,
+                    stroke,
+                    stroke_width,
+                    opacity,
+                    page: _,
+                } => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("BPG{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id = inc.new_document.add_object(
+                            Object::Dictionary(extgstate_dict(*o))
+                        );
+                        extgstates_on_page.push((key.clone(), gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+                    emit_path(
+                        &mut stream_content,
+                        gs_key.as_deref(),
+                        segments,
+                        *fill,
+                        *stroke,
+                        *stroke_width,
                     );
                 }
                 // Mutation/annotation ops produce no content; applied to the
@@ -2172,5 +2323,52 @@ mod tests {
             "[]",
         );
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn draws_path_with_fill_and_stroke() {
+        let json = r#"[{"op":"path","page":0,"segments":[
+            {"t":"m","x":50,"y":50},{"t":"l","x":150,"y":50},
+            {"t":"c","x1":160,"y1":60,"x2":160,"y2":140,"x":150,"y":150},
+            {"t":"z"}],"fill":[1,0,0],"stroke":[0,0,0],"strokeWidth":2}]"#;
+        let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap();
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains("50 50 m"), "content: {s}");
+        assert!(s.contains(" l"), "content: {s}");
+        assert!(s.contains(" c"), "content: {s}");
+        assert!(s.contains("h\n") || s.contains(" h"), "close: {s}");
+        assert!(s.contains('B'), "fill+stroke should paint with B: {s}");
+        assert!(s.contains("1 0 0 rg"), "fill color: {s}");
+        assert!(s.contains("2 w"), "stroke width: {s}");
+    }
+
+    #[test]
+    fn path_fill_only_uses_f() {
+        let json = r#"[{"op":"path","page":0,"segments":[{"t":"m","x":0,"y":0},{"t":"l","x":10,"y":0},{"t":"l","x":10,"y":10},{"t":"z"}],"fill":[0,0,1]}]"#;
+        let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap();
+        let s = last_draw_stream_content(&out);
+        assert!(s.split_whitespace().any(|w| w == "f"), "fill-only path should paint with f: {s}");
+    }
+
+    #[test]
+    fn path_opacity_registers_extgstate() {
+        let json = r#"[{"op":"path","page":0,"segments":[{"t":"m","x":0,"y":0},{"t":"l","x":10,"y":10}],"stroke":[0,0,0],"opacity":0.5}]"#;
+        let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap();
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains("/BPG"), "opacity should reference an ExtGState: {s}");
+    }
+
+    #[test]
+    fn path_rejects_non_finite_coord() {
+        // serde_json rejects 1e999 (inf) before we even validate, so either way we get an error
+        let json = r#"[{"op":"path","page":0,"segments":[{"t":"m","x":0,"y":0},{"t":"l","x":1e999,"y":0}],"stroke":[0,0,0]}]"#;
+        assert!(apply_draw_ops_json(FICHA, json, &[], &[], "[]").is_err());
+    }
+
+    #[test]
+    fn path_rejects_empty_segments() {
+        let json = r#"[{"op":"path","page":0,"segments":[],"stroke":[0,0,0]}]"#;
+        let err = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap_err();
+        assert!(err.contains("segment"), "expected segment error, got: {err}");
     }
 }

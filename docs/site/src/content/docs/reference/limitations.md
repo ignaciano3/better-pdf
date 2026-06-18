@@ -56,6 +56,15 @@ description: What better-pdf does not (yet) support.
     annotations, and hyperlinks on the embedded page are **not carried over** —
     they appear as their static visual appearance only. Flatten fields in the
     source PDF before embedding if their visual state must be exact.
+- **Vector paths** — `page.drawSvgPath(d, options)` (SVG path-data string) and
+  `page.drawPolygon(points, options)` with fill/stroke/opacity — are **supported**
+  on both loaded and created PDFs (added in 0.11.0).
+  - **SVG arc commands (`A`/`a`) are not yet supported** — they throw at call time.
+    Supported commands: `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `S`/`s`,
+    `Q`/`q`, `T`/`t`, `Z`/`z`.
+  - **Coordinates are PDF user space (y-up).** SVG path data authored for the web
+    (y-down) will appear vertically flipped unless you negate y values or apply a
+    transform before calling `drawSvgPath`.
 - **PNG images:** RGBA and gray+alpha PNGs are **supported** — the alpha channel
   is preserved as a soft mask (`/SMask`) on the embedded image XObject (added in
   0.8.0). Opaque RGB / grayscale PNGs are also supported.
