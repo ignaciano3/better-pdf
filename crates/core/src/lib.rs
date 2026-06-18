@@ -4,6 +4,7 @@ mod appearance;
 pub mod create;
 mod fonts;
 mod draw;
+mod embed;
 mod fill;
 mod flatten;
 mod font_metrics;

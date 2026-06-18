@@ -87,6 +87,20 @@ enum DrawOp {
         border_width: Option<f32>,
         opacity: Option<f32>,
     },
+    #[serde(rename = "page")]
+    Page {
+        page: usize,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        #[serde(rename = "imageOffset")]
+        image_offset: usize,
+        #[serde(rename = "imageLength")]
+        image_length: usize,
+        #[serde(rename = "srcPage")]
+        src_page: usize,
+    },
     #[serde(rename = "setRotation")]
     SetRotation { page: usize, degrees: i64 },
     #[serde(rename = "setMediaBox")]
@@ -616,6 +630,32 @@ pub fn apply_draw_ops_json(
                 // Validate that the image bytes are decodable
                 crate::appearance::signature_image(&images[*image_offset..end])?;
             }
+            DrawOp::Page {
+                page,
+                width,
+                height,
+                image_offset,
+                image_length,
+                ..
+            } => {
+                if *page >= page_count {
+                    return Err(format!(
+                        "page {page} out of range ({page_count} pages)"
+                    ));
+                }
+                let end = image_offset
+                    .checked_add(*image_length)
+                    .ok_or_else(|| "page source range out of bounds".to_string())?;
+                if end > images.len() {
+                    return Err("page source range out of bounds".to_string());
+                }
+                if !width.is_finite() || *width <= 0.0 {
+                    return Err("width must be finite and > 0".to_string());
+                }
+                if !height.is_finite() || *height <= 0.0 {
+                    return Err("height must be finite and > 0".to_string());
+                }
+            }
             DrawOp::Line {
                 page,
                 thickness,
@@ -770,6 +810,7 @@ pub fn apply_draw_ops_json(
             DrawOp::Line { page, .. } => *page,
             DrawOp::Rectangle { page, .. } => *page,
             DrawOp::Ellipse { page, .. } => *page,
+            DrawOp::Page { page, .. } => *page,
             DrawOp::SetRotation { page, .. } => *page,
             DrawOp::SetMediaBox { page, .. } => *page,
         };
@@ -830,6 +871,9 @@ pub fn apply_draw_ops_json(
 
     // Global image counter for unique XObject keys across all pages
     let mut img_counter: usize = 0;
+
+    // Global page-embed counter for unique BPp Form-XObject keys across all pages
+    let mut page_embed_counter: usize = 0;
 
     // Global ExtGState counter for unique BPG keys across all pages
     let mut gs_counter: usize = 0;
@@ -928,6 +972,40 @@ pub fn apply_draw_ops_json(
                     let key = format!("BPI{img_counter}");
                     img_counter += 1;
                     emit_image_op(&mut stream_content, &key, *x, *y, *width, *height);
+                    xobjects_on_page.push((key, xid));
+                }
+                DrawOp::Page {
+                    x,
+                    y,
+                    width,
+                    height,
+                    image_offset,
+                    image_length,
+                    src_page,
+                    page: _,
+                } => {
+                    let end = image_offset + image_length;
+                    let src = &images[*image_offset..end];
+                    // embed_page_as_xobject borrows new_document mutably; the draw
+                    // stream is a separate Vec, so no borrow conflict here.
+                    let (xid, bw, bh) =
+                        crate::embed::embed_page_as_xobject(&mut inc.new_document, src, *src_page)?;
+                    let key = format!("BPp{page_embed_counter}");
+                    page_embed_counter += 1;
+                    // Form BBox is [0 0 bw bh], so scale by width/bw, height/bh.
+                    stream_content.extend_from_slice(b"q\n");
+                    stream_content.extend_from_slice(
+                        format!(
+                            "{} 0 0 {} {} {} cm\n",
+                            fmt_num(*width / bw),
+                            fmt_num(*height / bh),
+                            fmt_num(*x),
+                            fmt_num(*y),
+                        )
+                        .as_bytes(),
+                    );
+                    stream_content.extend_from_slice(format!("/{key} Do\n").as_bytes());
+                    stream_content.extend_from_slice(b"Q\n");
                     xobjects_on_page.push((key, xid));
                 }
                 DrawOp::Line {
@@ -1250,6 +1328,50 @@ mod tests {
             0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xc9, 0xfe, 0x92,
             0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
         ]
+    }
+
+    /// Walk page 0's Resources/XObject and return true if any entry resolves to
+    /// a stream with /Subtype /Form.
+    fn page0_has_form_xobject(out: &[u8]) -> bool {
+        let doc = Document::load_mem(out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let res = match page.get(b"Resources") {
+            Ok(lopdf::Object::Reference(r)) => doc.get_dictionary(*r).unwrap(),
+            Ok(lopdf::Object::Dictionary(d)) => d,
+            _ => return false,
+        };
+        let xo = match res.get(b"XObject") {
+            Ok(lopdf::Object::Reference(r)) => doc.get_dictionary(*r).unwrap(),
+            Ok(lopdf::Object::Dictionary(d)) => d,
+            _ => return false,
+        };
+        for (_k, v) in xo.iter() {
+            let id = match v {
+                lopdf::Object::Reference(r) => *r,
+                _ => continue,
+            };
+            if let Ok(s) = doc.get_object(id).and_then(|o| o.as_stream())
+                && s.dict.get(b"Subtype").and_then(|n| n.as_name()).ok() == Some(b"Form".as_ref())
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn draws_embedded_pdf_page() {
+        // Embed page 0 of FICHA (passed as the source via the images blob) onto FICHA page 0.
+        let src = FICHA;
+        let len = src.len();
+        let json = format!(
+            r#"[{{"op":"page","page":0,"x":0,"y":0,"width":300,"height":400,"imageOffset":0,"imageLength":{len},"srcPage":0}}]"#
+        );
+        let out = apply_draw_ops_json(FICHA, &json, src, &[], "[]").unwrap();
+        assert!(page0_has_form_xobject(&out), "page 0 must carry a Form XObject");
+        let content = last_draw_stream_content(&out);
+        assert!(content.contains("/BPp0 Do"), "draw stream missing /BPp0 Do: {content}");
     }
 
     #[test]

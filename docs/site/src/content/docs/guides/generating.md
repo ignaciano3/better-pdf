@@ -370,3 +370,93 @@ the next `doc.save()`.
 :::note[Not yet available]
 Blank-page insertion is not yet available.
 :::
+
+## Embed pages from other PDFs
+
+`doc.embedPdfPage(src, pageIndex)` imports a page from another PDF as a
+reusable Form XObject. `page.drawPage(embedded, options)` stamps it — once or
+many times — onto any page. Works on both loaded and created documents.
+
+### Watermark / letterhead overlay
+
+Stamp a pre-built letterhead onto every page of an existing PDF:
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const docBytes       = new Uint8Array(await Bun.file("report.pdf").arrayBuffer());
+const letterheadBytes = new Uint8Array(await Bun.file("letterhead.pdf").arrayBuffer());
+
+const doc = await PdfDocument.load(docBytes);
+
+// Import page 0 of the letterhead as a Form XObject (intrinsic size preserved)
+const letterhead = await doc.embedPdfPage(letterheadBytes, 0);
+
+for (let i = 0; i < doc.getPageCount(); i++) {
+  const page = doc.getPage(i);
+  // Draw at full size, aligned to the page origin
+  page.drawPage(letterhead, { x: 0, y: 0 });
+}
+
+const output = await doc.save();
+await Bun.write("report-letterhead.pdf", output);
+```
+
+`width` and `height` default to the source page's intrinsic size (MediaBox
+dimensions). Pass explicit values to scale the embedded page:
+
+```ts
+page.drawPage(letterhead, { x: 0, y: 0, width: 595, height: 842 });
+```
+
+### N-up layout (multiple pages per sheet)
+
+Place four pages from a source document side-by-side on a single A4 sheet:
+
+```ts
+import { PdfDocument, PageSizes } from "@ignaciano3/better-pdf";
+
+const srcBytes = new Uint8Array(await Bun.file("slides.pdf").arrayBuffer());
+const doc = await PdfDocument.create();
+
+// Each slot is half the A4 width × half the A4 height
+const [W, H] = PageSizes.A4;   // 595 × 842 pt
+const slotW = W / 2;
+const slotH = H / 2;
+
+const sheet = doc.addPage(PageSizes.A4);
+
+// Import four pages from the source PDF
+const slots = [
+  { pageIndex: 0, x: 0,     y: slotH },   // top-left
+  { pageIndex: 1, x: slotW, y: slotH },   // top-right
+  { pageIndex: 2, x: 0,     y: 0     },   // bottom-left
+  { pageIndex: 3, x: slotW, y: 0     },   // bottom-right
+];
+
+for (const { pageIndex, x, y } of slots) {
+  const embedded = await doc.embedPdfPage(srcBytes, pageIndex);
+  sheet.drawPage(embedded, { x, y, width: slotW, height: slotH });
+}
+
+const output = await doc.save();
+await Bun.write("4up.pdf", output);
+```
+
+### API
+
+| Method | Signature | Notes |
+|--------|-----------|-------|
+| `doc.embedPdfPage(src, pageIndex)` | `(src: Uint8Array, pageIndex: number) => Promise<EmbeddedPdfPage>` | Import a page from `src` as a Form XObject; 0-based index |
+| `page.drawPage(embedded, opts)` | `(embedded: EmbeddedPdfPage, opts: { x: number; y: number; width?: number; height?: number }) => void` | Stamp the Form XObject at `(x, y)`; `width`/`height` default to intrinsic source size |
+
+Both methods are available on loaded and created documents/pages and take
+effect on the next `doc.save()`.
+
+:::caution[Interactive content is flattened]
+Only the page's visual content and resources are copied into the Form XObject.
+Interactive form fields, annotations, and hyperlinks on the embedded page are
+**not carried over** — they appear as their static visual appearance only.
+Flatten AcroForm fields in the source PDF before embedding if you need their
+visual state preserved exactly.
+:::

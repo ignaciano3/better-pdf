@@ -2,6 +2,7 @@ import { StandardFonts } from "./fonts.js";
 import { rgb, type Color } from "./color.js";
 import type { DrawQueue, LineOp, RectangleOp, EllipseOp } from "./draw-queue.js";
 import { PdfImage } from "./image.js";
+import { EmbeddedPdfPage } from "./embedded-page.js";
 import { PdfFont } from "./font.js";
 import { InvalidRotationError } from "../core/errors.js";
 
@@ -72,6 +73,16 @@ export interface DrawImageOptions {
   /** Width in PDF points. Defaults to the image's intrinsic pixel width. */
   width?: number;
   /** Height in PDF points. Defaults to the image's intrinsic pixel height. */
+  height?: number;
+}
+
+/** Options for {@link PdfPage.drawPage}. Coordinates use the PDF convention: origin bottom-left. */
+export interface DrawPageOptions {
+  x: number;
+  y: number;
+  /** Width in PDF points. Defaults to the embedded page's intrinsic width. */
+  width?: number;
+  /** Height in PDF points. Defaults to the embedded page's intrinsic height. */
   height?: number;
 }
 
@@ -170,6 +181,31 @@ export class PdfPage {
       y: options.y,
       width,
       height,
+    });
+  }
+
+  /**
+   * Draw an embedded PDF page on this page at `(x, y)` (bottom-left corner,
+   * origin bottom-left). The page must first be embedded via `doc.embedPdfPage()`.
+   */
+  drawPage(embedded: EmbeddedPdfPage, options: DrawPageOptions): void {
+    const width = options.width ?? embedded.width;
+    const height = options.height ?? embedded.height;
+    for (const [v, name] of [
+      [options.x, "x"],
+      [options.y, "y"],
+      [width, "width"],
+      [height, "height"],
+    ] as const) {
+      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
+    }
+    if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
+    this.queue.pushPage(this.index, embedded.bytes, {
+      x: options.x,
+      y: options.y,
+      width,
+      height,
+      srcPage: embedded.srcPage,
     });
   }
 

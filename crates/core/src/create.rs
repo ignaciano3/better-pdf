@@ -93,6 +93,19 @@ enum CreateOp {
         border_width: Option<f32>,
         opacity: Option<f32>,
     },
+    Page {
+        page: usize,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        #[serde(rename = "imageOffset")]
+        image_offset: usize,
+        #[serde(rename = "imageLength")]
+        image_length: usize,
+        #[serde(rename = "srcPage")]
+        src_page: usize,
+    },
     SetRotation { page: usize, degrees: i64 },
     SetMediaBox {
         page: usize,
@@ -340,6 +353,30 @@ pub fn create_document_json(
                     return Err("image range out of bounds".to_string());
                 }
                 crate::appearance::signature_image(&images[*image_offset..end])?;
+            }
+            CreateOp::Page {
+                page,
+                width,
+                height,
+                image_offset,
+                image_length,
+                ..
+            } => {
+                if *page >= pages.len() {
+                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
+                }
+                let end = image_offset
+                    .checked_add(*image_length)
+                    .ok_or_else(|| "page source range out of bounds".to_string())?;
+                if end > images.len() {
+                    return Err("page source range out of bounds".to_string());
+                }
+                if !width.is_finite() || *width <= 0.0 {
+                    return Err("width must be finite and > 0".to_string());
+                }
+                if !height.is_finite() || *height <= 0.0 {
+                    return Err("height must be finite and > 0".to_string());
+                }
             }
             CreateOp::Line {
                 page,
@@ -678,6 +715,9 @@ pub fn create_document_json(
     // Global image counter for unique XObject keys
     let mut img_counter: usize = 0;
 
+    // Global page-embed counter for unique BPp Form-XObject keys across all pages
+    let mut page_embed_counter: usize = 0;
+
     // Global ExtGState counter for unique BPG keys across all pages
     let mut gs_counter: usize = 0;
 
@@ -769,6 +809,38 @@ pub fn create_document_json(
                     img_counter += 1;
                     xobject_res.set(key.clone(), Object::Reference(xid));
                     emit_image_op(&mut content, &key, *x, *y, *width, *height);
+                }
+                CreateOp::Page {
+                    page,
+                    x,
+                    y,
+                    width,
+                    height,
+                    image_offset,
+                    image_length,
+                    src_page,
+                } if *page == page_index => {
+                    let end = image_offset + image_length;
+                    let src = &images[*image_offset..end];
+                    let (xid, bw, bh) =
+                        crate::embed::embed_page_as_xobject(&mut doc, src, *src_page)?;
+                    let key = format!("BPp{page_embed_counter}");
+                    page_embed_counter += 1;
+                    xobject_res.set(key.clone(), Object::Reference(xid));
+                    // Form BBox is [0 0 bw bh], so scale by width/bw, height/bh.
+                    content.extend_from_slice(b"q\n");
+                    content.extend_from_slice(
+                        format!(
+                            "{} 0 0 {} {} {} cm\n",
+                            crate::draw::fmt_num(*width / bw),
+                            crate::draw::fmt_num(*height / bh),
+                            crate::draw::fmt_num(*x),
+                            crate::draw::fmt_num(*y),
+                        )
+                        .as_bytes(),
+                    );
+                    content.extend_from_slice(format!("/{key} Do\n").as_bytes());
+                    content.extend_from_slice(b"Q\n");
                 }
                 CreateOp::Line {
                     page,
@@ -1496,6 +1568,69 @@ pub fn create_document_json(
 mod tests {
     use super::*;
     use lopdf::Document;
+
+    const FICHA: &[u8] =
+        include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
+
+    /// Walk page 0's Resources/XObject and return true if any entry resolves to
+    /// a stream with /Subtype /Form whose key starts with `BPp`.
+    fn page0_has_bpp_form_xobject(out: &[u8]) -> bool {
+        let doc = Document::load_mem(out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let res = match page.get(b"Resources") {
+            Ok(Object::Reference(r)) => doc.get_dictionary(*r).unwrap(),
+            Ok(Object::Dictionary(d)) => d,
+            _ => return false,
+        };
+        let xo = match res.get(b"XObject") {
+            Ok(Object::Reference(r)) => doc.get_dictionary(*r).unwrap(),
+            Ok(Object::Dictionary(d)) => d,
+            _ => return false,
+        };
+        for (k, v) in xo.iter() {
+            if !k.starts_with(b"BPp") {
+                continue;
+            }
+            let id = match v {
+                Object::Reference(r) => *r,
+                _ => continue,
+            };
+            if let Ok(s) = doc.get_object(id).and_then(|o| o.as_stream())
+                && s.dict.get(b"Subtype").and_then(|n| n.as_name()).ok() == Some(b"Form".as_ref())
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn page0_content(out: &[u8]) -> String {
+        let doc = Document::load_mem(out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let cid = match page.get(b"Contents").unwrap() {
+            Object::Reference(r) => *r,
+            Object::Array(a) => a[0].as_reference().unwrap(),
+            _ => panic!("unexpected contents"),
+        };
+        let stream = doc.get_object(cid).unwrap().as_stream().unwrap();
+        let bytes = stream.decompressed_content().unwrap_or_else(|_| stream.content.clone());
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    #[test]
+    fn creates_page_with_embedded_pdf_page() {
+        let src = FICHA;
+        let len = src.len();
+        let json = format!(
+            r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"page","page":0,"x":10,"y":20,"width":300,"height":400,"imageOffset":0,"imageLength":{len},"srcPage":0}}]"#
+        );
+        let out = create_document_json(&json, src, &[], "[]", "[]").unwrap();
+        assert!(page0_has_bpp_form_xobject(&out), "created page must carry a BPp Form XObject");
+        let content = page0_content(&out);
+        assert!(content.contains("/BPp0 Do"), "content missing /BPp0 Do: {content}");
+    }
 
     fn tiny_png() -> &'static [u8] {
         // 1×1 RGBA PNG (color_type=6) — same bytes as tiny_rgba_png below
