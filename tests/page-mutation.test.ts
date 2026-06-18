@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { PdfDocument } from "../src/index.js";
+import { PdfDocument, InvalidRotationError } from "../src/index.js";
 import { readFileSync } from "node:fs";
 
 const FIXTURE = "tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf";
@@ -25,5 +25,5 @@ test("resize a created page", async () => {
 
 test("setRotation rejects non-multiple of 90", async () => {
   const doc = await PdfDocument.load(readFileSync(FIXTURE));
-  expect(() => doc.getPage(0).setRotation(45)).toThrow();
+  expect(() => doc.getPage(0).setRotation(45)).toThrow(InvalidRotationError);
 });

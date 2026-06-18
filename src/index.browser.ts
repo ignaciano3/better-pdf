@@ -80,6 +80,7 @@ export {
   MissingOnStateError,
   PdfCoreError,
   InvalidImageError,
+  InvalidRotationError,
 } from "./core/errors.js";
 export { initializeWasm } from "./core/wasm-browser.js";
 export { generateFormTypes } from "./forms/typegen.js";

@@ -3,6 +3,7 @@ import { rgb, type Color } from "./color.js";
 import type { DrawQueue, LineOp, RectangleOp, EllipseOp } from "./draw-queue.js";
 import { PdfImage } from "./image.js";
 import { PdfFont } from "./font.js";
+import { InvalidRotationError } from "../core/errors.js";
 
 /** Options for {@link PdfPage.drawText}. Coordinates use the PDF convention: origin bottom-left. */
 export interface DrawTextOptions {
@@ -241,7 +242,7 @@ export class PdfPage {
    */
   setRotation(degrees: number): void {
     if (!Number.isFinite(degrees) || degrees % 90 !== 0) {
-      throw new RangeError(`degrees must be a finite multiple of 90, got ${degrees}`);
+      throw new InvalidRotationError(degrees);
     }
     this.queue.pushSetRotation(this.index, degrees);
   }
