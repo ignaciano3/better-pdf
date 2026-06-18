@@ -38,6 +38,10 @@ description: What better-pdf does not (yet) support.
     `page.setSize(width, height)`, and `page.setMediaBox(x0, y0, x1, y1)` on both
     loaded and created pages (added in 0.7.0).
   - **Not yet available:** Blank-page insertion.
+- **PNG images:** RGBA and gray+alpha PNGs are **supported** — the alpha channel
+  is preserved as a soft mask (`/SMask`) on the embedded image XObject (added in
+  0.8.0). Opaque RGB / grayscale PNGs are also supported.
+  - **Still unsupported:** palette (indexed-color), interlaced, and 16-bit-per-channel PNGs.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3
   forms, plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged

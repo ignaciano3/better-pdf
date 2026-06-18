@@ -67,6 +67,14 @@ const output = await doc.save();
 `embedJpg` works the same way for JPEG files. Both methods are available on
 loaded and created documents.
 
+:::note[PNG transparency]
+The alpha channel of RGBA and gray+alpha PNGs is preserved automatically. When
+you call `embedPng` with a transparent PNG, better-pdf extracts the alpha data
+and stores it as a soft mask (`/SMask`) on the image XObject. No API change is
+needed — `embedPng` + `drawImage` just work. Opaque (RGB / grayscale) PNGs are
+unaffected.
+:::
+
 ## Vector graphics
 
 ```ts

@@ -921,10 +921,10 @@ pub fn apply_draw_ops_json(
                     let end = image_offset + image_length;
                     let bytes = &images[*image_offset..end];
                     let img = crate::appearance::signature_image(bytes)?;
-                    let stream = crate::appearance::build_signature_image_xobject(img);
-                    let xid = inc
-                        .new_document
-                        .add_object(Object::Stream(stream));
+                    let xid = crate::appearance::build_image_xobjects(
+                        img,
+                        &mut |o| inc.new_document.add_object(o),
+                    );
                     let key = format!("BPI{img_counter}");
                     img_counter += 1;
                     emit_image_op(&mut stream_content, &key, *x, *y, *width, *height);
@@ -1228,12 +1228,27 @@ mod tests {
     }
 
     fn tiny_png() -> &'static [u8] {
+        // 1×1 RGBA PNG (color_type=6) — used by existing tests; also serves as the alpha fixture
         &[
             0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, b'I', b'H',
             b'D', b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
             0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, b'I', b'D', b'A', b'T', 0x78,
             0xda, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
             0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
+        ]
+    }
+
+    /// 1×1 RGBA PNG — explicit alias so new tests are self-documenting.
+    fn tiny_rgba_png() -> &'static [u8] { tiny_png() }
+
+    /// 1×1 opaque RGB PNG (color_type=2) — no alpha channel.
+    fn tiny_rgb_png() -> &'static [u8] {
+        &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xc9, 0xfe, 0x92,
+            0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
         ]
     }
 
@@ -1436,6 +1451,74 @@ mod tests {
         // Verify the draw stream references /BPI0 Do
         let s = last_draw_stream_content(&out);
         assert!(s.contains("/BPI0 Do"), "draw stream should contain '/BPI0 Do', got: {s}");
+    }
+
+    #[test]
+    fn loaded_image_with_alpha_has_smask() {
+        let png = tiny_rgba_png();
+        let len = png.len();
+        let json = format!(
+            r#"[{{"op":"image","page":0,"x":10,"y":10,"width":20,"height":20,"imageOffset":0,"imageLength":{len}}}]"#
+        );
+        let out = apply_draw_ops_json(FICHA, &json, png, &[], "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, first) = doc.get_pages().into_iter().next().unwrap();
+        let dict = doc.get_dictionary(first).unwrap();
+        let res = match dict.get(b"Resources").unwrap() {
+            lopdf::Object::Reference(r) => doc.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected Resources dict"),
+        };
+        let xobjs = match res.get(b"XObject").unwrap() {
+            lopdf::Object::Reference(r) => doc.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected XObject dict"),
+        };
+        let bpi_entry = xobjs.iter().find(|(k, _)| k.starts_with(b"BPI"))
+            .expect("expected a BPI* key in XObject resources");
+        let xobj_id = bpi_entry.1.as_reference().unwrap();
+        let xobj_stream = doc.get_object(xobj_id).unwrap().as_stream().unwrap();
+        let smask_val = xobj_stream.dict.get(b"SMask")
+            .expect("alpha PNG image XObject should have /SMask");
+        let smask_id = smask_val.as_reference()
+            .expect("/SMask should be an indirect reference");
+        let smask_stream = doc.get_object(smask_id).unwrap().as_stream().unwrap();
+        assert_eq!(
+            smask_stream.dict.get(b"ColorSpace").unwrap().as_name().unwrap(),
+            b"DeviceGray",
+            "/SMask image should have DeviceGray color space"
+        );
+    }
+
+    #[test]
+    fn loaded_opaque_image_has_no_smask() {
+        let png = tiny_rgb_png();
+        let len = png.len();
+        let json = format!(
+            r#"[{{"op":"image","page":0,"x":10,"y":10,"width":20,"height":20,"imageOffset":0,"imageLength":{len}}}]"#
+        );
+        let out = apply_draw_ops_json(FICHA, &json, png, &[], "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, first) = doc.get_pages().into_iter().next().unwrap();
+        let dict = doc.get_dictionary(first).unwrap();
+        let res = match dict.get(b"Resources").unwrap() {
+            lopdf::Object::Reference(r) => doc.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected Resources dict"),
+        };
+        let xobjs = match res.get(b"XObject").unwrap() {
+            lopdf::Object::Reference(r) => doc.get_object(*r).unwrap().as_dict().unwrap().clone(),
+            lopdf::Object::Dictionary(d) => d.clone(),
+            _ => panic!("expected XObject dict"),
+        };
+        let bpi_entry = xobjs.iter().find(|(k, _)| k.starts_with(b"BPI"))
+            .expect("expected a BPI* key in XObject resources");
+        let xobj_id = bpi_entry.1.as_reference().unwrap();
+        let xobj_stream = doc.get_object(xobj_id).unwrap().as_stream().unwrap();
+        assert!(
+            xobj_stream.dict.get(b"SMask").is_err(),
+            "opaque PNG image XObject should NOT have /SMask"
+        );
     }
 
     #[test]
