@@ -35,3 +35,11 @@ test("drawPolygon closed", async () => {
   const out = await doc.save();
   expect((await PdfDocument.load(out)).getPageCount()).toBe(1);
 });
+test("drawPolygon defaults to closed", async () => {
+  const doc = await PdfDocument.create();
+  const page = doc.addPage();
+  // No `closed` option — should default to true (closed polygon)
+  page.drawPolygon([{x:10,y:10},{x:50,y:10},{x:30,y:40}], { stroke: rgb(0,0,0) });
+  const out = await doc.save();
+  expect((await PdfDocument.load(out)).getPageCount()).toBe(1);
+});

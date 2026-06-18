@@ -83,7 +83,7 @@ export interface DrawPolygonOptions {
   strokeWidth?: number;
   /** Opacity 0..1. Default 1 (opaque). */
   opacity?: number;
-  /** Whether to close the polygon by appending a Z segment. Default false. */
+  /** Whether to close the polygon by appending a Z segment back to the first point. Default `true`. Pass `closed: false` for an open polyline. */
   closed?: boolean;
 }
 
@@ -430,7 +430,8 @@ export class PdfPage {
         throw new RangeError(`points[${i}] coordinates must be finite numbers`);
       }
     }
-    const { fill, stroke, strokeWidth, opacity, closed } = opts;
+    const { fill, stroke, strokeWidth, opacity } = opts;
+    const closed = opts.closed ?? true;
     validateOpacity(opacity);
     validateBorderWidth(strokeWidth, "strokeWidth");
     const segments: Segment[] = [
