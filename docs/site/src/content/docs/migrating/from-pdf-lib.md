@@ -266,6 +266,44 @@ Both work on loaded and created documents. The annotation border is suppressed
 by default (invisible clickable region). Named destinations are not supported —
 internal links use page-index jumps only.
 
+## Vector paths
+
+pdf-lib exposes `page.drawSvgPath(path, options)` for drawing SVG path-data strings.
+better-pdf matches that API and adds `page.drawPolygon`:
+
+| pdf-lib | better-pdf |
+| --- | --- |
+| `page.drawSvgPath(d, { color, borderColor, borderWidth, opacity })` | `page.drawSvgPath(d, { fill, stroke, strokeWidth, opacity })` — same concept, renamed options |
+| (no equivalent) | `page.drawPolygon(points, { fill, stroke, strokeWidth, opacity, closed? })` — draws a polygon from a `{x,y}[]` array |
+
+### Differences from pdf-lib
+
+- **Option names differ slightly.** pdf-lib uses `color`/`borderColor`/`borderWidth`;
+  better-pdf uses `fill`/`stroke`/`strokeWidth`.
+- **SVG arc commands (`A`/`a`) are not yet supported** — they throw at call time.
+  Supported commands: `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `S`/`s`,
+  `Q`/`q`, `T`/`t`, `Z`/`z` (absolute and relative).
+- **Coordinates are PDF user space (y-up).** SVG artwork authored for screen (y-down)
+  will appear vertically flipped; negate y values or apply a transform before passing
+  the path data.
+- Both `drawSvgPath` and `drawPolygon` work on loaded and created documents.
+
+```ts
+// pdf-lib
+page.drawSvgPath("M 0 0 L 100 0 L 50 80 Z", {
+  color: rgb(0.2, 0.5, 0.9),
+  borderColor: rgb(0.1, 0.3, 0.7),
+  borderWidth: 1.5,
+});
+
+// better-pdf
+page.drawSvgPath("M 0 0 L 100 0 L 50 80 Z", {
+  fill: rgb(0.2, 0.5, 0.9),
+  stroke: rgb(0.1, 0.3, 0.7),
+  strokeWidth: 1.5,
+});
+```
+
 ## Typed forms (no pdf-lib equivalent)
 
 Generate a schema module once, then field names, types, and option values are
