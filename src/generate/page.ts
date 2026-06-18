@@ -1,6 +1,6 @@
 import { StandardFonts } from "./fonts.js";
 import { rgb, type Color } from "./color.js";
-import type { DrawQueue, LineOp, RectangleOp, EllipseOp } from "./draw-queue.js";
+import type { DrawQueue, LineOp, RectangleOp, EllipseOp, LinkOp } from "./draw-queue.js";
 import { PdfImage } from "./image.js";
 import { EmbeddedPdfPage } from "./embedded-page.js";
 import { PdfFont } from "./font.js";
@@ -46,6 +46,18 @@ export interface DrawRectangleOptions {
   borderWidth?: number;
   /** Opacity 0..1. Default 1. */
   opacity?: number;
+}
+
+/** Options for {@link PdfPage.drawLink}. `(x, y)` is the lower-left corner. Coordinates use the PDF convention: origin bottom-left. */
+export interface DrawLinkOptions {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** URI target. Exactly one of `url` or `goToPage` must be provided. */
+  url?: string;
+  /** Zero-based page index to navigate to within the document. Exactly one of `url` or `goToPage` must be provided. */
+  goToPage?: number;
 }
 
 /** Options for {@link PdfPage.drawEllipse}. `(x, y)` is the center. */
@@ -347,5 +359,39 @@ export class PdfPage {
       ...(opacity !== undefined ? { opacity } : {}),
     };
     this.queue.pushEllipse(op);
+  }
+
+  /**
+   * Add a link annotation over a rectangular region on the page. Coordinates
+   * use the PDF convention: origin bottom-left. Exactly one of `url` or
+   * `goToPage` must be provided.
+   */
+  drawLink(options: DrawLinkOptions): void {
+    const { x, y, width, height, url, goToPage } = options;
+    for (const [v, name] of [
+      [x, "x"],
+      [y, "y"],
+      [width, "width"],
+      [height, "height"],
+    ] as const) {
+      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
+    }
+    if (width <= 0) throw new RangeError(`width must be > 0, got ${width}`);
+    if (height <= 0) throw new RangeError(`height must be > 0, got ${height}`);
+    if (url === undefined && goToPage === undefined) {
+      throw new Error("drawLink requires exactly one of `url` or `goToPage`");
+    }
+    if (url !== undefined && goToPage !== undefined) {
+      throw new Error("drawLink requires exactly one of `url` or `goToPage`");
+    }
+    const rect: [number, number, number, number] = [x, y, x + width, y + height];
+    const op: LinkOp = {
+      op: "link",
+      page: this.index,
+      rect,
+      ...(url !== undefined ? { uri: url } : {}),
+      ...(goToPage !== undefined ? { goToPage } : {}),
+    };
+    this.queue.pushLink(op);
   }
 }
