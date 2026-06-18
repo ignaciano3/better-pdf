@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use crate::draw::{
     emit_ellipse, emit_image_op, emit_line, emit_rectangle, emit_text_block, emit_text_block_cid,
-    extgstate_dict, font_dict, standard_14_index, STANDARD_14,
+    extgstate_dict, font_dict, link_annot_dict, standard_14_index, STANDARD_14,
 };
 use crate::fonts::{build_embedded_font, BuiltFont, EmbeddedFontInput};
 use lopdf::ObjectId;
@@ -111,6 +111,13 @@ enum CreateOp {
         page: usize,
         #[serde(rename = "box")]
         media_box: [f32; 4],
+    },
+    Link {
+        page: usize,
+        rect: [f32; 4],
+        uri: Option<String>,
+        #[serde(rename = "goToPage")]
+        go_to_page: Option<usize>,
     },
     /// Set document-level Info dictionary. If multiple metadata ops are
     /// present, the last one wins.
@@ -528,6 +535,29 @@ pub fn create_document_json(
                 if media_box[2] <= media_box[0] || media_box[3] <= media_box[1] {
                     return Err("invalid media box".to_string());
                 }
+            }
+            CreateOp::Link { page, rect, uri, go_to_page } => {
+                if *page >= pages.len() {
+                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
+                }
+                match (uri.is_some(), go_to_page.is_some()) {
+                    (true, true) | (false, false) => {
+                        return Err("link must have exactly one of uri or goToPage".to_string());
+                    }
+                    _ => {}
+                }
+                for &v in rect.iter() {
+                    if !v.is_finite() {
+                        return Err("invalid link rect".to_string());
+                    }
+                }
+                if rect[2] <= rect[0] || rect[3] <= rect[1] {
+                    return Err("invalid link rect".to_string());
+                }
+                if let Some(target) = go_to_page
+                    && *target >= pages.len() {
+                        return Err(format!("goToPage {target} out of range ({} pages)", pages.len()));
+                    }
             }
             CreateOp::AddPage { .. } => {}
             CreateOp::Metadata { .. } => {}
@@ -1000,6 +1030,25 @@ pub fn create_document_json(
         "Count" => Object::Integer(count),
     };
     doc.set_object(pages_id, Object::Dictionary(pages_dict));
+
+    // Build link annotations and append them to their pages' /Annots. This is
+    // independent of form fields, so it runs for documents with no AcroForm.
+    for op in &ops {
+        if let CreateOp::Link { page, rect, uri, go_to_page } = op {
+            let dest_page = go_to_page.map(|t| page_ids[t]);
+            let annot = link_annot_dict(*rect, uri.as_deref(), dest_page);
+            let annot_id = doc.add_object(Object::Dictionary(annot));
+            let page_dict = doc
+                .get_object_mut(page_ids[*page])
+                .expect("page must exist")
+                .as_dict_mut()
+                .expect("page must be a dict");
+            match page_dict.get_mut(b"Annots") {
+                Ok(Object::Array(arr)) => arr.push(Object::Reference(annot_id)),
+                _ => page_dict.set("Annots", Object::Array(vec![Object::Reference(annot_id)])),
+            }
+        }
+    }
 
     // Build AcroForm and field widgets if any fields are defined
     let acro_form_ref = if !fields.is_empty() {
@@ -2118,5 +2167,25 @@ mod tests {
     fn created_page_rotation_rejects_non_multiple() {
         let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"setRotation","page":0,"degrees":33}]"#;
         assert!(create_document_json(ops, &[], &[], "[]", "[]").is_err());
+    }
+
+    #[test]
+    fn created_page_with_link_has_link_annot() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"link","page":0,"rect":[50,50,200,80],"uri":"https://example.com"}]"#;
+        let out = create_document_json(ops, &[], &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let annots = page.get(b"Annots").unwrap().as_array().unwrap();
+        let mut found = false;
+        for a in annots {
+            let d = doc.get_object(a.as_reference().unwrap()).unwrap().as_dict().unwrap();
+            if d.get(b"Subtype").ok().and_then(|s| s.as_name().ok()) == Some(b"Link".as_ref()) {
+                found = true;
+                let act = d.get(b"A").unwrap().as_dict().unwrap();
+                assert_eq!(act.get(b"S").unwrap().as_name().unwrap(), b"URI");
+            }
+        }
+        assert!(found, "created page should have a /Link annot");
     }
 }
