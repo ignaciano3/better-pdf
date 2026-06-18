@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.6.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, and page operations (merge, copy, reorder, split) in 0.6.0. The public API may still change before 1.0.
+> **Status:** 0.7.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, and page rotation/resize in 0.7.0. The public API may still change before 1.0.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -27,6 +27,7 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Extract or reorder pages from a loaded document with `doc.copyPages([0, 2, 4])`.
 - Split a loaded document into single-page PDFs with `doc.splitPages()`.
 - Assemble a new PDF from an explicit cross-document page selection with `PdfDocument.assemble(docs, selections)`.
+- Rotate individual pages with `page.setRotation(degrees)` and resize them with `page.setSize(width, height)` or `page.setMediaBox(x0, y0, x1, y1)` — on both loaded and created pages.
 
 ## Install
 
@@ -292,7 +293,34 @@ await Bun.write("assembled.pdf", result);
 > **not interactive** — no AcroForm is reconstructed. Flatten fields before
 > merging if you need interactive form output.
 
-### (h) Document metadata
+### (h) Rotate & resize pages
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+// Rotate a loaded page
+const doc = await PdfDocument.load(bytes);
+doc.getPage(0).setRotation(90);   // clockwise 90° — must be a multiple of 90
+const output = await doc.save();
+await Bun.write("rotated.pdf", output);
+```
+
+`setRotation` accepts any multiple of 90 and normalises it to 0 / 90 / 180 / 270.
+Non-multiples of 90 throw `InvalidRotationError`.
+
+```ts
+// Resize a created page
+const doc2 = await PdfDocument.create();
+const page = doc2.addPage([595, 842]);   // A4
+page.setSize(612, 792);                  // switch to US Letter
+// or equivalently: page.setMediaBox(0, 0, 612, 792)
+const output2 = await doc2.save();
+```
+
+`setSize(width, height)` is sugar for `setMediaBox(0, 0, width, height)`.
+All three methods work on both `doc.getPage(i)` (loaded) and `doc.addPage(...)` (created).
+
+### (i) Document metadata
 
 Set and read the PDF Info dictionary on any document — created or loaded.
 
@@ -320,8 +348,6 @@ console.log(meta.creationDate); // Date object
 
 On a **loaded** PDF, setters write only an incremental update — Info-dict keys you do not
 touch are preserved. Dates round-trip to JS `Date`. XMP metadata streams are not modified.
-
----
 
 Browser bundlers can import the explicit browser entry, or use the package root
 when the bundler honors the `browser` export condition:
@@ -383,6 +409,9 @@ soon as they are made.
 - `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
 - `page.drawRectangle(options)` — `options`: `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`
 - `page.drawEllipse(options)` — `options`: `{ x, y, xScale, yScale, color?, borderColor?, borderWidth?, opacity? }` (`x`,`y` = center; `xScale`,`yScale` = radii)
+- `page.setRotation(degrees: number): void` — rotate the page; must be a multiple of 90; normalised to 0/90/180/270
+- `page.setSize(width: number, height: number): void` — resize the page (sugar for `setMediaBox(0, 0, width, height)`)
+- `page.setMediaBox(x0: number, y0: number, x1: number, y1: number): void` — set the PDF `/MediaBox` directly
 
 Available on both loaded pages (`doc.getPage(i)`) and created pages (`doc.addPage(...)`).
 
@@ -598,7 +627,10 @@ count).
   XMP metadata streams are not written or modified.
 - Page operations (merge, copy/reorder, split, assemble) are supported. Form fields on
   assembled/merged pages keep their visual appearance but are not interactive — no AcroForm
-  is reconstructed. In-place page rotation/resize and blank-page insertion are not yet available.
+  is reconstructed.
+- Page rotation and resize are supported: `page.setRotation(degrees)`, `page.setSize(w, h)`,
+  `page.setMediaBox(x0, y0, x1, y1)` on loaded and created pages (0.7.0).
+  Blank-page insertion is not yet available.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
   plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged

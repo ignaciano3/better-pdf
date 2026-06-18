@@ -8,6 +8,21 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-18
+
+### Added
+
+- Page rotate/resize: `page.setRotation()`, `page.setSize()`, `page.setMediaBox()`
+  on loaded and created PDFs.
+- `page.setRotation(degrees)` — rotate a page by any multiple of 90; value is
+  normalised to 0 / 90 / 180 / 270. Non-multiples of 90 throw `InvalidRotationError`.
+- `page.setSize(width, height)` — resize a page (convenience wrapper around
+  `setMediaBox(0, 0, width, height)`).
+- `page.setMediaBox(x0, y0, x1, y1)` — set the PDF `/MediaBox` directly; useful
+  when the page has a non-zero origin.
+- All three methods work on pages from both `doc.getPage(i)` (loaded documents)
+  and `doc.addPage(...)` (created documents).
+
 ## [0.6.0] - 2026-06-17
 
 ### Added

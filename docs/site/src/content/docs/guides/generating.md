@@ -303,7 +303,62 @@ are **not interactive** — no AcroForm dictionary is reconstructed in the outpu
 If you need interactive forms, fill and flatten the fields before merging.
 :::
 
+## Rotate & resize pages
+
+`page.setRotation`, `page.setSize`, and `page.setMediaBox` work on both loaded
+(`doc.getPage(i)`) and created (`doc.addPage(...)`) pages.
+
+### Rotate a loaded page
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const bytes = new Uint8Array(await Bun.file("report.pdf").arrayBuffer());
+const doc = await PdfDocument.load(bytes);
+
+const page = doc.getPage(0);
+page.setRotation(90);   // clockwise 90° — must be a multiple of 90
+
+const output = await doc.save();
+await Bun.write("rotated.pdf", output);
+```
+
+`setRotation` accepts any multiple of 90 (positive or negative) and normalises
+it to 0 / 90 / 180 / 270. Non-multiples of 90 throw `InvalidRotationError`.
+
+### Resize a created page
+
+```ts
+import { PdfDocument, PageSizes } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);          // 595 × 842 pt
+
+// Resize to US Letter after creation
+page.setSize(612, 792);                          // sugar for setMediaBox(0, 0, 612, 792)
+
+// Or set the MediaBox explicitly (lower-left x0/y0, upper-right x1/y1)
+page.setMediaBox(0, 0, 612, 792);
+
+const output = await doc.save();
+await Bun.write("letter.pdf", output);
+```
+
+`setSize(width, height)` is a convenience wrapper that calls
+`setMediaBox(0, 0, width, height)`. Use `setMediaBox` directly when you need a
+non-zero origin (e.g. an already-cropped page).
+
+### API
+
+| Method | Signature | Notes |
+|--------|-----------|-------|
+| `page.setRotation(degrees)` | `(degrees: number) => void` | Multiple of 90; normalised to 0/90/180/270 |
+| `page.setSize(width, height)` | `(width: number, height: number) => void` | Sugar for `setMediaBox(0,0,w,h)` |
+| `page.setMediaBox(x0, y0, x1, y1)` | `(x0: number, y0: number, x1: number, y1: number) => void` | Sets the PDF `/MediaBox` directly |
+
+All three methods are available on loaded and created pages and take effect on
+the next `doc.save()`.
+
 :::note[Not yet available]
-In-place page rotation/resize and blank-page insertion are not yet available.
-Rotation/resize of individual pages is planned for M29.
+Blank-page insertion is not yet available.
 :::
