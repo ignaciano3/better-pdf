@@ -223,8 +223,17 @@ pub struct JpegInfo {
 
 #[derive(Clone, Debug)]
 pub enum SignatureImage {
-    Jpeg { data: Vec<u8>, info: ImageInfo },
-    Raw { data: Vec<u8>, info: ImageInfo },
+    Jpeg {
+        data: Vec<u8>,
+        info: ImageInfo,
+    },
+    Raw {
+        data: Vec<u8>,
+        info: ImageInfo,
+        /// Per-pixel alpha plane (one byte/pixel) for PNG color types 4/6.
+        /// `None` for fully opaque images (color types 0/2).
+        alpha: Option<Vec<u8>>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -353,7 +362,53 @@ pub fn build_signature_image_xobject(image: SignatureImage) -> Stream {
                 color_space: info.color_space,
             },
         ),
-        SignatureImage::Raw { data, info } => build_raw_image_xobject(data, &info),
+        SignatureImage::Raw { data, info, .. } => build_raw_image_xobject(data, &info),
+    }
+}
+
+/// Build the image XObject(s) for `image`, registering each created stream via
+/// `add` and returning the object id of the main color image. PNGs carrying an
+/// alpha channel get a DeviceGray `/SMask` soft-mask image referenced by the
+/// main image; opaque images and JPEGs get no soft mask.
+pub fn build_image_xobjects(
+    image: SignatureImage,
+    add: &mut dyn FnMut(Object) -> lopdf::ObjectId,
+) -> lopdf::ObjectId {
+    match image {
+        SignatureImage::Jpeg { data, info } => {
+            let stream = build_jpeg_image_xobject(
+                data,
+                &JpegInfo {
+                    width: info.width,
+                    height: info.height,
+                    color_space: info.color_space,
+                },
+            );
+            add(Object::Stream(stream))
+        }
+        SignatureImage::Raw {
+            data,
+            info,
+            alpha: None,
+        } => add(Object::Stream(build_raw_image_xobject(data, &info))),
+        SignatureImage::Raw {
+            data,
+            info,
+            alpha: Some(a),
+        } => {
+            let smask_stream = build_raw_image_xobject(
+                a,
+                &ImageInfo {
+                    width: info.width,
+                    height: info.height,
+                    color_space: "DeviceGray",
+                },
+            );
+            let smask_id = add(Object::Stream(smask_stream));
+            let mut main = build_raw_image_xobject(data, &info);
+            main.dict.set("SMask", Object::Reference(smask_id));
+            add(Object::Stream(main))
+        }
     }
 }
 
@@ -449,6 +504,16 @@ fn png_image(data: &[u8]) -> Result<SignatureImage, String> {
         return Err("truncated PNG image data".to_string());
     }
 
+    // Color types 4 (gray+alpha) and 6 (RGBA) carry a trailing alpha byte per
+    // pixel that the color `out` strips; collect it into a separate plane so the
+    // caller can emit a DeviceGray /SMask.
+    let has_alpha = src_components > out_components;
+    let mut alpha: Option<Vec<u8>> = if has_alpha {
+        Some(Vec::with_capacity(width * height))
+    } else {
+        None
+    };
+
     let mut prev = vec![0u8; stride];
     let mut cur = vec![0u8; stride];
     let mut out = Vec::with_capacity(width * height * out_components);
@@ -460,6 +525,11 @@ fn png_image(data: &[u8]) -> Result<SignatureImage, String> {
         offset += stride;
         unfilter_png_row(filter, &mut cur, &prev, src_components)?;
         push_png_output_row(&cur, src_components, out_components, &mut out);
+        if let Some(a) = alpha.as_mut() {
+            for px in cur.chunks_exact(src_components) {
+                a.push(px[src_components - 1]);
+            }
+        }
         std::mem::swap(&mut prev, &mut cur);
     }
 
@@ -470,6 +540,7 @@ fn png_image(data: &[u8]) -> Result<SignatureImage, String> {
             height: height as i64,
             color_space,
         },
+        alpha,
     })
 }
 
@@ -763,6 +834,88 @@ mod tests {
     fn rejects_non_image_signature_data() {
         let err = signature_image(b"not an image").unwrap_err();
         assert!(err.contains("JPEG or supported PNG"), "got: {err}");
+    }
+
+    #[test]
+    fn rgba_png_extracts_alpha_plane() {
+        let img = signature_image(tiny_rgba_png()).unwrap();
+        match img {
+            SignatureImage::Raw {
+                ref info,
+                ref alpha,
+                ref data,
+            } => {
+                assert_eq!(info.color_space, "DeviceRGB");
+                let px = (info.width * info.height) as usize;
+                assert_eq!(
+                    data.len(),
+                    px * 3,
+                    "color data must be RGB (alpha stripped)"
+                );
+                let a = alpha.as_ref().expect("RGBA png must yield an alpha plane");
+                assert_eq!(a.len(), px, "alpha plane must be one byte per pixel");
+            }
+            _ => panic!("expected Raw"),
+        }
+    }
+
+    #[test]
+    fn opaque_png_has_no_alpha() {
+        let img = signature_image(tiny_rgb_png()).unwrap();
+        if let SignatureImage::Raw { alpha, .. } = img {
+            assert!(alpha.is_none(), "RGB png must not produce an alpha plane");
+        } else {
+            panic!("expected Raw");
+        }
+    }
+
+    #[test]
+    fn build_image_xobjects_sets_smask_for_alpha() {
+        use lopdf::{Document, Object};
+        let mut doc = Document::with_version("1.7");
+        let img = signature_image(tiny_rgba_png()).unwrap();
+        let mut add = |o: Object| doc.add_object(o);
+        let main_id = build_image_xobjects(img, &mut add);
+        let main = doc.get_object(main_id).unwrap().as_stream().unwrap();
+        let smask_ref = main
+            .dict
+            .get(b"SMask")
+            .expect("main image must have /SMask")
+            .as_reference()
+            .unwrap();
+        let smask = doc.get_object(smask_ref).unwrap().as_stream().unwrap();
+        assert_eq!(
+            smask.dict.get(b"ColorSpace").unwrap().as_name().unwrap(),
+            b"DeviceGray"
+        );
+        assert_eq!(
+            smask.dict.get(b"Subtype").unwrap().as_name().unwrap(),
+            b"Image"
+        );
+    }
+
+    #[test]
+    fn build_image_xobjects_no_smask_for_opaque() {
+        use lopdf::{Document, Object};
+        let mut doc = Document::with_version("1.7");
+        let img = signature_image(tiny_rgb_png()).unwrap();
+        let mut add = |o: Object| doc.add_object(o);
+        let main_id = build_image_xobjects(img, &mut add);
+        let main = doc.get_object(main_id).unwrap().as_stream().unwrap();
+        assert!(
+            main.dict.get(b"SMask").is_err(),
+            "opaque image must not have /SMask"
+        );
+    }
+
+    fn tiny_rgb_png() -> &'static [u8] {
+        &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xc9, 0xfe, 0x92,
+            0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ]
     }
 
     fn tiny_rgba_png() -> &'static [u8] {
