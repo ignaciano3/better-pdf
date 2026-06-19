@@ -13,6 +13,13 @@ import type { FieldDef } from "../generate/form-builder.js";
 import { toPdfDate, fromPdfDate, type DocumentMetadata } from "../generate/metadata.js";
 import type { OutlineItem } from "../generate/outline.js";
 
+/** @internal */
+type PageStructureOp =
+  | { op: "appendBlank"; width: number; height: number }
+  | { op: "insertBlank"; index: number; width: number; height: number }
+  | { op: "removePage"; index: number }
+  | { op: "movePage"; from: number; to: number };
+
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
   readFields(data: Uint8Array): string;
@@ -40,6 +47,7 @@ export interface CoreWasm {
   setMetadata(data: Uint8Array, metaJson: string): Uint8Array;
   manipulatePages(docsBlob: Uint8Array, docsJson: string, planJson: string): Uint8Array;
   setOutline(data: Uint8Array, json: string): Uint8Array;
+  insertPages(data: Uint8Array, opsJson: string): Uint8Array;
 }
 
 export class PdfDocumentBase {
@@ -52,6 +60,8 @@ export class PdfDocumentBase {
   private metadata: Record<string, string> = {};
   private metadataDirty = false;
   private outlineItems?: OutlineItem[];
+  private readonly structureOps: PageStructureOp[] = [];
+  private readonly appendedPages: PdfPage[] = [];
 
   /** @internal */
   protected constructor(
@@ -113,6 +123,9 @@ export class PdfDocumentBase {
       }
       if (form && form.flattenQueue.length > 0) {
         bytes = this.wasm.flattenFields(bytes, JSON.stringify(form.flattenQueue));
+      }
+      if (this.structureOps.length > 0) {
+        bytes = this.wasm.insertPages(bytes, JSON.stringify(this.structureOps));
       }
       if (this.drawQueue.length > 0) {
         const { opsJson, images, fonts, fontsJson } = this.drawQueue.toDrawPayload();
@@ -237,33 +250,100 @@ export class PdfDocumentBase {
 
   /** Number of pages in the document. */
   getPageCount(): number {
-    return this.mode === "create" ? this.createdPages.length : this.loadPages().length;
+    if (this.mode === "create") return this.createdPages.length;
+    const base = this.loadPages().length;
+    const netDelta = this.structureOps.reduce((acc, op) => {
+      if (op.op === "appendBlank" || op.op === "insertBlank") return acc + 1;
+      if (op.op === "removePage") return acc - 1;
+      return acc;
+    }, 0);
+    return base + netDelta;
   }
 
   /** All pages, in document order. The same instances are returned every time. */
   getPages(): PdfPage[] {
-    return this.mode === "create" ? [...this.createdPages] : [...this.loadPages()];
+    if (this.mode === "create") return [...this.createdPages];
+    return [...this.loadPages(), ...this.appendedPages];
   }
 
   /** Get one page by zero-based index. */
   getPage(index: number): PdfPage {
-    const pages = this.mode === "create" ? this.createdPages : this.loadPages();
-    const page = pages[index];
-    if (page === undefined) throw new PageOutOfRangeError(index, pages.length);
+    if (this.mode === "create") {
+      const page = this.createdPages[index];
+      if (page === undefined) throw new PageOutOfRangeError(index, this.createdPages.length);
+      return page;
+    }
+    const loaded = this.loadPages();
+    if (index < loaded.length) {
+      const page = loaded[index];
+      if (page === undefined) throw new PageOutOfRangeError(index, this.getPageCount());
+      return page;
+    }
+    const appendedIndex = index - loaded.length;
+    const page = this.appendedPages[appendedIndex];
+    if (page === undefined) throw new PageOutOfRangeError(index, this.getPageCount());
     return page;
   }
 
-  /** Append a page to a document created with {@link PdfDocument.create}. Size defaults to A4. */
+  /**
+   * Append a blank page to the document. Size defaults to A4.
+   *
+   * On created documents: existing behavior (page is drawable immediately).
+   * On loaded documents: queues an `appendBlank` structural op; the page is
+   * drawable and the op is applied before draw ops at save time.
+   */
   addPage(size: PageSize = PageSizes.A4): PdfPage {
-    if (this.mode !== "create") {
-      throw new PdfError("addPage is only available on documents created with PdfDocument.create()");
+    const [width, height] = size;
+    if (this.mode === "create") {
+      const index = this.createdPages.length;
+      this.drawQueue.pushAddPage(width, height);
+      const page = new PdfPage(index, width, height, 0, this.drawQueue);
+      this.createdPages.push(page);
+      return page;
+    }
+    // load mode: queue structural op, return a drawable PdfPage handle
+    this.structureOps.push({ op: "appendBlank", width, height });
+    const index = this.getPageCount() - 1; // effective index after this append
+    const page = new PdfPage(index, width, height, 0, this.drawQueue);
+    this.appendedPages.push(page);
+    return page;
+  }
+
+  /**
+   * Insert a blank page at the given index. Load-mode only.
+   *
+   * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
+   */
+  insertPage(index: number, size: PageSize = PageSizes.A4): void {
+    if (this.mode !== "load") {
+      throw new PdfError("insertPage is only available on documents opened with PdfDocument.load()");
     }
     const [width, height] = size;
-    const index = this.createdPages.length;
-    this.drawQueue.pushAddPage(width, height);
-    const page = new PdfPage(index, width, height, 0, this.drawQueue);
-    this.createdPages.push(page);
-    return page;
+    this.structureOps.push({ op: "insertBlank", index, width, height });
+  }
+
+  /**
+   * Remove the page at the given index. Load-mode only.
+   *
+   * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
+   */
+  removePage(index: number): void {
+    if (this.mode !== "load") {
+      throw new PdfError("removePage is only available on documents opened with PdfDocument.load()");
+    }
+    this.structureOps.push({ op: "removePage", index });
+  }
+
+  /**
+   * Move a page from one index to another. Load-mode only.
+   *
+   * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
+   */
+  movePage(from: number, to: number): void {
+    if (this.mode !== "load") {
+      throw new PdfError("movePage is only available on documents opened with PdfDocument.load()");
+    }
+    this.structureOps.push({ op: "movePage", from, to });
   }
 
   /**

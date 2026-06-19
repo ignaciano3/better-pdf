@@ -9,6 +9,7 @@ import {
   fill_fields,
   flatten_fields,
   image_info,
+  insert_pages,
   manipulate_pages,
   measure_text,
   measure_text_embedded,
@@ -89,4 +90,8 @@ export function manipulatePages(
 
 export function setOutline(data: Uint8Array, json: string): Uint8Array {
   return set_outline(data, json);
+}
+
+export function insertPages(data: Uint8Array, opsJson: string): Uint8Array {
+  return insert_pages(data, opsJson);
 }
