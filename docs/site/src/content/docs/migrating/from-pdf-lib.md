@@ -48,7 +48,10 @@ identical; the differences are noted below.
 | pdf-lib | better-pdf |
 | --- | --- |
 | `PDFDocument.create()` | `await PdfDocument.create()` (async — returns `Promise<PdfDocument>`) |
-| `pdfDoc.addPage([width, height])` | `doc.addPage([width, height])` or `doc.addPage(PageSizes.A4)` etc. |
+| `pdfDoc.addPage([width, height])` | `doc.addPage([width, height])` or `doc.addPage(PageSizes.A4)` etc. — also works on loaded docs (appends a blank, immediately drawable page) |
+| `pdfDoc.insertPage(index, page)` | `doc.insertPage(index, size?)` — inserts a new blank page; reflected after save + reload |
+| `pdfDoc.removePage(index)` | `doc.removePage(index)` — removes a page by 0-based index; reflected after save + reload |
+| (no equivalent) | `doc.movePage(from, to)` — moves a page to a new index; reflected after save + reload |
 | `pdfDoc.getPageCount()` | `doc.getPageCount()` |
 | `pdfDoc.getPages()` | `doc.getPages()` |
 | `pdfDoc.getPage(i)` | `doc.getPage(i)` — throws `PageOutOfRangeError` instead of returning `undefined` |
@@ -93,6 +96,9 @@ identical; the differences are noted below.
   synchronous `saveSync()`.
 - **`PdfDocument.create()` is async** — it may initialize WASM, so you must
   `await PdfDocument.create()` (pdf-lib's `PDFDocument.create()` is synchronous).
+- **`insertPage` takes a size, not a page object.** pdf-lib's `insertPage(index, page)` inserts a previously created `PDFPage`; better-pdf's `insertPage(index, size?)` creates a fresh blank page at the given index. Appended pages (`addPage`) are drawable immediately; inserted/removed/moved pages are reflected after save + reload.
+- **Non-ASCII metadata round-trips correctly.** better-pdf encodes non-Latin strings (Japanese, accented Latin, etc.) as UTF-16BE in the Info dictionary. pdf-lib leaves encoding to the caller.
+- **Palette (indexed-color) PNGs are supported.** `embedPng` handles color-type-3 PNGs with `tRNS` transparency — no API change needed.
 - **`PageSizes` constants** are `[width, height]` tuples in PDF points: `A3`,
   `A4`, `A5`, `Letter`, `Legal`, `Tabloid`.
 

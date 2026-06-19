@@ -25,8 +25,9 @@ description: What better-pdf does not (yet) support.
 - **Document metadata (Info dictionary):** Title, Author, Subject, Keywords, Creator,
   Producer, CreationDate, and ModDate are **supported** via `doc.setTitle()` /
   `doc.getMetadata()` etc. on both created and loaded documents. Dates round-trip to
-  JS `Date`. — **XMP metadata streams are not written or modified** (only the Info
-  dictionary is updated).
+  JS `Date`. Non-ASCII text (Japanese, accented Latin, etc.) is encoded as **UTF-16BE**
+  for correct round-trip fidelity (added in 0.13.0). — **XMP metadata streams are not
+  written or modified** (only the Info dictionary is updated).
 - **Page operations (merge, copy, reorder, split)** — `PdfDocument.merge`,
   `PdfDocument.assemble`, `doc.copyPages`, and `doc.splitPages` — are **supported**.
   - **Caveat — non-interactive AcroForm fields:** Pages assembled or merged from
@@ -37,7 +38,8 @@ description: What better-pdf does not (yet) support.
   - **Page rotation and resize are now supported** via `page.setRotation(degrees)`,
     `page.setSize(width, height)`, and `page.setMediaBox(x0, y0, x1, y1)` on both
     loaded and created pages (added in 0.7.0).
-  - **Not yet available:** Blank-page insertion.
+  - **Page insertion/removal/move are now supported** via `doc.addPage(size?)` (appends; drawable in the same save), `doc.insertPage(index, size?)`, `doc.removePage(index)`, and `doc.movePage(from, to)` on loaded documents (added in 0.13.0). Incremental — forms and content are preserved.
+    - **Caveat — nested page trees:** `insertPage`/`removePage`/`movePage` require a flat (single-level) page tree. PDFs with nested `Pages` nodes are rejected; use `PdfDocument.merge` or `PdfDocument.assemble` instead.
 - **Link annotations** — `page.drawLink({ x, y, width, height, url })` (external
   URI) and `page.drawLink({ x, y, width, height, goToPage })` (internal
   page-index jump) are **supported** on both loaded and created PDFs (added in
@@ -74,7 +76,8 @@ description: What better-pdf does not (yet) support.
 - **PNG images:** RGBA and gray+alpha PNGs are **supported** — the alpha channel
   is preserved as a soft mask (`/SMask`) on the embedded image XObject (added in
   0.8.0). Opaque RGB / grayscale PNGs are also supported.
-  - **Still unsupported:** palette (indexed-color), interlaced, and 16-bit-per-channel PNGs.
+  - **Palette (indexed-color) PNGs with `tRNS` transparency are now supported** (added in 0.13.0) — the palette index is resolved and transparency is stored as a soft mask (`/SMask`).
+  - **Still unsupported:** interlaced and 16-bit-per-channel PNGs.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3
   forms, plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged

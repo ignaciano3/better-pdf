@@ -8,6 +8,17 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-19
+
+### Added
+
+- Page insertion on loaded documents: `doc.addPage(size?)` now works on loaded PDFs (appends a blank, drawable page); `doc.insertPage(index, size?)`, `doc.removePage(index)`, `doc.movePage(from, to)`. Incremental — existing forms and content are preserved. Appended pages are drawable in the same save; inserted/removed/moved pages are reflected after save + reload.
+
+### Fixed
+
+- Non-ASCII document metadata: `setTitle`/`setAuthor`/etc. now correctly encode non-Latin text (Japanese, accented Latin, etc.) as UTF-16BE, ensuring round-trip fidelity.
+- Palette (indexed-color) PNG embedding: color-type-3 PNGs with `tRNS` transparency now embed correctly (transparency stored as a soft mask, same as RGBA PNGs).
+
 ## [0.12.0] - 2026-06-19
 
 ### Added

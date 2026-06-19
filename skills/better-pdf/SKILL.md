@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw rotated or translucent text with drawText({rotate, opacity}), add document outlines/bookmarks with doc.setOutline(), draw images (including transparent PNGs with alpha preserved as a soft mask) and vector graphics, draw SVG path-data strings with page.drawSvgPath() or polygons with page.drawPolygon(), add clickable link annotations (external URLs and internal page jumps) with page.drawLink(), read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, rotate or resize individual pages, embed pages from other PDFs as Form XObjects (watermarks, letterhead, N-up). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, drawing rotated or translucent text, adding PDF bookmarks or a table-of-contents outline, embedding transparent PNG images, drawing vector paths or polygons, adding hyperlinks or internal navigation links to a PDF, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, rotating or resizing pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw rotated or translucent text with drawText({rotate, opacity}), add document outlines/bookmarks with doc.setOutline(), draw images (including transparent PNGs and palette/indexed PNGs with alpha preserved as a soft mask) and vector graphics, draw SVG path-data strings with page.drawSvgPath() or polygons with page.drawPolygon(), add clickable link annotations (external URLs and internal page jumps) with page.drawLink(), read/write PDF document metadata (title/author/keywords/dates; non-ASCII/Unicode text supported via UTF-16BE), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, add/insert/remove/move pages in existing PDFs, rotate or resize individual pages, embed pages from other PDFs as Form XObjects (watermarks, letterhead, N-up). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, drawing rotated or translucent text, adding PDF bookmarks or a table-of-contents outline, embedding transparent PNG images, drawing vector paths or polygons, adding hyperlinks or internal navigation links to a PDF, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, inserting or removing pages in a loaded PDF, rotating or resizing pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -105,6 +105,10 @@ await doc.save();
 | `doc.setCreator(s)` / `setProducer(s)` | Set /Creator and /Producer |
 | `doc.setCreationDate(d)` / `setModificationDate(d)` | Set dates from JS `Date` |
 | `await doc.getMetadata()` → `DocumentMetadata` | Read the Info dictionary |
+| `doc.addPage(size?)` → `PdfPage` | Append a blank page — works on loaded and created docs; immediately drawable |
+| `doc.insertPage(index, size?)` | Insert a blank page at 0-based index in a loaded doc; reflected after save + reload |
+| `doc.removePage(index)` | Remove page at 0-based index from a loaded doc; reflected after save + reload |
+| `doc.movePage(from, to)` | Move a page to a new 0-based index in a loaded doc; reflected after save + reload |
 | `page.setRotation(degrees)` | Rotate page (multiple of 90; normalised) — loaded or created |
 | `page.setSize(width, height)` | Resize page (sugar for setMediaBox(0,0,w,h)) — loaded or created |
 | `page.setMediaBox(x0, y0, x1, y1)` | Set PDF /MediaBox directly — loaded or created |
@@ -209,8 +213,9 @@ const result = await PdfDocument.assemble(
 - `copyPages` and `splitPages` require a loaded document (`PdfDocument.load`); they throw on created docs.
 - Form fields on merged/assembled pages keep their **visual appearance** but are **not interactive** — the AcroForm is not reconstructed. Flatten before merging if needed.
 - In-place page rotation/resize is **supported**: `page.setRotation(degrees)`, `page.setSize(w, h)`, `page.setMediaBox(x0, y0, x1, y1)` — works on loaded and created pages.
-- **Transparent PNGs are supported**: `embedPng` preserves the alpha channel of RGBA and gray+alpha PNGs as a soft mask (`/SMask`) in the PDF. No API change — just pass the PNG bytes.
-- Blank-page insertion is not yet available.
+- **Page insertion/removal/move on loaded docs are supported** (added in 0.13.0): `doc.addPage(size?)` appends a blank drawable page; `doc.insertPage(index, size?)`, `doc.removePage(index)`, `doc.movePage(from, to)` are reflected after save + reload. Nested page trees are not supported (rare).
+- **Transparent PNGs are supported**: `embedPng` preserves the alpha channel of RGBA, gray+alpha, and palette/indexed-color (color type 3 with `tRNS`) PNGs as a soft mask (`/SMask`). No API change — just pass the PNG bytes.
+- **Non-ASCII metadata is supported**: `setTitle`/`setAuthor`/etc. encode non-Latin text as UTF-16BE for correct round-trip fidelity (added in 0.13.0).
 
 ## Embed pages from other PDFs
 
