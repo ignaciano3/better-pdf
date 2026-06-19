@@ -431,6 +431,83 @@ fn build_raw_image_xobject(data: Vec<u8>, info: &ImageInfo) -> Stream {
     Stream::new(dict, compressed).with_compression(false)
 }
 
+/// Decode a color-type-3 (indexed/palette) PNG into RGB (+ optional alpha).
+///
+/// Each pixel in the raw scanline data is a palette index (one byte, 8-bit).
+/// After unfiltering, each index is expanded to an RGB triple via `palette`.
+/// If `trns` is non-empty, a per-pixel alpha plane is also built:
+/// `trns[index]` if within range, 255 (opaque) otherwise.
+fn png_image_indexed(
+    width: usize,
+    height: usize,
+    idat: &[u8],
+    palette: &[(u8, u8, u8)],
+    trns: &[u8],
+) -> Result<SignatureImage, String> {
+    let mut decoder = ZlibDecoder::new(idat);
+    let mut inflated = Vec::new();
+    decoder
+        .read_to_end(&mut inflated)
+        .map_err(|e| e.to_string())?;
+
+    // Indexed row: 1 byte per pixel (the palette index).
+    let stride = width;
+    let expected = height
+        .checked_mul(stride + 1)
+        .ok_or_else(|| "PNG image is too large".to_string())?;
+    if inflated.len() < expected {
+        return Err("truncated PNG image data".to_string());
+    }
+
+    let has_trns = !trns.is_empty();
+    let mut alpha: Option<Vec<u8>> = if has_trns {
+        Some(Vec::with_capacity(width * height))
+    } else {
+        None
+    };
+
+    let mut prev = vec![0u8; stride];
+    let mut cur = vec![0u8; stride];
+    let mut out = Vec::with_capacity(width * height * 3);
+    let mut offset = 0usize;
+
+    for _ in 0..height {
+        let filter = inflated[offset];
+        offset += 1;
+        cur.copy_from_slice(&inflated[offset..offset + stride]);
+        offset += stride;
+        // bpp = 1 for indexed (one byte per pixel index).
+        unfilter_png_row(filter, &mut cur, &prev, 1)?;
+
+        for &idx in &cur {
+            let idx_usize = idx as usize;
+            if idx_usize >= palette.len() {
+                return Err("PNG palette index out of range".to_string());
+            }
+            let (r, g, b) = palette[idx_usize];
+            out.push(r);
+            out.push(g);
+            out.push(b);
+            if let Some(a) = alpha.as_mut() {
+                let av = trns.get(idx_usize).copied().unwrap_or(255);
+                a.push(av);
+            }
+        }
+
+        std::mem::swap(&mut prev, &mut cur);
+    }
+
+    Ok(SignatureImage::Raw {
+        data: out,
+        info: ImageInfo {
+            width: width as i64,
+            height: height as i64,
+            color_space: "DeviceRGB",
+        },
+        alpha,
+    })
+}
+
 fn png_image(data: &[u8]) -> Result<SignatureImage, String> {
     let mut pos = 8usize;
     let mut width = 0usize;
@@ -439,6 +516,9 @@ fn png_image(data: &[u8]) -> Result<SignatureImage, String> {
     let mut color_type = 0u8;
     let mut interlace = 0u8;
     let mut idat = Vec::new();
+    // Color type 3 (indexed): palette RGB triples and optional per-index alpha.
+    let mut palette: Vec<(u8, u8, u8)> = Vec::new();
+    let mut trns: Vec<u8> = Vec::new(); // tRNS alpha values (one per palette index)
 
     while pos + 12 <= data.len() {
         let len =
@@ -464,6 +544,15 @@ fn png_image(data: &[u8]) -> Result<SignatureImage, String> {
                 color_type = chunk[9];
                 interlace = chunk[12];
             }
+            b"PLTE" => {
+                if chunk.len() % 3 != 0 {
+                    return Err("invalid PNG PLTE chunk length".to_string());
+                }
+                palette = chunk.chunks_exact(3).map(|t| (t[0], t[1], t[2])).collect();
+            }
+            b"tRNS" => {
+                trns = chunk.to_vec();
+            }
             b"IDAT" => idat.extend_from_slice(chunk),
             b"IEND" => break,
             _ => {}
@@ -473,11 +562,26 @@ fn png_image(data: &[u8]) -> Result<SignatureImage, String> {
     if width == 0 || height == 0 {
         return Err("invalid PNG dimensions".to_string());
     }
-    if bit_depth != 8 {
-        return Err("only 8-bit PNG signatures are supported".to_string());
-    }
     if interlace != 0 {
         return Err("interlaced PNG signatures are not supported".to_string());
+    }
+
+    // Color type 3 (indexed/palette) supports bit depths 1, 2, 4, 8.
+    // We support 8-bit indices only; sub-byte packing is not implemented.
+    if color_type == 3 {
+        if bit_depth != 8 {
+            return Err(
+                "only 8-bit indexed PNG signatures are supported (bit depth must be 8)".to_string(),
+            );
+        }
+        if palette.is_empty() {
+            return Err("PNG color type 3 requires a PLTE chunk".to_string());
+        }
+        return png_image_indexed(width, height, &idat, &palette, &trns);
+    }
+
+    if bit_depth != 8 {
+        return Err("only 8-bit PNG signatures are supported".to_string());
     }
 
     let (src_components, out_components, color_space) = match color_type {
@@ -906,6 +1010,112 @@ mod tests {
             main.dict.get(b"SMask").is_err(),
             "opaque image must not have /SMask"
         );
+    }
+
+    #[test]
+    fn decodes_palette_png() {
+        let img = signature_image(tiny_palette_png()).unwrap();
+        match img {
+            SignatureImage::Raw { info, data, .. } => {
+                assert_eq!(info.color_space, "DeviceRGB");
+                assert_eq!(data.len(), (info.width * info.height) as usize * 3);
+            }
+            _ => panic!("expected Raw"),
+        }
+    }
+
+    #[test]
+    fn palette_png_expands_correct_rgb() {
+        // tiny_palette_png() has one palette entry: (255, 0, 0) at index 0,
+        // and a 1x1 image with pixel index 0. Decoded RGB must be [255, 0, 0].
+        let img = signature_image(tiny_palette_png()).unwrap();
+        if let SignatureImage::Raw { data, alpha, .. } = img {
+            assert_eq!(data, vec![255, 0, 0]);
+            assert!(alpha.is_none(), "opaque palette PNG must not have alpha plane");
+        } else {
+            panic!("expected Raw");
+        }
+    }
+
+    #[test]
+    fn palette_png_with_trns_has_alpha() {
+        // tiny_palette_png_with_trns() has one palette entry (255, 0, 0) with
+        // tRNS alpha = 128 for index 0. Decoded must yield alpha = [128].
+        let img = signature_image(tiny_palette_png_with_trns()).unwrap();
+        if let SignatureImage::Raw { data, alpha, info } = img {
+            assert_eq!(info.color_space, "DeviceRGB");
+            assert_eq!(data, vec![255, 0, 0]);
+            let a = alpha.expect("palette PNG with tRNS must yield alpha plane");
+            assert_eq!(a, vec![128]);
+        } else {
+            panic!("expected Raw");
+        }
+    }
+
+    /// Minimal 1×1 indexed (color type 3) PNG with one palette entry: red (255,0,0).
+    /// Hand-built with correct CRC32 values. No tRNS → alpha: None.
+    fn tiny_palette_png() -> &'static [u8] {
+        &[
+            // PNG signature
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+            // IHDR: length=13
+            0x00, 0x00, 0x00, 0x0d,
+            0x49, 0x48, 0x44, 0x52,          // "IHDR"
+            0x00, 0x00, 0x00, 0x01,          // width=1
+            0x00, 0x00, 0x00, 0x01,          // height=1
+            0x08,                            // bit_depth=8
+            0x03,                            // color_type=3 (indexed)
+            0x00, 0x00, 0x00,                // compression, filter, interlace
+            0x28, 0xcb, 0x34, 0xbb,          // CRC
+            // PLTE: length=3 (one RGB entry: red)
+            0x00, 0x00, 0x00, 0x03,
+            0x50, 0x4c, 0x54, 0x45,          // "PLTE"
+            0xff, 0x00, 0x00,                // (255, 0, 0)
+            0x19, 0xe2, 0x09, 0x37,          // CRC
+            // IDAT: zlib of [filter=0, index=0]
+            0x00, 0x00, 0x00, 0x0a,
+            0x49, 0x44, 0x41, 0x54,          // "IDAT"
+            0x78, 0xda, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
+            0xe5, 0x27, 0xde, 0xfc,          // CRC
+            // IEND
+            0x00, 0x00, 0x00, 0x00,
+            0x49, 0x45, 0x4e, 0x44,          // "IEND"
+            0xae, 0x42, 0x60, 0x82,          // CRC
+        ]
+    }
+
+    /// Minimal 1×1 indexed PNG with tRNS: palette entry 0 = red, alpha = 128.
+    fn tiny_palette_png_with_trns() -> &'static [u8] {
+        &[
+            // PNG signature
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+            // IHDR
+            0x00, 0x00, 0x00, 0x0d,
+            0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01,
+            0x00, 0x00, 0x00, 0x01,
+            0x08, 0x03, 0x00, 0x00, 0x00,
+            0x28, 0xcb, 0x34, 0xbb,
+            // PLTE
+            0x00, 0x00, 0x00, 0x03,
+            0x50, 0x4c, 0x54, 0x45,
+            0xff, 0x00, 0x00,
+            0x19, 0xe2, 0x09, 0x37,
+            // tRNS: alpha=128 for index 0
+            0x00, 0x00, 0x00, 0x01,
+            0x74, 0x52, 0x4e, 0x53,          // "tRNS"
+            0x80,                            // alpha=128
+            0xad, 0x5e, 0x5b, 0x46,          // CRC
+            // IDAT
+            0x00, 0x00, 0x00, 0x0a,
+            0x49, 0x44, 0x41, 0x54,
+            0x78, 0xda, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
+            0xe5, 0x27, 0xde, 0xfc,
+            // IEND
+            0x00, 0x00, 0x00, 0x00,
+            0x49, 0x45, 0x4e, 0x44,
+            0xae, 0x42, 0x60, 0x82,
+        ]
     }
 
     fn tiny_rgb_png() -> &'static [u8] {
