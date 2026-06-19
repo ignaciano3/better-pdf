@@ -8,6 +8,12 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-19
+
+### Added
+
+- `page.drawText` now accepts a `maxWidth` option that word-wraps text to fit the given width in points. Explicit `\n` remain hard breaks; a word wider than `maxWidth` overflows onto its own line. Works for both standard-14 and embedded fonts.
+
 ## [0.13.1] - 2026-06-19
 
 ### Fixed
