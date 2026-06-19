@@ -233,18 +233,18 @@ export class DrawQueue {
     this.drawOps.push(op);
   }
 
-  private buildDrawOps(): { ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp | PathOp)[]; images: Uint8Array } {
+  private buildDrawOps(resolve: (page: number) => number): { ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp | PathOp)[]; images: Uint8Array } {
     const chunks: Uint8Array[] = [];
     let offset = 0;
     const ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp | PathOp)[] = [];
     for (const entry of this.drawOps) {
       if ("kind" in entry) {
         const len = entry.bytes.length;
-        ops.push({ ...entry.op, imageOffset: offset, imageLength: len } as ImageOp | PageOp);
+        ops.push({ ...entry.op, page: resolve(entry.op.page), imageOffset: offset, imageLength: len } as ImageOp | PageOp);
         chunks.push(entry.bytes);
         offset += len;
       } else {
-        ops.push(entry);
+        ops.push({ ...entry, page: resolve(entry.page) });
       }
     }
     const images = new Uint8Array(offset);
@@ -274,14 +274,14 @@ export class DrawQueue {
     return { fonts, fontsJson: JSON.stringify(table) };
   }
 
-  toDrawPayload(): { opsJson: string; images: Uint8Array; fonts: Uint8Array; fontsJson: string } {
-    const { ops, images } = this.buildDrawOps();
+  toDrawPayload(resolve: (page: number) => number): { opsJson: string; images: Uint8Array; fonts: Uint8Array; fontsJson: string } {
+    const { ops, images } = this.buildDrawOps(resolve);
     const { fonts, fontsJson } = this.buildFonts();
     return { opsJson: JSON.stringify(ops), images, fonts, fontsJson };
   }
 
   toCreatePayload(): { opsJson: string; images: Uint8Array; fonts: Uint8Array; fontsJson: string } {
-    const { ops, images } = this.buildDrawOps();
+    const { ops, images } = this.buildDrawOps((p) => p);
     const { fonts, fontsJson } = this.buildFonts();
     const metaOps = this.metadataOp ? [{ op: "metadata", ...this.metadataOp }] : [];
     const outlineOps = this.outlineOp ? [{ op: "outline", items: this.outlineOp }] : [];

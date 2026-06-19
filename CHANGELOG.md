@@ -8,6 +8,16 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-06-19
+
+### Fixed
+
+- Draw operations now follow their page across structural changes. A `PdfPage` handle (from `addPage`, `getPage`, or `getPages`) carries a stable identity; its final index is resolved at `save()` time. Previously, drawing on an appended page and then calling `insertPage`/`removePage`/`movePage`, or drawing on a loaded page and then moving it, could silently stamp content onto the wrong page. Drawing on a page that is removed before `save()` now throws instead of mis-targeting.
+
+### Added
+
+- `insertPage`, `removePage`, and `movePage` validate their indices eagerly and throw `PageOutOfRangeError` for out-of-range or non-integer arguments, instead of failing later in the core.
+
 ## [0.13.0] - 2026-06-19
 
 ### Added

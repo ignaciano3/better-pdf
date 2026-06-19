@@ -128,7 +128,8 @@ export class PdfDocumentBase {
         bytes = this.wasm.insertPages(bytes, JSON.stringify(this.structureOps));
       }
       if (this.drawQueue.length > 0) {
-        const { opsJson, images, fonts, fontsJson } = this.drawQueue.toDrawPayload();
+        const resolve = this.buildPageIndexResolver();
+        const { opsJson, images, fonts, fontsJson } = this.drawQueue.toDrawPayload(resolve);
         bytes = this.wasm.applyDrawOps(bytes, opsJson, images, fonts, fontsJson);
       }
       if (this.metadataDirty) {
@@ -301,10 +302,14 @@ export class PdfDocumentBase {
       this.createdPages.push(page);
       return page;
     }
-    // load mode: queue structural op, return a drawable PdfPage handle
+    // load mode: queue structural op, return a drawable PdfPage handle.
+    // The handle carries a stable negative slot id (not its current index);
+    // its final index is resolved at save time, so a later insert/remove/move
+    // re-targets draws onto the right page.
+    const slot = -(this.appendedPages.length + 1);
     this.structureOps.push({ op: "appendBlank", width, height });
-    const index = this.getPageCount() - 1; // effective index after this append
-    const page = new PdfPage(index, width, height, 0, this.drawQueue);
+    const index = this.getPageCount() - 1; // best-effort index at call time
+    const page = new PdfPage(index, width, height, 0, this.drawQueue, slot);
     this.appendedPages.push(page);
     return page;
   }
@@ -317,6 +322,10 @@ export class PdfDocumentBase {
   insertPage(index: number, size: PageSize = PageSizes.A4): void {
     if (this.mode !== "load") {
       throw new PdfError("insertPage is only available on documents opened with PdfDocument.load()");
+    }
+    const count = this.getPageCount();
+    if (!Number.isInteger(index) || index < 0 || index > count) {
+      throw new PageOutOfRangeError(index, count + 1);
     }
     const [width, height] = size;
     this.structureOps.push({ op: "insertBlank", index, width, height });
@@ -331,6 +340,10 @@ export class PdfDocumentBase {
     if (this.mode !== "load") {
       throw new PdfError("removePage is only available on documents opened with PdfDocument.load()");
     }
+    const count = this.getPageCount();
+    if (!Number.isInteger(index) || index < 0 || index >= count) {
+      throw new PageOutOfRangeError(index, count);
+    }
     this.structureOps.push({ op: "removePage", index });
   }
 
@@ -343,7 +356,62 @@ export class PdfDocumentBase {
     if (this.mode !== "load") {
       throw new PdfError("movePage is only available on documents opened with PdfDocument.load()");
     }
+    const count = this.getPageCount();
+    if (!Number.isInteger(from) || from < 0 || from >= count) {
+      throw new PageOutOfRangeError(from, count);
+    }
+    if (!Number.isInteger(to) || to < 0 || to >= count) {
+      throw new PageOutOfRangeError(to, count);
+    }
     this.structureOps.push({ op: "movePage", from, to });
+  }
+
+  /**
+   * Build a resolver mapping each page's stable slot id to its final
+   * zero-based index after all queued structural ops are applied (in order).
+   * Loaded pages use their original index as slot id; appended pages use a
+   * negative sentinel `-(k+1)`. Throws if a drawn-on page was removed.
+   * @internal
+   */
+  private buildPageIndexResolver(): (slot: number) => number {
+    if (this.mode === "create") return (slot) => slot;
+    const loadedCount = this.loadPages().length;
+    // slots[i] holds the slot id occupying final position i; null = a blank
+    // inserted page (no handle, never resolved).
+    const slots: (number | null)[] = [];
+    for (let i = 0; i < loadedCount; i++) slots.push(i);
+    let appendSeq = 0;
+    for (const op of this.structureOps) {
+      switch (op.op) {
+        case "appendBlank":
+          slots.push(-(++appendSeq));
+          break;
+        case "insertBlank":
+          slots.splice(op.index, 0, null);
+          break;
+        case "removePage":
+          slots.splice(op.index, 1);
+          break;
+        case "movePage": {
+          const [moved] = slots.splice(op.from, 1);
+          slots.splice(op.to, 0, moved ?? null);
+          break;
+        }
+      }
+    }
+    const map = new Map<number, number>();
+    slots.forEach((s, i) => {
+      if (s !== null) map.set(s, i);
+    });
+    return (slot) => {
+      const idx = map.get(slot);
+      if (idx === undefined) {
+        throw new PdfError(
+          "cannot draw on a page that was removed before save(); the page handle no longer maps to a page in the document",
+        );
+      }
+      return idx;
+    };
   }
 
   /**
@@ -371,7 +439,7 @@ export class PdfDocumentBase {
         throw toPdfError(e);
       }
       this.pages = infos.map(
-        (p) => new PdfPage(p.index, p.width, p.height, p.rotation, this.drawQueue),
+        (p) => new PdfPage(p.index, p.width, p.height, p.rotation, this.drawQueue, p.index),
       );
     }
     return this.pages;

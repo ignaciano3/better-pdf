@@ -40,6 +40,7 @@ description: What better-pdf does not (yet) support.
     loaded and created pages (added in 0.7.0).
   - **Page insertion/removal/move are now supported** via `doc.addPage(size?)` (appends; drawable in the same save), `doc.insertPage(index, size?)`, `doc.removePage(index)`, and `doc.movePage(from, to)` on loaded documents (added in 0.13.0). Incremental — forms and content are preserved.
     - **Caveat — nested page trees:** `insertPage`/`removePage`/`movePage` require a flat (single-level) page tree. PDFs with nested `Pages` nodes are rejected; use `PdfDocument.merge` or `PdfDocument.assemble` instead.
+    - **Handles track their page (0.13.1):** a `PdfPage` handle follows its page across later `insertPage`/`removePage`/`movePage`; draws land on the right page regardless of call order. Drawing on a page you later remove throws at `save()`.
 - **Link annotations** — `page.drawLink({ x, y, width, height, url })` (external
   URI) and `page.drawLink({ x, y, width, height, goToPage })` (internal
   page-index jump) are **supported** on both loaded and created PDFs (added in

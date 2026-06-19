@@ -150,6 +150,15 @@ function tuple(c: Color): [number, number, number] {
  * applied when the document is saved.
  */
 export class PdfPage {
+  /**
+   * Stable slot id used to resolve this page's final index at save time.
+   * Loaded pages use their original index; appended pages use a negative
+   * sentinel; created pages reuse `index`. Draw ops carry this, not `index`,
+   * so a later insert/remove/move re-targets draws onto the right page.
+   * @internal
+   */
+  private readonly _slot: number;
+
   /** @internal */
   constructor(
     /** Zero-based page index. */
@@ -161,7 +170,10 @@ export class PdfPage {
     /** Page rotation in degrees (0, 90, 180, or 270). */
     readonly rotation: number,
     private readonly queue: DrawQueue,
-  ) {}
+    slot?: number,
+  ) {
+    this._slot = slot ?? index;
+  }
 
   /**
    * Draw text on the page at `(x, y)` (baseline of the first line, origin
@@ -195,7 +207,7 @@ export class PdfPage {
         : options.font instanceof PdfFont
           ? options.font.name
           : (options.font ?? StandardFonts.Helvetica);
-    this.queue.pushText(this.index, text, {
+    this.queue.pushText(this._slot, text, {
       x: options.x,
       y: options.y,
       size: options.size,
@@ -225,7 +237,7 @@ export class PdfPage {
       if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
     }
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
-    this.queue.pushImage(this.index, image.bytes, {
+    this.queue.pushImage(this._slot, image.bytes, {
       x: options.x,
       y: options.y,
       width,
@@ -249,7 +261,7 @@ export class PdfPage {
       if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
     }
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
-    this.queue.pushPage(this.index, embedded.bytes, {
+    this.queue.pushPage(this._slot, embedded.bytes, {
       x: options.x,
       y: options.y,
       width,
@@ -276,7 +288,7 @@ export class PdfPage {
     validateOpacity(opacity);
     const op: LineOp = {
       op: "line",
-      page: this.index,
+      page: this._slot,
       x1: start.x,
       y1: start.y,
       x2: end.x,
@@ -308,7 +320,7 @@ export class PdfPage {
     validateOpacity(opacity);
     const op: RectangleOp = {
       op: "rectangle",
-      page: this.index,
+      page: this._slot,
       x,
       y,
       width,
@@ -329,7 +341,7 @@ export class PdfPage {
     if (!Number.isFinite(degrees) || degrees % 90 !== 0) {
       throw new InvalidRotationError(degrees);
     }
-    this.queue.pushSetRotation(this.index, degrees);
+    this.queue.pushSetRotation(this._slot, degrees);
   }
 
   /**
@@ -347,7 +359,7 @@ export class PdfPage {
     }
     if (x1 <= x0) throw new RangeError(`x1 must be > x0, got x0=${x0} x1=${x1}`);
     if (y1 <= y0) throw new RangeError(`y1 must be > y0, got y0=${y0} y1=${y1}`);
-    this.queue.pushSetMediaBox(this.index, [x0, y0, x1, y1]);
+    this.queue.pushSetMediaBox(this._slot, [x0, y0, x1, y1]);
   }
 
   /**
@@ -385,7 +397,7 @@ export class PdfPage {
     validateOpacity(opacity);
     const op: EllipseOp = {
       op: "ellipse",
-      page: this.index,
+      page: this._slot,
       x,
       y,
       xScale,
@@ -413,7 +425,7 @@ export class PdfPage {
     const segments = parseSvgPath(d);
     const op: PathOp = {
       op: "path",
-      page: this.index,
+      page: this._slot,
       segments,
       ...(fill !== undefined ? { fill: tuple(fill) } : {}),
       ...(stroke !== undefined ? { stroke: tuple(stroke) } : {}),
@@ -451,7 +463,7 @@ export class PdfPage {
     ];
     const op: PathOp = {
       op: "path",
-      page: this.index,
+      page: this._slot,
       segments,
       ...(fill !== undefined ? { fill: tuple(fill) } : {}),
       ...(stroke !== undefined ? { stroke: tuple(stroke) } : {}),
@@ -487,7 +499,7 @@ export class PdfPage {
     const rect: [number, number, number, number] = [x, y, x + width, y + height];
     const op: LinkOp = {
       op: "link",
-      page: this.index,
+      page: this._slot,
       rect,
       ...(url !== undefined ? { uri: url } : {}),
       ...(goToPage !== undefined ? { goToPage } : {}),
