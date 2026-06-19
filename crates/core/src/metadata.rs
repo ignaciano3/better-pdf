@@ -1,6 +1,6 @@
 //! Metadata module: read and incrementally write the PDF Info dictionary.
 
-use lopdf::{Dictionary, Document, IncrementalDocument, Object};
+use lopdf::{Dictionary, Document, IncrementalDocument, Object, StringFormat};
 use serde::{Deserialize, Serialize};
 
 /// Representation of the PDF Info dictionary entries.
@@ -40,16 +40,41 @@ pub(crate) fn build_info_dict(meta: &Metadata) -> Dictionary {
     ];
     for (key, val) in pairs {
         if let Some(v) = val {
-            dict.set(key.to_vec(), Object::string_literal(v.as_bytes().to_vec()));
+            let obj = if v.is_ascii() {
+                Object::string_literal(v.as_bytes().to_vec())
+            } else {
+                // UTF-16BE with BOM (FE FF) for non-ASCII strings per PDF spec.
+                let mut b = vec![0xFE_u8, 0xFF_u8];
+                for unit in v.encode_utf16() {
+                    b.extend_from_slice(&unit.to_be_bytes());
+                }
+                Object::String(b, StringFormat::Hexadecimal)
+            };
+            dict.set(key.to_vec(), obj);
         }
     }
     dict
 }
 
-/// Helper: extract a String value from a PDF string Object (lossy UTF-8).
+/// Helper: extract a String value from a PDF string Object.
+/// Detects UTF-16BE by the FE FF BOM; otherwise falls back to lossy UTF-8.
 fn get_str(dict: &Dictionary, key: &[u8]) -> Option<String> {
     match dict.get(key) {
-        Ok(Object::String(bytes, _)) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        Ok(Object::String(bytes, _)) => {
+            if bytes.starts_with(&[0xFE, 0xFF]) {
+                // UTF-16BE: skip 2-byte BOM then decode pairs.
+                let units: Vec<u16> = bytes[2..]
+                    .chunks_exact(2)
+                    .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                    .collect();
+                let s: String = char::decode_utf16(units)
+                    .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
+                    .collect();
+                Some(s)
+            } else {
+                Some(String::from_utf8_lossy(bytes).into_owned())
+            }
+        }
         _ => None,
     }
 }
@@ -137,5 +162,19 @@ mod tests {
         let json = read_metadata_json(&out).unwrap();
         assert!(json.contains("Quarterly Report"), "json was {json}");
         assert!(json.contains("ACME"), "json was {json}");
+    }
+
+    #[test]
+    fn non_ascii_metadata_round_trips() {
+        let out = set_metadata_json(FICHA, r#"{"title":"日本語のタイトル","author":"Renée"}"#).unwrap();
+        let json = read_metadata_json(&out).unwrap();
+        assert!(json.contains("日本語のタイトル"), "json: {json}");
+        assert!(json.contains("Renée"), "json: {json}");
+    }
+
+    #[test]
+    fn ascii_metadata_still_round_trips() {
+        let out = set_metadata_json(FICHA, r#"{"title":"Plain ASCII"}"#).unwrap();
+        assert!(read_metadata_json(&out).unwrap().contains("Plain ASCII"));
     }
 }
