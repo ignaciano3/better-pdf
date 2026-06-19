@@ -13,6 +13,7 @@ mod metadata;
 mod outline;
 mod pageops;
 mod pages;
+mod pagetree;
 
 /// Read the AcroForm fields of a PDF, returned as a JSON array string.
 #[wasm_bindgen]
@@ -86,6 +87,12 @@ pub fn manipulate_pages(
 }
 
 /// Width in points of `text` in standard-14 `font` at `size`.
+/// Incrementally append/insert/remove/move blank pages on a loaded PDF.
+#[wasm_bindgen]
+pub fn insert_pages(data: &[u8], ops_json: &str) -> Result<Vec<u8>, JsError> {
+    pagetree::insert_pages_json(data, ops_json).map_err(|e| JsError::new(&e))
+}
+
 #[wasm_bindgen]
 pub fn measure_text(font: &str, size: f32, text: &str) -> Result<f32, JsError> {
     appearance::measure_text_width(font, size, text).map_err(|e| JsError::new(&e))
@@ -138,4 +145,5 @@ pub mod fuzz_api {
     pub use crate::metadata::{read_metadata_json, set_metadata_json};
     pub use crate::outline::set_outline_json;
     pub use crate::pageops::manipulate_pages_json;
+    pub use crate::pagetree::insert_pages_json;
 }
