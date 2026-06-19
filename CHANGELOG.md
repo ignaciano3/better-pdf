@@ -8,6 +8,12 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-19
+
+### Added
+
+- Text rotation & opacity (`drawText({rotate, opacity})`) and document outlines/bookmarks (`doc.setOutline()`), on loaded and created PDFs.
+
 ## [0.11.0] - 2026-06-18
 
 ### Added

@@ -288,6 +288,55 @@ better-pdf matches that API and adds `page.drawPolygon`:
   the path data.
 - Both `drawSvgPath` and `drawPolygon` work on loaded and created documents.
 
+## Text rotation and opacity
+
+pdf-lib's `drawText` accepts a `rotate` option that wraps degrees in a `degrees(n)`
+helper object. better-pdf takes a plain number:
+
+| pdf-lib | better-pdf |
+| --- | --- |
+| `page.drawText(text, { rotate: degrees(45), opacity: 0.15 })` | `page.drawText(text, { rotate: 45, opacity: 0.15 })` — plain number, no wrapper |
+
+```ts
+// better-pdf diagonal watermark
+page.drawText("DRAFT", {
+  x: 150, y: 300, size: 72,
+  rotate: 45,    // degrees, counter-clockwise
+  opacity: 0.12,
+});
+```
+
+Both `rotate` and `opacity` work on loaded and created documents (added in 0.12.0).
+
+## Document outlines / bookmarks
+
+pdf-lib requires manually constructing the `/Outlines` catalog entry, creating
+`PDFDict` objects for each item, and wiring `/First`, `/Last`, `/Next`, `/Prev`,
+`/Parent`, and `/Count` references by hand. better-pdf provides a high-level
+method:
+
+| pdf-lib | better-pdf |
+| --- | --- |
+| Manual catalog + `PDFDict` construction for each item | `doc.setOutline(items)` — `items: OutlineItem[]` |
+
+```ts
+doc.setOutline([
+  { title: "Introduction", page: 0 },
+  {
+    title: "Chapter 1",
+    page: 1,
+    children: [
+      { title: "1.1 Background", page: 1 },
+      { title: "1.2 Methods",    page: 2 },
+    ],
+  },
+  { title: "Conclusion", page: 5 },
+]);
+```
+
+`page` is 0-based (matches `doc.getPage(i)`). Children nest to arbitrary depth.
+Works on both loaded and created documents (added in 0.12.0).
+
 ```ts
 // pdf-lib
 page.drawSvgPath("M 0 0 L 100 0 L 50 80 Z", {

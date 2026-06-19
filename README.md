@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.11.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, page rotation/resize in 0.7.0, PNG transparency (RGBA/gray+alpha alpha channel preserved as a soft mask) in 0.8.0, PDF page embedding (`embedPdfPage` + `drawPage` Form XObject stamping) in 0.9.0, clickable link annotations (`page.drawLink`) in 0.10.0, and vector paths (`page.drawSvgPath` + `page.drawPolygon`) in 0.11.0. The public API may still change before 1.0.
+> **Status:** 0.12.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, page rotation/resize in 0.7.0, PNG transparency (RGBA/gray+alpha alpha channel preserved as a soft mask) in 0.8.0, PDF page embedding (`embedPdfPage` + `drawPage` Form XObject stamping) in 0.9.0, clickable link annotations (`page.drawLink`) in 0.10.0, vector paths (`page.drawSvgPath` + `page.drawPolygon`) in 0.11.0, and text rotation/opacity (`drawText({rotate, opacity})`) + document outlines/bookmarks (`doc.setOutline()`) in 0.12.0. The public API may still change before 1.0.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -32,6 +32,8 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Embed pages from other PDFs as Form XObjects with `doc.embedPdfPage(src, pageIndex)` + `page.drawPage(embedded, {x, y, width?, height?})` — watermarks, letterhead, N-up layouts, overlays. Works on loaded and created documents.
 - Add clickable link annotations with `page.drawLink({ x, y, width, height, url })` (external URI) or `page.drawLink({ x, y, width, height, goToPage })` (internal page-index jump) on loaded and created documents.
 - Draw vector paths: `page.drawSvgPath(d, { fill?, stroke?, strokeWidth?, opacity? })` (SVG path-data string; supports M/L/H/V/C/S/Q/T/Z) and `page.drawPolygon(points, { fill?, stroke?, strokeWidth?, opacity?, closed? })` on loaded and created documents. SVG arc commands (A/a) are not yet supported.
+- Draw rotated and translucent text: `page.drawText(text, { rotate, opacity })` — `rotate` is free-angle degrees (counter-clockwise about the anchor), `opacity` is 0–1. Works on loaded and created documents.
+- Build PDF bookmarks / navigation outline: `doc.setOutline(items)` where each item is `{ title: string; page: number; children?: OutlineItem[] }`. Nested to arbitrary depth. Works on loaded and created documents.
 
 ## Install
 
@@ -351,7 +353,60 @@ await Bun.write("paths.pdf", output);
 > SVG artwork authored for screen (y-down) will appear flipped — negate y or apply a
 > transform before passing path data.
 
-### (j) Rotate & resize pages
+### (j) Rotated & translucent text
+
+`drawText` accepts `rotate` (degrees, counter-clockwise about the anchor) and
+`opacity` (0–1). Both work on loaded and created documents.
+
+```ts
+import { PdfDocument, StandardFonts, rgb } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.load(bytes);
+const font = doc.getFont(StandardFonts.HelveticaBold);
+
+for (let i = 0; i < doc.getPageCount(); i++) {
+  doc.getPage(i).drawText("CONFIDENTIAL", {
+    x: 150, y: 300, size: 60, font,
+    color: rgb(0.8, 0, 0),
+    rotate: 45,    // degrees counter-clockwise
+    opacity: 0.15, // faint watermark
+  });
+}
+
+const output = await doc.save();
+await Bun.write("report-watermark.pdf", output);
+```
+
+### (k) Document outlines / bookmarks
+
+`doc.setOutline(items)` builds the PDF outline/bookmarks tree visible in the
+viewer sidebar. Works on loaded and created documents.
+
+```ts
+import { PdfDocument, PageSizes } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+for (let i = 0; i < 6; i++) doc.addPage(PageSizes.A4);
+
+doc.setOutline([
+  { title: "Introduction", page: 0 },
+  {
+    title: "Chapter 1", page: 1,
+    children: [
+      { title: "1.1 Background", page: 1 },
+      { title: "1.2 Methods",    page: 2 },
+    ],
+  },
+  { title: "Conclusion", page: 5 },
+]);
+
+const output = await doc.save();
+await Bun.write("report.pdf", output);
+```
+
+`page` is 0-based (matches `doc.getPage(i)`). Children may nest to arbitrary depth.
+
+### (l) Rotate & resize pages
 
 ```ts
 import { PdfDocument } from "@ignaciano3/better-pdf";
@@ -378,7 +433,7 @@ const output2 = await doc2.save();
 `setSize(width, height)` is sugar for `setMediaBox(0, 0, width, height)`.
 All three methods work on both `doc.getPage(i)` (loaded) and `doc.addPage(...)` (created).
 
-### (k) Document metadata
+### (m) Document metadata
 
 Set and read the PDF Info dictionary on any document — created or loaded.
 
@@ -449,6 +504,7 @@ const output = await doc.save();
 - `doc.setCreationDate(d: Date): void`
 - `doc.setModificationDate(d: Date): void`
 - `doc.getMetadata(): Promise<DocumentMetadata>` — reads the Info dictionary; all fields are optional
+- `doc.setOutline(items: OutlineItem[]): void` — set the PDF bookmarks/outline tree; `OutlineItem = { title: string; page: number; children?: OutlineItem[] }`; `page` is 0-based
 - `doc.save(): Promise<Uint8Array>`
 
 `save()` applies queued fills first, then queued flattens. With no queued operations it returns a byte-identical round trip.
@@ -462,7 +518,7 @@ soon as they are made.
 
 ### `PdfPage`
 
-- `page.drawText(text, options)` — `options`: `{ x, y, size, font?, color?, lineHeight? }`
+- `page.drawText(text, options)` — `options`: `{ x, y, size, font?, color?, lineHeight?, rotate?, opacity? }` (`rotate` is degrees counter-clockwise; `opacity` 0–1)
 - `page.drawImage(image, options)` — `options`: `{ x, y, width?, height? }`
 - `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
 - `page.drawRectangle(options)` — `options`: `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`

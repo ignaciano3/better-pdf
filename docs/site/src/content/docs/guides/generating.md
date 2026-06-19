@@ -245,6 +245,109 @@ page.drawText("Ünïcödé", { x: 100, y: 400, size: 14, font });
 - **Standard-14 default:** If you omit `font` from `drawText`, Helvetica is used
   as the default (WinAnsi, standard-14 behavior unchanged).
 
+## Rotated & translucent text
+
+`drawText` accepts `rotate` (degrees, free rotation about the text anchor) and
+`opacity` (0–1) alongside the standard positioning options. Both work on loaded
+and created documents.
+
+### Diagonal watermark
+
+```ts
+import { PdfDocument, StandardFonts, rgb } from "@ignaciano3/better-pdf";
+
+const bytes = new Uint8Array(await Bun.file("report.pdf").arrayBuffer());
+const doc = await PdfDocument.load(bytes);
+
+const font = doc.getFont(StandardFonts.HelveticaBold);
+
+for (let i = 0; i < doc.getPageCount(); i++) {
+  const page = doc.getPage(i);
+  page.drawText("CONFIDENTIAL", {
+    x: 150,
+    y: 300,
+    size: 60,
+    font,
+    color: rgb(0.8, 0, 0),
+    rotate: 45,     // degrees counter-clockwise
+    opacity: 0.15,  // faint so page content shows through
+  });
+}
+
+const output = await doc.save();
+await Bun.write("report-watermark.pdf", output);
+```
+
+### `drawText` options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `rotate` | `number` | `0` | Rotation in degrees, counter-clockwise, about the text anchor `(x, y)` |
+| `opacity` | `number` | `1` | Text opacity 0 (fully transparent) to 1 (fully opaque) |
+
+All other `drawText` options (`x`, `y`, `size`, `font`, `color`, `lineHeight`) are
+unaffected; `rotate` and `opacity` compose naturally with them.
+
+## Outlines / bookmarks
+
+`doc.setOutline(items)` builds the PDF outline (bookmarks) tree. Viewers
+(Acrobat, Evince, Chrome's PDF viewer, …) display this as the Bookmarks panel
+and navigation sidebar. Works on both loaded and created documents.
+
+### Nested bookmarks example
+
+```ts
+import { PdfDocument, PageSizes, StandardFonts } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+for (let i = 0; i < 6; i++) doc.addPage(PageSizes.A4);
+
+const font = doc.getFont(StandardFonts.HelveticaBold);
+doc.getPage(0).drawText("Introduction",  { x: 72, y: 750, size: 18, font });
+doc.getPage(1).drawText("Chapter 1",     { x: 72, y: 750, size: 18, font });
+doc.getPage(3).drawText("Chapter 2",     { x: 72, y: 750, size: 18, font });
+doc.getPage(5).drawText("Conclusion",    { x: 72, y: 750, size: 18, font });
+
+doc.setOutline([
+  { title: "Introduction", page: 0 },
+  {
+    title: "Chapter 1",
+    page: 1,
+    children: [
+      { title: "1.1 Background", page: 1 },
+      { title: "1.2 Methods",    page: 2 },
+    ],
+  },
+  {
+    title: "Chapter 2",
+    page: 3,
+    children: [
+      { title: "2.1 Results",    page: 3 },
+      { title: "2.2 Discussion", page: 4 },
+    ],
+  },
+  { title: "Conclusion", page: 5 },
+]);
+
+const output = await doc.save();
+await Bun.write("report-with-bookmarks.pdf", output);
+```
+
+### `setOutline` API
+
+```ts
+doc.setOutline(items: OutlineItem[]): void
+
+interface OutlineItem {
+  title: string;          // bookmark label shown in the viewer
+  page: number;           // 0-based page index to jump to
+  children?: OutlineItem[]; // nested items (arbitrary depth)
+}
+```
+
+`page` is 0-based and matches `doc.getPage(i)`. The outline is written on the
+next `doc.save()`. Calling `setOutline` again replaces the previous outline.
+
 ## Document metadata
 
 Read and write the PDF Info dictionary — title, author, subject, keywords, creator,
