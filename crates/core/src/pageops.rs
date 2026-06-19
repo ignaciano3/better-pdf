@@ -149,10 +149,54 @@ fn rebuild_acroform(
     }
 
     let fields: Vec<Object> = kept_fields.iter().map(|&id| Object::Reference(id)).collect();
-    let acroform_id = merged.add_object(dictionary! {
+
+    // Merge /DR /Font entries across sources (first-writer-wins per name).
+    let mut merged_fonts = lopdf::Dictionary::new();
+    let mut da: Option<Object> = None;
+    for s in sources {
+        if da.is_none() {
+            if let Some(d) = &s.da {
+                da = Some(d.clone());
+            }
+        }
+        let Some(dr_obj) = &s.dr else { continue };
+        let dr_dict = match dr_obj {
+            Object::Reference(r) => merged.get_dictionary(*r).ok().cloned(),
+            Object::Dictionary(d) => Some(d.clone()),
+            _ => None,
+        };
+        let Some(dr_dict) = dr_dict else { continue };
+        let font_obj = dr_dict.get(b"Font").ok().cloned();
+        let font_dict = match font_obj {
+            Some(Object::Reference(r)) => merged.get_dictionary(r).ok().cloned(),
+            Some(Object::Dictionary(d)) => Some(d),
+            _ => None,
+        };
+        if let Some(fd) = font_dict {
+            for (k, v) in fd.iter() {
+                if !merged_fonts.has(k) {
+                    merged_fonts.set(k.to_vec(), v.clone());
+                }
+            }
+        }
+    }
+
+    let mut dr = lopdf::Dictionary::new();
+    if !merged_fonts.as_hashmap().is_empty() {
+        dr.set("Font", Object::Dictionary(merged_fonts));
+    }
+
+    let mut acroform = dictionary! {
         "Fields" => Object::Array(fields),
         "NeedAppearances" => Object::Boolean(true),
-    });
+    };
+    if !dr.as_hashmap().is_empty() {
+        acroform.set("DR", Object::Dictionary(dr));
+    }
+    if let Some(da) = da {
+        acroform.set("DA", da);
+    }
+    let acroform_id = merged.add_object(acroform);
     if let Ok(cat) = merged.get_dictionary_mut(catalog_id) {
         cat.set("AcroForm", Object::Reference(acroform_id));
     }
@@ -412,6 +456,47 @@ mod tests {
                 == Some(true),
             "NeedAppearances must be true"
         );
+    }
+
+    #[test]
+    fn merge_acroform_has_dr_fonts_and_da() {
+        let (blob, docs) = pack(&[FICHA, FICHA]);
+        let n = page_count(FICHA);
+        let mut plan = String::from("[");
+        for d in 0..2 {
+            for p in 0..n {
+                if !(d == 0 && p == 0) {
+                    plan.push(',');
+                }
+                plan.push_str(&format!(r#"{{"doc":{d},"page":{p}}}"#));
+            }
+        }
+        plan.push(']');
+        let out = manipulate_pages_json(&blob, &docs, &plan).unwrap();
+
+        let doc = Document::load_mem(&out).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let cat = doc.get_dictionary(root).unwrap();
+        let af = match cat.get(b"AcroForm").unwrap() {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!(),
+        };
+        // /DR present with a /Font subdict that has at least one entry.
+        let dr = af.get(b"DR").expect("AcroForm must carry /DR");
+        let dr = match dr {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!("DR must be dict/ref"),
+        };
+        let fonts = dr.get(b"Font").expect("DR must carry /Font");
+        let fonts = match fonts {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!("DR/Font must be dict/ref"),
+        };
+        assert!(!fonts.as_hashmap().is_empty(), "DR/Font must have entries");
+        assert!(af.has(b"DA"), "AcroForm should carry a /DA");
     }
 
     #[test]
