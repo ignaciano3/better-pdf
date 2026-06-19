@@ -14,3 +14,6 @@ signature.jpg
 signature.jpeg
 examples/
 !examples/playground.ts
+
+# Claude Code local agent scratch (worktrees, sdd journals)
+.claude/
