@@ -80,3 +80,55 @@ describe("drawText validation", () => {
     expect(() => page.drawText("x", { x: 0, y: 0, size: 10, lineHeight: Infinity })).toThrow(RangeError);
   });
 });
+
+test("maxWidth wraps a long line into multiple Tj lines (standard font)", async () => {
+  const doc = await load();
+  // A long string with no explicit newlines; small maxWidth forces wrapping.
+  doc.getPage(0).drawText("the quick brown fox jumps over the lazy dog", {
+    x: 40,
+    y: 650,
+    size: 12,
+    maxWidth: 80,
+  });
+  const out = await doc.save();
+  const s = new TextDecoder("latin1").decode(out);
+  // More than one (...) Tj means it wrapped onto multiple lines.
+  const tjCount = (s.match(/\) Tj/g) ?? []).length;
+  expect(tjCount).toBeGreaterThan(1);
+});
+
+test("maxWidth respects explicit newlines as hard breaks", async () => {
+  const doc = await load();
+  doc.getPage(0).drawText("alpha beta\ngamma delta", {
+    x: 40,
+    y: 650,
+    size: 12,
+    maxWidth: 1000, // wide enough that only the explicit \n breaks
+  });
+  const out = await doc.save();
+  const s = new TextDecoder("latin1").decode(out);
+  expect(s).toContain("(alpha beta) Tj");
+  expect(s).toContain("(gamma delta) Tj");
+});
+
+test("maxWidth must be a positive finite number", async () => {
+  const doc = await load();
+  const page = doc.getPage(0);
+  expect(() => page.drawText("x", { x: 10, y: 10, size: 12, maxWidth: 0 })).toThrow(
+    RangeError,
+  );
+  expect(() =>
+    page.drawText("x", { x: 10, y: 10, size: 12, maxWidth: -5 }),
+  ).toThrow(RangeError);
+  expect(() =>
+    page.drawText("x", { x: 10, y: 10, size: 12, maxWidth: Infinity }),
+  ).toThrow(RangeError);
+});
+
+test("omitting maxWidth leaves a single-line draw unchanged", async () => {
+  const doc = await load();
+  doc.getPage(0).drawText("unwrapped single line", { x: 40, y: 650, size: 12 });
+  const out = await doc.save();
+  const s = new TextDecoder("latin1").decode(out);
+  expect(s).toContain("(unwrapped single line) Tj");
+});

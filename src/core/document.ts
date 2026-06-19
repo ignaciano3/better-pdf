@@ -298,7 +298,15 @@ export class PdfDocumentBase {
     if (this.mode === "create") {
       const index = this.createdPages.length;
       this.drawQueue.pushAddPage(width, height);
-      const page = new PdfPage(index, width, height, 0, this.drawQueue);
+      const page = new PdfPage(
+        index,
+        width,
+        height,
+        0,
+        this.drawQueue,
+        undefined,
+        (f, s, t) => this.wasm.measureText(f, s, t),
+      );
       this.createdPages.push(page);
       return page;
     }
@@ -309,7 +317,15 @@ export class PdfDocumentBase {
     const slot = -(this.appendedPages.length + 1);
     this.structureOps.push({ op: "appendBlank", width, height });
     const index = this.getPageCount() - 1; // best-effort index at call time
-    const page = new PdfPage(index, width, height, 0, this.drawQueue, slot);
+    const page = new PdfPage(
+      index,
+      width,
+      height,
+      0,
+      this.drawQueue,
+      slot,
+      (f, s, t) => this.wasm.measureText(f, s, t),
+    );
     this.appendedPages.push(page);
     return page;
   }
@@ -439,7 +455,16 @@ export class PdfDocumentBase {
         throw toPdfError(e);
       }
       this.pages = infos.map(
-        (p) => new PdfPage(p.index, p.width, p.height, p.rotation, this.drawQueue, p.index),
+        (p) =>
+          new PdfPage(
+            p.index,
+            p.width,
+            p.height,
+            p.rotation,
+            this.drawQueue,
+            p.index,
+            (f, s, t) => this.wasm.measureText(f, s, t),
+          ),
       );
     }
     return this.pages;

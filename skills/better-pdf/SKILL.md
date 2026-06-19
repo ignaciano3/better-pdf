@@ -116,7 +116,7 @@ await doc.save();
 | `page.drawPage(embedded, {x, y, width?, height?})` | Stamp the Form XObject; width/height default to intrinsic source size |
 | `page.drawSvgPath(d, { fill?, stroke?, strokeWidth?, opacity? })` | Draw an SVG path-data string; supports M/L/H/V/C/S/Q/T/Z (arcs A/a not supported); coordinates are PDF user space (y-up) |
 | `page.drawPolygon(points, { fill?, stroke?, strokeWidth?, opacity?, closed? })` | Draw a polygon from `{x,y}[]`; `closed` defaults to `true` |
-| `page.drawText(text, { …, rotate?, opacity? })` | `rotate`: degrees counter-clockwise about anchor (free angle); `opacity`: 0–1 — on loaded and created PDFs |
+| `page.drawText(text, { …, rotate?, opacity?, maxWidth? })` | `rotate`: degrees counter-clockwise about anchor (free angle); `opacity`: 0–1; `maxWidth` (number, optional): word-wrap text to this width in points. `\n` are kept as hard breaks. Works with standard-14 and embedded fonts. — on loaded and created PDFs |
 | `doc.setOutline(items)` | Build the PDF bookmarks/outline tree; `items: { title, page, children? }[]`; `page` is 0-based — on loaded and created PDFs |
 | `page.drawLink({ x, y, width, height, url })` | Add a clickable external-URI link annotation (invisible border by default) |
 | `page.drawLink({ x, y, width, height, goToPage })` | Add a clickable internal page-jump annotation; `goToPage` is 0-based |

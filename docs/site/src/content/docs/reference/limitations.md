@@ -18,6 +18,10 @@ description: What better-pdf does not (yet) support.
     `glyf`) may fail to subset. Pass `{ subset: false }` to skip subsetting for those
     fonts.
   - Characters with no glyph in the font are silently skipped.
+- **Multi-line text:** `drawText` honors `\n` as hard line breaks, and the
+  `maxWidth` option word-wraps text to fit a given width (added in 0.14.0). A
+  single word wider than `maxWidth` overflows onto its own line; mid-word
+  breaking and text alignment are not yet supported.
 - Appearance metrics cover the standard 14 text fonts (with Arial / Times New
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.

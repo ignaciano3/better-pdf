@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { PdfDocument, PdfError } from "../src/index.ts";
+import { PdfDocument, PdfError, PageSizes } from "../src/index.ts";
 import { readFileSync } from "node:fs";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 
@@ -78,6 +78,25 @@ test("embedded font text on a loaded PDF round-trips correctly", async () => {
   expect(bytes.length).toBeGreaterThan(1000);
   const reopened = await PdfDocument.load(bytes);
   expect(reopened.getPageCount()).toBe(originalPageCount);
+});
+
+test("maxWidth wraps text rendered with an embedded font", async () => {
+  const doc = await PdfDocument.create();
+  const fontBytes = readFileSync("tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+  const font = await doc.embedFont(fontBytes);
+  const page = doc.addPage(PageSizes.A4);
+  page.drawText("the quick brown fox jumps over the lazy dog", {
+    x: 40,
+    y: 700,
+    size: 12,
+    font,
+    maxWidth: 80,
+  });
+  const out = await doc.save();
+  const s = new TextDecoder("latin1").decode(out);
+  // Embedded text renders as hex <....> Tj; wrapping yields more than one.
+  const tjCount = (s.match(/> Tj/g) ?? []).length;
+  expect(tjCount).toBeGreaterThan(1);
 });
 
 // Render/visual verification: pdfjs parses the embedded-font PDF and extracts text
