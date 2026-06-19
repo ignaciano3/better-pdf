@@ -398,6 +398,12 @@ console.log(meta.creationDate); // Date object
 `DocumentMetadata` fields are all optional (`string | undefined`, `string[] | undefined`, `Date | undefined`).
 On a loaded PDF, keys not set by your code are preserved as-is in the incremental update.
 
+:::note[Non-ASCII text (UTF-16BE)]
+Non-Latin strings — Japanese, accented Latin, Arabic, etc. — are automatically
+encoded as UTF-16BE in the Info dictionary. Round-trip fidelity is guaranteed:
+`setTitle("日本語")` and then `getMetadata()` return the same string.
+:::
+
 :::note[XMP metadata]
 Only the PDF Info dictionary is written. XMP metadata streams embedded in the
 document are not modified or generated.
@@ -549,8 +555,57 @@ non-zero origin (e.g. an already-cropped page).
 All three methods are available on loaded and created pages and take effect on
 the next `doc.save()`.
 
-:::note[Not yet available]
-Blank-page insertion is not yet available.
+## Adding & removing pages
+
+`doc.addPage(size?)` works on both created and loaded documents. On a loaded
+document it appends a blank page that you can immediately draw on — the appended
+page is drawable in the same `save()` call.
+
+`insertPage`, `removePage`, and `movePage` also work on loaded documents. Their
+effects are reflected after the document is saved and reloaded.
+
+```ts
+import { PdfDocument, PageSizes } from "@ignaciano3/better-pdf";
+
+const bytes = new Uint8Array(await Bun.file("report.pdf").arrayBuffer());
+const doc = await PdfDocument.load(bytes);
+
+// Append a blank A4 page and draw on it immediately
+const newPage = doc.addPage(PageSizes.A4);
+newPage.drawText("Appendix A", { x: 72, y: 750, size: 18 });
+
+// Insert a blank Letter page at position 1 (0-based)
+doc.insertPage(1, [612, 792]);
+
+// Remove the page that is currently at index 3
+doc.removePage(3);
+
+// Move the page at index 5 to index 2
+doc.movePage(5, 2);
+
+const output = await doc.save();
+await Bun.write("updated.pdf", output);
+```
+
+### API
+
+| Method | Signature | Notes |
+|--------|-----------|-------|
+| `doc.addPage(size?)` | `(size?: [number, number]) => PdfPage` | Appends a blank page; works on loaded and created docs; drawable in the same save |
+| `doc.insertPage(index, size?)` | `(index: number, size?: [number, number]) => void` | Inserts a blank page at the given 0-based index; reflected after save + reload |
+| `doc.removePage(index)` | `(index: number) => void` | Removes the page at the given 0-based index; reflected after save + reload |
+| `doc.movePage(from, to)` | `(from: number, to: number) => void` | Moves a page from one 0-based index to another; reflected after save + reload |
+
+:::caution[Nested page trees]
+`insertPage`/`removePage`/`movePage` require a flat (single-level) PDF page
+tree. Rare PDFs with nested `Pages` nodes are rejected with an error — use
+`PdfDocument.merge` or `PdfDocument.assemble` to rebuild the page order instead.
+:::
+
+:::note[Save semantics]
+`addPage` is special: appended pages are part of the in-memory document and are
+immediately drawable. `insertPage`, `removePage`, and `movePage` queue structural
+changes that are written on `save()` and visible once you reload the output.
 :::
 
 ## Links

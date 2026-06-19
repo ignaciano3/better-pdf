@@ -50,12 +50,15 @@ describe("create", () => {
     expect(reloaded.getPageCount()).toBe(2);
   });
 
-  test("addPage on a loaded doc throws", async () => {
+  test("addPage on a loaded doc returns a drawable page", async () => {
     const bytes = new Uint8Array(
       await Bun.file("tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf").arrayBuffer(),
     );
     const doc = await PdfDocument.load(bytes);
-    expect(() => doc.addPage(PageSizes.A4)).toThrow();
+    const n = doc.getPageCount();
+    const page = doc.addPage(PageSizes.A4);
+    expect(page).toBeDefined();
+    expect(doc.getPageCount()).toBe(n + 1);
   });
 
   test("save with no pages throws", async () => {

@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.12.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, page rotation/resize in 0.7.0, PNG transparency (RGBA/gray+alpha alpha channel preserved as a soft mask) in 0.8.0, PDF page embedding (`embedPdfPage` + `drawPage` Form XObject stamping) in 0.9.0, clickable link annotations (`page.drawLink`) in 0.10.0, vector paths (`page.drawSvgPath` + `page.drawPolygon`) in 0.11.0, and text rotation/opacity (`drawText({rotate, opacity})`) + document outlines/bookmarks (`doc.setOutline()`) in 0.12.0. The public API may still change before 1.0.
+> **Status:** 0.13.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, page rotation/resize in 0.7.0, PNG transparency (RGBA/gray+alpha alpha channel preserved as a soft mask) in 0.8.0, PDF page embedding (`embedPdfPage` + `drawPage` Form XObject stamping) in 0.9.0, clickable link annotations (`page.drawLink`) in 0.10.0, vector paths (`page.drawSvgPath` + `page.drawPolygon`) in 0.11.0, text rotation/opacity (`drawText({rotate, opacity})`) + document outlines/bookmarks (`doc.setOutline()`) in 0.12.0, and page insertion/removal/move on loaded PDFs (`doc.insertPage`, `doc.removePage`, `doc.movePage`) + non-ASCII metadata (UTF-16BE) + palette PNG embedding in 0.13.0. The public API may still change before 1.0.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -34,6 +34,9 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Draw vector paths: `page.drawSvgPath(d, { fill?, stroke?, strokeWidth?, opacity? })` (SVG path-data string; supports M/L/H/V/C/S/Q/T/Z) and `page.drawPolygon(points, { fill?, stroke?, strokeWidth?, opacity?, closed? })` on loaded and created documents. SVG arc commands (A/a) are not yet supported.
 - Draw rotated and translucent text: `page.drawText(text, { rotate, opacity })` — `rotate` is free-angle degrees (counter-clockwise about the anchor), `opacity` is 0–1. Works on loaded and created documents.
 - Build PDF bookmarks / navigation outline: `doc.setOutline(items)` where each item is `{ title: string; page: number; children?: OutlineItem[] }`. Nested to arbitrary depth. Works on loaded and created documents.
+- Add, insert, remove, and move pages on loaded documents: `doc.addPage(size?)` appends a blank, immediately drawable page; `doc.insertPage(index, size?)`, `doc.removePage(index)`, and `doc.movePage(from, to)` restructure the page order (reflected after save + reload). Incremental — existing forms and content are preserved.
+- Non-ASCII document metadata: `setTitle`/`setAuthor`/etc. encode non-Latin text (Japanese, accented Latin, Arabic, etc.) as UTF-16BE for correct round-trip fidelity.
+- Palette (indexed-color) PNG embedding: `embedPng` handles color-type-3 PNGs with `tRNS` transparency — transparency is stored as a soft mask, same as RGBA PNGs. No API change.
 
 ## Install
 
@@ -750,7 +753,10 @@ count).
   is reconstructed.
 - Page rotation and resize are supported: `page.setRotation(degrees)`, `page.setSize(w, h)`,
   `page.setMediaBox(x0, y0, x1, y1)` on loaded and created pages (0.7.0).
-  Blank-page insertion is not yet available.
+- Page insertion/removal/move on loaded PDFs is supported (0.13.0): `doc.addPage(size?)`,
+  `doc.insertPage(index, size?)`, `doc.removePage(index)`, `doc.movePage(from, to)`.
+  Appended pages are immediately drawable; insert/remove/move are reflected after save + reload.
+  Nested page trees are not supported (rare PDFs rejected).
 - Vector paths (`page.drawSvgPath`, `page.drawPolygon`) are supported (0.11.0).
   SVG arc commands (A/a) are not yet supported. Path coordinates are PDF user space (y-up);
   SVG artwork authored y-down will appear flipped.
