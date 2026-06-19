@@ -199,9 +199,12 @@ const reordered = await doc.copyPages([2, 0, 1]);   // page 2 first, then 0, the
 
 - `copyPages` and `splitPages` are available on **loaded** documents only
   (documents opened with `PdfDocument.load`).
-- Form fields on assembled/merged pages keep their visual appearance but are
-  **not interactive** — no AcroForm is reconstructed. Flatten fields before
-  merging if you need a flat result.
+- Form fields on assembled/merged pages stay **interactive** (0.15.0): a
+  working `/AcroForm` is rebuilt with the kept fields, merged `/DR` fonts, and
+  `/NeedAppearances true`. Field names that collide across source documents are
+  renamed with a per-source prefix (`d0_`, `d1_`, …) so each stays
+  independently fillable. (`/XFA` data is dropped; a page selected twice shares
+  its field objects.)
 
 ## Embedding pages from other PDFs
 

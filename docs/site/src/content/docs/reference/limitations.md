@@ -34,11 +34,16 @@ description: What better-pdf does not (yet) support.
   written or modified** (only the Info dictionary is updated).
 - **Page operations (merge, copy, reorder, split)** — `PdfDocument.merge`,
   `PdfDocument.assemble`, `doc.copyPages`, and `doc.splitPages` — are **supported**.
-  - **Caveat — non-interactive AcroForm fields:** Pages assembled or merged from
-    documents that contain AcroForm fields retain their visual appearance (the
-    field appearance stream is baked onto the page), but the fields are **not
-    interactive** in the output — the AcroForm dictionary is not reconstructed.
-    Fill and flatten fields before merging if you need a flat, printable result.
+  - **Interactive form fields survive merge/assemble (0.15.0):** Pages merged
+    or assembled from documents with AcroForm fields keep those fields
+    **interactive** in the output — `/AcroForm` is rebuilt with the kept
+    fields, merged `/DR` fonts, and `/NeedAppearances true`. Field names that
+    collide across source documents are renamed with a per-source prefix
+    (`d0_`, `d1_`, …) so each stays independently fillable.
+    - **Caveat:** the same page selected twice (`assemble` with a duplicate
+      `{docIndex, pageIndex}`) shares one field object, so its fields are
+      linked rather than renamed. `/XFA` data is dropped (output is a plain
+      AcroForm).
   - **Page rotation and resize are now supported** via `page.setRotation(degrees)`,
     `page.setSize(width, height)`, and `page.setMediaBox(x0, y0, x1, y1)` on both
     loaded and created pages (added in 0.7.0).

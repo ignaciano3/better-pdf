@@ -5,6 +5,7 @@
 //! documents. Merge, extract, reorder, remove and split all reduce to this.
 use lopdf::{dictionary, Document, Object, ObjectId};
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Deserialize)]
 struct DocDesc {
@@ -54,6 +55,180 @@ fn resolve_inherited(doc: &Document, page_id: ObjectId) -> Vec<(Vec<u8>, Object)
     found
 }
 
+/// AcroForm data captured from one source doc, in merged-id space.
+struct SourceForm {
+    dr: Option<Object>,
+    da: Option<Object>,
+    top_fields: Vec<ObjectId>,
+}
+
+/// Capture a source doc's AcroForm /DR, /DA, and top-level field ids.
+/// Call AFTER `renumber_objects_with` so the returned ids/refs are in
+/// merged-id space, and BEFORE the objects are moved out of `doc`.
+fn capture_source_form(doc: &Document) -> SourceForm {
+    let mut out = SourceForm { dr: None, da: None, top_fields: Vec::new() };
+    let Ok(root) = doc.trailer.get(b"Root").and_then(Object::as_reference) else {
+        return out;
+    };
+    let Ok(cat) = doc.get_dictionary(root) else { return out };
+    let af = match cat.get(b"AcroForm") {
+        Ok(Object::Reference(r)) => match doc.get_dictionary(*r) {
+            Ok(d) => d,
+            Err(_) => return out,
+        },
+        Ok(Object::Dictionary(d)) => d,
+        _ => return out,
+    };
+    out.dr = af.get(b"DR").ok().cloned();
+    out.da = af.get(b"DA").ok().cloned();
+    if let Ok(fields) = af.get(b"Fields").and_then(|o| o.as_array()) {
+        for f in fields {
+            if let Ok(id) = f.as_reference() {
+                out.top_fields.push(id);
+            }
+        }
+    }
+    out
+}
+
+/// Walk a widget annotation's /Parent chain to the top-level field id.
+/// Returns `annot` if it has no /Parent (terminal field == widget).
+fn top_field_of(doc: &Document, annot: ObjectId) -> ObjectId {
+    let mut cur = annot;
+    for _ in 0..128 {
+        let Ok(d) = doc.get_dictionary(cur) else { break };
+        match d.get(b"Parent").and_then(Object::as_reference) {
+            Ok(p) => cur = p,
+            Err(_) => break,
+        }
+    }
+    cur
+}
+
+/// Reconstruct a working /AcroForm on the merged catalog from the field objects
+/// whose widgets sit on kept pages. No-op when no kept widget maps to a field.
+fn rebuild_acroform(
+    merged: &mut Document,
+    catalog_id: ObjectId,
+    kept_pages: &[ObjectId],
+    sources: &[SourceForm],
+) {
+    // Map each captured top-level field id to the source doc it came from.
+    let mut field_src: HashMap<ObjectId, usize> = HashMap::new();
+    for (si, s) in sources.iter().enumerate() {
+        for &fid in &s.top_fields {
+            field_src.entry(fid).or_insert(si);
+        }
+    }
+    if field_src.is_empty() {
+        return;
+    }
+
+    // Find top-level fields reachable from widgets on kept pages, in page order.
+    let mut kept_fields: Vec<ObjectId> = Vec::new();
+    let mut seen: HashSet<ObjectId> = HashSet::new();
+    for &pid in kept_pages {
+        let annot_ids: Vec<ObjectId> = match merged
+            .get_dictionary(pid)
+            .ok()
+            .and_then(|pd| pd.get(b"Annots").ok())
+            .and_then(|o| o.as_array().ok())
+        {
+            Some(arr) => arr.iter().filter_map(|o| o.as_reference().ok()).collect(),
+            None => continue,
+        };
+        for aid in annot_ids {
+            let top = top_field_of(merged, aid);
+            if field_src.contains_key(&top) && seen.insert(top) {
+                kept_fields.push(top);
+            }
+        }
+    }
+    if kept_fields.is_empty() {
+        return;
+    }
+
+    // Detect partial-name collisions across SOURCE docs and rename them with a
+    // per-source prefix so each field stays independently addressable.
+    fn partial_name(doc: &Document, id: ObjectId) -> Option<String> {
+        let d = doc.get_dictionary(id).ok()?;
+        let t = d.get(b"T").ok()?.as_str().ok()?;
+        Some(String::from_utf8_lossy(t).into_owned())
+    }
+    // name -> set of source indices that use it (among kept fields)
+    let mut name_sources: HashMap<String, HashSet<usize>> = HashMap::new();
+    for &fid in &kept_fields {
+        if let (Some(name), Some(&si)) = (partial_name(merged, fid), field_src.get(&fid)) {
+            name_sources.entry(name).or_default().insert(si);
+        }
+    }
+    for &fid in &kept_fields {
+        let (Some(name), Some(&si)) = (partial_name(merged, fid), field_src.get(&fid)) else {
+            continue;
+        };
+        let collides = name_sources.get(&name).map(|s| s.len() > 1).unwrap_or(false);
+        if collides {
+            let new_name = format!("d{si}_{name}");
+            if let Ok(d) = merged.get_dictionary_mut(fid) {
+                d.set("T", Object::string_literal(new_name));
+            }
+        }
+    }
+
+    let fields: Vec<Object> = kept_fields.iter().map(|&id| Object::Reference(id)).collect();
+
+    // Merge /DR /Font entries across sources (first-writer-wins per name).
+    let mut merged_fonts = lopdf::Dictionary::new();
+    let mut da: Option<Object> = None;
+    for s in sources {
+        if da.is_none() {
+            if let Some(d) = &s.da {
+                da = Some(d.clone());
+            }
+        }
+        let Some(dr_obj) = &s.dr else { continue };
+        let dr_dict = match dr_obj {
+            Object::Reference(r) => merged.get_dictionary(*r).ok().cloned(),
+            Object::Dictionary(d) => Some(d.clone()),
+            _ => None,
+        };
+        let Some(dr_dict) = dr_dict else { continue };
+        let font_obj = dr_dict.get(b"Font").ok().cloned();
+        let font_dict = match font_obj {
+            Some(Object::Reference(r)) => merged.get_dictionary(r).ok().cloned(),
+            Some(Object::Dictionary(d)) => Some(d),
+            _ => None,
+        };
+        if let Some(fd) = font_dict {
+            for (k, v) in fd.iter() {
+                if !merged_fonts.has(k) {
+                    merged_fonts.set(k.to_vec(), v.clone());
+                }
+            }
+        }
+    }
+
+    let mut dr = lopdf::Dictionary::new();
+    if !merged_fonts.as_hashmap().is_empty() {
+        dr.set("Font", Object::Dictionary(merged_fonts));
+    }
+
+    let mut acroform = dictionary! {
+        "Fields" => Object::Array(fields),
+        "NeedAppearances" => Object::Boolean(true),
+    };
+    if !dr.as_hashmap().is_empty() {
+        acroform.set("DR", Object::Dictionary(dr));
+    }
+    if let Some(da) = da {
+        acroform.set("DA", da);
+    }
+    let acroform_id = merged.add_object(acroform);
+    if let Ok(cat) = merged.get_dictionary_mut(catalog_id) {
+        cat.set("AcroForm", Object::Reference(acroform_id));
+    }
+}
+
 /// Assemble a new PDF from an ordered page selection across the source PDFs
 /// packed into `docs_blob`.
 ///
@@ -75,6 +250,7 @@ pub fn manipulate_pages_json(
     let mut merged = Document::with_version("1.7");
     let mut next: u32 = 1;
     let mut per_doc_pages: Vec<Vec<ObjectId>> = Vec::new();
+    let mut sources: Vec<SourceForm> = Vec::new();
 
     for d in &descs {
         let end = d
@@ -109,6 +285,10 @@ pub fn manipulate_pages_json(
         let page_ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
         per_doc_pages.push(page_ids);
 
+        // Capture AcroForm data while ids are renumbered but objects still live
+        // in `doc`. (Pushed in the same order as descs so source index aligns.)
+        sources.push(capture_source_form(&doc));
+
         // Bulk-move every object into the merged doc.
         merged.objects.extend(std::mem::take(&mut doc.objects));
     }
@@ -121,6 +301,7 @@ pub fn manipulate_pages_json(
     let pages_id = merged.new_object_id();
     let mut kids: Vec<Object> = Vec::with_capacity(plan.len());
     let mut used: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
+    let mut kept_pages: Vec<ObjectId> = Vec::with_capacity(plan.len());
     for s in &plan {
         let pages = per_doc_pages
             .get(s.doc)
@@ -142,6 +323,7 @@ pub fn manipulate_pages_json(
             pd.set("Parent", Object::Reference(pages_id));
         }
         kids.push(Object::Reference(pid));
+        kept_pages.push(pid);
     }
 
     let count = kids.len() as i64;
@@ -158,6 +340,8 @@ pub fn manipulate_pages_json(
         "Pages" => Object::Reference(pages_id),
     });
     merged.trailer.set("Root", Object::Reference(catalog_id));
+
+    rebuild_acroform(&mut merged, catalog_id, &kept_pages, &sources);
 
     // Drop the old per-source catalogs/pages-trees and any unselected pages.
     // Everything reachable from the new Root (Pages tree + selected pages +
@@ -261,6 +445,149 @@ mod tests {
         let (blob, docs) = pack(&[FICHA]);
         let r = manipulate_pages_json(&blob, &docs, r#"[{"doc":5,"page":0}]"#);
         assert!(r.unwrap_err().contains("doc"));
+    }
+
+    #[test]
+    fn merge_rebuilds_interactive_acroform() {
+        // FICHA is an AcroForm PDF. Merging two copies must yield an output
+        // whose catalog has an /AcroForm with a non-empty /Fields array.
+        let (blob, docs) = pack(&[FICHA, FICHA]);
+        let n = page_count(FICHA);
+        let mut plan = String::from("[");
+        for d in 0..2 {
+            for p in 0..n {
+                if !(d == 0 && p == 0) {
+                    plan.push(',');
+                }
+                plan.push_str(&format!(r#"{{"doc":{d},"page":{p}}}"#));
+            }
+        }
+        plan.push(']');
+        let out = manipulate_pages_json(&blob, &docs, &plan).unwrap();
+
+        let doc = Document::load_mem(&out).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let cat = doc.get_dictionary(root).unwrap();
+        let af = cat.get(b"AcroForm").expect("merged output must have /AcroForm");
+        let af = match af {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!("AcroForm must be a dict or ref"),
+        };
+        let fields = af.get(b"Fields").unwrap().as_array().unwrap();
+        assert!(!fields.is_empty(), "/Fields must be non-empty");
+        assert!(
+            af.get(b"NeedAppearances")
+                .ok()
+                .and_then(|o| o.as_bool().ok())
+                == Some(true),
+            "NeedAppearances must be true"
+        );
+    }
+
+    #[test]
+    fn merge_acroform_has_dr_fonts_and_da() {
+        let (blob, docs) = pack(&[FICHA, FICHA]);
+        let n = page_count(FICHA);
+        let mut plan = String::from("[");
+        for d in 0..2 {
+            for p in 0..n {
+                if !(d == 0 && p == 0) {
+                    plan.push(',');
+                }
+                plan.push_str(&format!(r#"{{"doc":{d},"page":{p}}}"#));
+            }
+        }
+        plan.push(']');
+        let out = manipulate_pages_json(&blob, &docs, &plan).unwrap();
+
+        let doc = Document::load_mem(&out).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let cat = doc.get_dictionary(root).unwrap();
+        let af = match cat.get(b"AcroForm").unwrap() {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!(),
+        };
+        // /DR present with a /Font subdict that has at least one entry.
+        let dr = af.get(b"DR").expect("AcroForm must carry /DR");
+        let dr = match dr {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!("DR must be dict/ref"),
+        };
+        let fonts = dr.get(b"Font").expect("DR must carry /Font");
+        let fonts = match fonts {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!("DR/Font must be dict/ref"),
+        };
+        assert!(!fonts.as_hashmap().is_empty(), "DR/Font must have entries");
+        assert!(af.has(b"DA"), "AcroForm should carry a /DA");
+    }
+
+    #[test]
+    fn merge_self_renames_colliding_field_names() {
+        // Merging FICHA with itself: every field name appears in both sources,
+        // so all kept top-level fields must be prefixed d0_/d1_ — yielding no
+        // duplicate /T values among the rebuilt /Fields.
+        let (blob, docs) = pack(&[FICHA, FICHA]);
+        let n = page_count(FICHA);
+        let mut plan = String::from("[");
+        for d in 0..2 {
+            for p in 0..n {
+                if !(d == 0 && p == 0) {
+                    plan.push(',');
+                }
+                plan.push_str(&format!(r#"{{"doc":{d},"page":{p}}}"#));
+            }
+        }
+        plan.push(']');
+        let out = manipulate_pages_json(&blob, &docs, &plan).unwrap();
+
+        let doc = Document::load_mem(&out).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let cat = doc.get_dictionary(root).unwrap();
+        let af = match cat.get(b"AcroForm").unwrap() {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!(),
+        };
+        let fields = af.get(b"Fields").unwrap().as_array().unwrap();
+        let mut names: Vec<String> = Vec::new();
+        for f in fields {
+            let fd = doc.get_dictionary(f.as_reference().unwrap()).unwrap();
+            if let Ok(t) = fd.get(b"T").and_then(|o| o.as_str()) {
+                names.push(String::from_utf8_lossy(t).into_owned());
+            }
+        }
+        let unique: HashSet<&String> = names.iter().collect();
+        assert_eq!(unique.len(), names.len(), "no duplicate top-level /T names");
+        assert!(
+            names.iter().any(|n| n.starts_with("d0_")) && names.iter().any(|n| n.starts_with("d1_")),
+            "colliding names must be per-source prefixed"
+        );
+    }
+
+    #[test]
+    fn top_field_of_walks_parent_to_root() {
+        // Build a tiny doc: top field A (no Parent) -> kid widget W (Parent A).
+        let mut d = Document::with_version("1.7");
+        let a = d.new_object_id();
+        let w = d.new_object_id();
+        d.objects.insert(
+            a,
+            Object::Dictionary(dictionary! { "T" => Object::string_literal("A") }),
+        );
+        d.objects.insert(
+            w,
+            Object::Dictionary(dictionary! {
+                "Subtype" => Object::Name(b"Widget".to_vec()),
+                "Parent" => Object::Reference(a),
+            }),
+        );
+        assert_eq!(top_field_of(&d, w), a, "widget resolves to its top field");
+        assert_eq!(top_field_of(&d, a), a, "a top field resolves to itself");
     }
 
     #[test]

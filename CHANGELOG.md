@@ -8,6 +8,16 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-19
+
+### Added
+
+- `PdfDocument.merge` / `assemble` / `copyPages` now rebuild a working `/AcroForm` when assembled pages carry form widgets, so fields stay interactive (fillable) in the output. The rebuilt form merges each source's `/DR` fonts and `/DA` and sets `/NeedAppearances true`. Field names that collide across source documents are renamed with a per-source prefix (`d0_`, `d1_`, …).
+
+### Notes
+
+- A page selected more than once shares its field objects (linked, not renamed). `/XFA` data is not carried into the merged output.
+
 ## [0.14.0] - 2026-06-19
 
 ### Added
