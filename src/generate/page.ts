@@ -19,6 +19,10 @@ export interface DrawTextOptions {
   color?: Color;
   /** Distance between baselines for multiline text ("\n"). Defaults to 1.15 * size. */
   lineHeight?: number;
+  /** Rotation angle in degrees (counter-clockwise). Must be finite. */
+  rotate?: number;
+  /** Opacity 0..1. Default 1 (fully opaque). */
+  opacity?: number;
 }
 
 /** Options for {@link PdfPage.drawLine}. Coordinates use the PDF convention: origin bottom-left. */
@@ -177,6 +181,10 @@ export class PdfPage {
     ) {
       throw new RangeError(`lineHeight must be > 0, got ${options.lineHeight}`);
     }
+    if (options.rotate !== undefined && !Number.isFinite(options.rotate)) {
+      throw new RangeError(`rotate must be a finite number, got ${options.rotate}`);
+    }
+    validateOpacity(options.opacity);
     const embeddedId =
       options.font instanceof PdfFont && options.font._fontId !== undefined
         ? options.font._fontId
@@ -195,6 +203,8 @@ export class PdfPage {
       color: options.color ?? rgb(0, 0, 0),
       lineHeight: options.lineHeight,
       ...(embeddedId !== undefined ? { fontId: embeddedId } : {}),
+      ...(options.rotate !== undefined ? { rotate: options.rotate } : {}),
+      ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
     });
   }
 

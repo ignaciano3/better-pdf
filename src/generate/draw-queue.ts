@@ -1,5 +1,6 @@
 import type { Color } from "./color.js";
 import type { Segment } from "./svg-path.js";
+import type { OutlineItem } from "./outline.js";
 
 /** @internal Wire format consumed by the Rust core's apply_draw_ops. */
 export type TextOp = {
@@ -13,6 +14,8 @@ export type TextOp = {
   text: string;
   lineHeight?: number;
   fontId?: number;
+  rotate?: number;
+  opacity?: number;
 };
 
 export type ImageOp = {
@@ -90,6 +93,8 @@ export type LinkOp = {
 
 export type AddPageOp = { op: "addPage"; width: number; height: number };
 
+export type OutlineOp = { op: "outline"; items: OutlineItem[] };
+
 export type PathOp = {
   op: "path";
   page: number;
@@ -120,6 +125,7 @@ export class DrawQueue {
   private readonly pageOps: AddPageOp[] = [];
   private readonly fonts: FontEntry[] = [];
   private metadataOp: Record<string, string> | undefined = undefined;
+  private outlineOp: OutlineItem[] | undefined = undefined;
 
   get length(): number {
     return this.drawOps.length;
@@ -143,6 +149,8 @@ export class DrawQueue {
       color: Color;
       lineHeight?: number;
       fontId?: number;
+      rotate?: number;
+      opacity?: number;
     },
   ): void {
     this.drawOps.push({
@@ -156,6 +164,8 @@ export class DrawQueue {
       text,
       ...(opts.lineHeight !== undefined ? { lineHeight: opts.lineHeight } : {}),
       ...(opts.fontId !== undefined ? { fontId: opts.fontId } : {}),
+      ...(opts.rotate !== undefined ? { rotate: opts.rotate } : {}),
+      ...(opts.opacity !== undefined ? { opacity: opts.opacity } : {}),
     });
   }
 
@@ -165,6 +175,10 @@ export class DrawQueue {
 
   pushMetadata(meta: Record<string, string>): void {
     this.metadataOp = meta;
+  }
+
+  pushOutline(items: OutlineItem[]): void {
+    this.outlineOp = items;
   }
 
   pushImage(
@@ -270,6 +284,7 @@ export class DrawQueue {
     const { ops, images } = this.buildDrawOps();
     const { fonts, fontsJson } = this.buildFonts();
     const metaOps = this.metadataOp ? [{ op: "metadata", ...this.metadataOp }] : [];
-    return { opsJson: JSON.stringify([...metaOps, ...this.pageOps, ...ops]), images, fonts, fontsJson };
+    const outlineOps = this.outlineOp ? [{ op: "outline", items: this.outlineOp }] : [];
+    return { opsJson: JSON.stringify([...outlineOps, ...metaOps, ...this.pageOps, ...ops]), images, fonts, fontsJson };
   }
 }

@@ -37,6 +37,10 @@ enum DrawOp {
         text: String,
         #[serde(rename = "lineHeight")]
         line_height: Option<f32>,
+        #[serde(default)]
+        rotate: Option<f32>,
+        #[serde(default)]
+        opacity: Option<f32>,
     },
     Image {
         page: usize,
@@ -231,6 +235,8 @@ pub(crate) fn link_annot_dict(
 /// Append one self-contained `BT … ET` text block to `out`. `BT` resets the
 /// text matrix to identity, so `(x, y)` is an absolute page position.
 /// `font_key` is the resource name without leading slash, e.g. "BPF0".
+/// If `rotate` is Some(degrees), wraps the block in `q`/`Q` and emits a `cm`
+/// matrix before `BT`; `gs_key` optionally applies an ExtGState for opacity.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_text_block(
     out: &mut Vec<u8>,
@@ -241,14 +247,39 @@ pub(crate) fn emit_text_block(
     color: [f32; 3],
     text: &str,
     line_height: Option<f32>,
+    rotate: Option<f32>,
+    gs_key: Option<&str>,
 ) {
     let leading = line_height.unwrap_or(size * 1.15);
     let [r, g, b] = color;
+    let wrap = rotate.is_some() || gs_key.is_some();
+    if wrap {
+        out.extend_from_slice(b"q\n");
+    }
+    if let Some(k) = gs_key {
+        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+    }
+    if let Some(deg) = rotate {
+        let t = deg.to_radians();
+        let (sin_, cos_) = (t.sin(), t.cos());
+        out.extend_from_slice(
+            format!(
+                "{} {} {} {} {} {} cm\n",
+                fmt_num(cos_), fmt_num(sin_), fmt_num(-sin_), fmt_num(cos_),
+                fmt_num(x), fmt_num(y)
+            )
+            .as_bytes(),
+        );
+    }
     out.extend_from_slice(b"BT\n");
     out.extend_from_slice(format!("/{font_key} {} Tf\n", fmt_num(size)).as_bytes());
     out.extend_from_slice(format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes());
     out.extend_from_slice(format!("{} TL\n", fmt_num(leading)).as_bytes());
-    out.extend_from_slice(format!("{} {} Td\n", fmt_num(x), fmt_num(y)).as_bytes());
+    if rotate.is_some() {
+        out.extend_from_slice(b"0 0 Td\n");
+    } else {
+        out.extend_from_slice(format!("{} {} Td\n", fmt_num(x), fmt_num(y)).as_bytes());
+    }
     for (i, line) in text.split('\n').enumerate() {
         let escaped = escape_pdf_literal(&encode_winansi(line));
         let escaped_str = String::from_utf8_lossy(&escaped).into_owned();
@@ -259,10 +290,15 @@ pub(crate) fn emit_text_block(
         }
     }
     out.extend_from_slice(b"ET\n");
+    if wrap {
+        out.extend_from_slice(b"Q\n");
+    }
 }
 
 /// Like `emit_text_block`, but for a Type0/Identity-H font: each line is a list
 /// of 2-byte glyph ids, emitted as a hex string `<....>`.
+/// If `rotate` is Some(degrees), wraps the block in `q`/`Q` and emits a `cm`
+/// matrix before `BT`; `gs_key` optionally applies an ExtGState for opacity.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_text_block_cid(
     out: &mut Vec<u8>,
@@ -273,14 +309,39 @@ pub(crate) fn emit_text_block_cid(
     color: [f32; 3],
     gids_per_line: &[Vec<u16>],
     line_height: Option<f32>,
+    rotate: Option<f32>,
+    gs_key: Option<&str>,
 ) {
     let leading = line_height.unwrap_or(size * 1.15);
     let [r, g, b] = color;
+    let wrap = rotate.is_some() || gs_key.is_some();
+    if wrap {
+        out.extend_from_slice(b"q\n");
+    }
+    if let Some(k) = gs_key {
+        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+    }
+    if let Some(deg) = rotate {
+        let t = deg.to_radians();
+        let (sin_, cos_) = (t.sin(), t.cos());
+        out.extend_from_slice(
+            format!(
+                "{} {} {} {} {} {} cm\n",
+                fmt_num(cos_), fmt_num(sin_), fmt_num(-sin_), fmt_num(cos_),
+                fmt_num(x), fmt_num(y)
+            )
+            .as_bytes(),
+        );
+    }
     out.extend_from_slice(b"BT\n");
     out.extend_from_slice(format!("/{font_key} {} Tf\n", fmt_num(size)).as_bytes());
     out.extend_from_slice(format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes());
     out.extend_from_slice(format!("{} TL\n", fmt_num(leading)).as_bytes());
-    out.extend_from_slice(format!("{} {} Td\n", fmt_num(x), fmt_num(y)).as_bytes());
+    if rotate.is_some() {
+        out.extend_from_slice(b"0 0 Td\n");
+    } else {
+        out.extend_from_slice(format!("{} {} Td\n", fmt_num(x), fmt_num(y)).as_bytes());
+    }
     for (i, line) in gids_per_line.iter().enumerate() {
         let mut hex = String::with_capacity(line.len() * 4);
         for gid in line { hex.push_str(&format!("{gid:04X}")); }
@@ -291,6 +352,9 @@ pub(crate) fn emit_text_block_cid(
         }
     }
     out.extend_from_slice(b"ET\n");
+    if wrap {
+        out.extend_from_slice(b"Q\n");
+    }
 }
 
 /// Append a `q … cm /key Do Q` image-draw block. `(x,y)` is lower-left; width/height in points.
@@ -726,7 +790,7 @@ pub fn apply_draw_ops_json(
     // Validate ALL ops before mutating anything
     for op in &ops {
         match op {
-            DrawOp::Text { page, font, font_id, .. } => {
+            DrawOp::Text { page, font, font_id, opacity, rotate, .. } => {
                 if *page >= page_count {
                     return Err(format!(
                         "page {page} out of range ({page_count} pages)"
@@ -738,6 +802,16 @@ pub fn apply_draw_ops_json(
                     }
                 } else if !STANDARD_14.contains(&font.as_str()) {
                     return Err(format!("unknown font: {font}"));
+                }
+                if let Some(o) = opacity {
+                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                }
+                if let Some(deg) = rotate {
+                    if !deg.is_finite() {
+                        return Err("invalid rotation".to_string());
+                    }
                 }
             }
             DrawOp::Image {
@@ -1110,8 +1184,23 @@ pub fn apply_draw_ops_json(
                     color,
                     text,
                     line_height,
+                    rotate,
+                    opacity,
                     page: _,
                 } => {
+                    // Register ExtGState for opacity if present
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("BPG{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id = inc.new_document.add_object(
+                            Object::Dictionary(extgstate_dict(*o))
+                        );
+                        extgstates_on_page.push((key.clone(), gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+
                     if let Some(id) = font_id {
                         // Embedded font: emit a Type0/Identity-H hex glyph string.
                         // gids come from BuiltFont.gid_for (the REMAPPED subset ids),
@@ -1134,6 +1223,8 @@ pub fn apply_draw_ops_json(
                             *color,
                             &gids_per_line,
                             *line_height,
+                            *rotate,
+                            gs_key.as_deref(),
                         );
                     } else {
                         let font_idx = standard_14_index(font.as_str()).unwrap();
@@ -1157,6 +1248,8 @@ pub fn apply_draw_ops_json(
                             *color,
                             text,
                             *line_height,
+                            *rotate,
+                            gs_key.as_deref(),
                         );
                     }
                 }
@@ -1717,7 +1810,7 @@ mod tests {
         let mut out = Vec::new();
         // two lines, gids per line
         emit_text_block_cid(&mut out, "BPE0", 50.0, 700.0, 12.0, [0.0,0.0,0.0],
-            &[vec![0x0048u16, 0x00E9u16], vec![0x0041u16]], None);
+            &[vec![0x0048u16, 0x00E9u16], vec![0x0041u16]], None, None, None);
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("/BPE0 12 Tf"), "content: {s}");
         assert!(s.contains("<0048 00E9>") || s.contains("<004800E9>"), "hex glyph string missing: {s}");
@@ -2370,5 +2463,36 @@ mod tests {
         let json = r#"[{"op":"path","page":0,"segments":[],"stroke":[0,0,0]}]"#;
         let err = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap_err();
         assert!(err.contains("segment"), "expected segment error, got: {err}");
+    }
+
+    // ── M34: text rotation + opacity ─────────────────────────────────────────
+
+    #[test]
+    fn rotated_text_emits_matrix() {
+        let out = apply_draw_ops_json(FICHA,
+            r#"[{"op":"text","page":0,"x":100,"y":100,"size":12,"font":"Helvetica","color":[0,0,0],"text":"hi","rotate":90}]"#,
+            &[], &[], "[]").unwrap();
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains(" cm"), "rotation must emit a cm matrix: {s}");
+        assert!(s.contains("q") && s.contains("Q"), "rotated text wrapped in q/Q: {s}");
+        assert!(s.contains("0 0 Td"), "rotated text uses Td 0 0 (cm positions): {s}");
+    }
+
+    #[test]
+    fn translucent_text_registers_extgstate() {
+        let out = apply_draw_ops_json(FICHA,
+            r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"wm","opacity":0.3}]"#,
+            &[], &[], "[]").unwrap();
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains("/BPG"), "opacity text references an ExtGState: {s}");
+    }
+
+    #[test]
+    fn plain_text_unchanged_no_wrap() {
+        let out = apply_draw_ops_json(FICHA,
+            r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#,
+            &[], &[], "[]").unwrap();
+        let s = last_draw_stream_content(&out);
+        assert!(s.contains("50 700 Td"), "plain text keeps x y Td: {s}");
     }
 }

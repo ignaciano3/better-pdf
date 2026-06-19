@@ -1,6 +1,6 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw images (including transparent PNGs with alpha preserved as a soft mask) and vector graphics, draw SVG path-data strings with page.drawSvgPath() or polygons with page.drawPolygon(), add clickable link annotations (external URLs and internal page jumps) with page.drawLink(), read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, rotate or resize individual pages, embed pages from other PDFs as Form XObjects (watermarks, letterhead, N-up). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, embedding transparent PNG images, drawing vector paths or polygons, adding hyperlinks or internal navigation links to a PDF, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, rotating or resizing pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw rotated or translucent text with drawText({rotate, opacity}), add document outlines/bookmarks with doc.setOutline(), draw images (including transparent PNGs with alpha preserved as a soft mask) and vector graphics, draw SVG path-data strings with page.drawSvgPath() or polygons with page.drawPolygon(), add clickable link annotations (external URLs and internal page jumps) with page.drawLink(), read/write PDF document metadata (title/author/keywords/dates), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, rotate or resize individual pages, embed pages from other PDFs as Form XObjects (watermarks, letterhead, N-up). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, drawing rotated or translucent text, adding PDF bookmarks or a table-of-contents outline, embedding transparent PNG images, drawing vector paths or polygons, adding hyperlinks or internal navigation links to a PDF, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, rotating or resizing pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
@@ -112,6 +112,8 @@ await doc.save();
 | `page.drawPage(embedded, {x, y, width?, height?})` | Stamp the Form XObject; width/height default to intrinsic source size |
 | `page.drawSvgPath(d, { fill?, stroke?, strokeWidth?, opacity? })` | Draw an SVG path-data string; supports M/L/H/V/C/S/Q/T/Z (arcs A/a not supported); coordinates are PDF user space (y-up) |
 | `page.drawPolygon(points, { fill?, stroke?, strokeWidth?, opacity?, closed? })` | Draw a polygon from `{x,y}[]`; `closed` defaults to `true` |
+| `page.drawText(text, { …, rotate?, opacity? })` | `rotate`: degrees counter-clockwise about anchor (free angle); `opacity`: 0–1 — on loaded and created PDFs |
+| `doc.setOutline(items)` | Build the PDF bookmarks/outline tree; `items: { title, page, children? }[]`; `page` is 0-based — on loaded and created PDFs |
 | `page.drawLink({ x, y, width, height, url })` | Add a clickable external-URI link annotation (invisible border by default) |
 | `page.drawLink({ x, y, width, height, goToPage })` | Add a clickable internal page-jump annotation; `goToPage` is 0-based |
 | `doc.embedFont(bytes, { subset? })` → `Promise<PdfFont>` | Embed TTF/OTF; returns a `PdfFont` for `drawText` |
@@ -127,6 +129,52 @@ await doc.save();
 | `generateFormTypes(fields, { typeName })` | Emit a typed `…Fields` module (string) |
 
 `FieldInfo = { name, type, value, states, options, readOnly, required, exported, maxLength, widgets }`, where `exported` is false only when the `NoExport` flag is set, `maxLength` is a text field's `/MaxLen` (or null), and `widgets: { page, rect: [x0,y0,x1,y1] }[]` gives each widget's 0-based page index and `/Rect` in PDF points (origin bottom-left). `setText` throws if longer than `maxLength`. `type` ∈ `text | checkbox | radio | dropdown | listbox | signature | pushbutton | unknown`.
+
+## Rotated & translucent text
+
+```ts
+import { PdfDocument, StandardFonts, rgb } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.load(bytes);
+const font = doc.getFont(StandardFonts.HelveticaBold);
+
+for (let i = 0; i < doc.getPageCount(); i++) {
+  doc.getPage(i).drawText("CONFIDENTIAL", {
+    x: 150, y: 300, size: 60, font,
+    color: rgb(0.8, 0, 0),
+    rotate: 45,    // degrees counter-clockwise
+    opacity: 0.15, // faint watermark
+  });
+}
+
+await Bun.write("watermark.pdf", await doc.save());
+```
+
+## Document outlines / bookmarks
+
+```ts
+import { PdfDocument, PageSizes } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+for (let i = 0; i < 6; i++) doc.addPage(PageSizes.A4);
+
+doc.setOutline([
+  { title: "Introduction", page: 0 },
+  {
+    title: "Chapter 1", page: 1,
+    children: [
+      { title: "1.1 Background", page: 1 },
+      { title: "1.2 Methods",    page: 2 },
+    ],
+  },
+  { title: "Conclusion", page: 5 },
+]);
+
+await Bun.write("report.pdf", await doc.save());
+```
+
+`page` is 0-based (matches `doc.getPage(i)`). Children nest to arbitrary depth.
+Works on loaded and created documents.
 
 ## Page operations (merge, extract, split, assemble)
 

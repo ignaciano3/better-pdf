@@ -44,6 +44,10 @@ enum CreateOp {
         text: String,
         #[serde(rename = "lineHeight")]
         line_height: Option<f32>,
+        #[serde(default)]
+        rotate: Option<f32>,
+        #[serde(default)]
+        opacity: Option<f32>,
     },
     Image {
         page: usize,
@@ -134,6 +138,11 @@ enum CreateOp {
         #[serde(rename = "strokeWidth")]
         stroke_width: Option<f32>,
         opacity: Option<f32>,
+    },
+    /// Document outline (bookmarks). If multiple outline ops are present, the
+    /// last one wins.
+    Outline {
+        items: Vec<crate::outline::OutlineItem>,
     },
 }
 
@@ -342,7 +351,7 @@ pub fn create_document_json(
     // Validation pass: check all ops before building anything
     for op in &ops {
         match op {
-            CreateOp::Text { page, font, font_id, .. } => {
+            CreateOp::Text { page, font, font_id, opacity, rotate, .. } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
                 }
@@ -352,6 +361,16 @@ pub fn create_document_json(
                     }
                 } else if standard_14_index(font).is_none() {
                     return Err(format!("unknown font: {font}"));
+                }
+                if let Some(o) = opacity {
+                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                }
+                if let Some(deg) = rotate {
+                    if !deg.is_finite() {
+                        return Err("invalid rotation".to_string());
+                    }
                 }
             }
             CreateOp::Image {
@@ -571,6 +590,9 @@ pub fn create_document_json(
             }
             CreateOp::AddPage { .. } => {}
             CreateOp::Metadata { .. } => {}
+            CreateOp::Outline { items } => {
+                crate::outline::validate_pages(items, pages.len())?;
+            }
             CreateOp::Path {
                 page,
                 segments,
@@ -831,7 +853,21 @@ pub fn create_document_json(
                     color,
                     text,
                     line_height,
+                    rotate,
+                    opacity,
                 } if *page == page_index => {
+                    // Register ExtGState for opacity if present
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("BPG{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id =
+                            doc.add_object(Object::Dictionary(extgstate_dict(*o)));
+                        extgstate_res.set(key.clone(), Object::Reference(gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+
                     if let Some(id) = font_id {
                         // Embedded font: emit a Type0/Identity-H hex glyph string.
                         // gids come from BuiltFont.gid_for (the REMAPPED subset ids),
@@ -858,6 +894,8 @@ pub fn create_document_json(
                             *color,
                             &gids_per_line,
                             *line_height,
+                            *rotate,
+                            gs_key.as_deref(),
                         );
                     } else {
                         let idx = standard_14_index(font).unwrap();
@@ -876,6 +914,8 @@ pub fn create_document_json(
                             *color,
                             text,
                             *line_height,
+                            *rotate,
+                            gs_key.as_deref(),
                         );
                     }
                 }
@@ -1685,6 +1725,24 @@ pub fn create_document_json(
     let catalog_id = doc.add_object(Object::Dictionary(catalog_dict));
     doc.trailer.set("Root", Object::Reference(catalog_id));
 
+    // Build the document outline if an outline op was present (last one wins),
+    // then wire /Outlines onto the catalog.
+    let outline_items = ops.iter().filter_map(|o| {
+        if let CreateOp::Outline { items } = o { Some(items) } else { None }
+    }).last();
+    if let Some(items) = outline_items {
+        let root = crate::outline::build_outline(
+            &mut doc,
+            items,
+            &|i| page_ids.get(i).copied(),
+        )?;
+        let catalog = doc
+            .get_object_mut(catalog_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(|e| e.to_string())?;
+        catalog.set("Outlines", Object::Reference(root));
+    }
+
     // Apply metadata if a metadata op was present (last one wins).
     let meta_op = ops.iter().filter_map(|o| {
         if let CreateOp::Metadata { meta } = o { Some(meta) } else { None }
@@ -2166,6 +2224,27 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Annots").unwrap().as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn creates_outline() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"addPage","width":595,"height":842},{"op":"outline","items":[{"title":"Cover","page":0},{"title":"Body","page":1,"children":[{"title":"Sub","page":1}]}]}]"#;
+        let out = create_document_json(ops, &[], &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let cat = doc.catalog().unwrap();
+        let outlines = doc
+            .get_object(cat.get(b"Outlines").unwrap().as_reference().unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        assert!(outlines.has(b"First") && outlines.has(b"Last"));
+        assert!(outlines.get(b"Count").unwrap().as_i64().unwrap() >= 2);
+    }
+
+    #[test]
+    fn outline_rejects_bad_page() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"outline","items":[{"title":"x","page":9}]}]"#;
+        assert!(create_document_json(ops, &[], &[], "[]", "[]").is_err());
     }
 
     fn get_first_field_dict(doc: &Document) -> Dictionary {

@@ -65,6 +65,12 @@ description: What better-pdf does not (yet) support.
   - **Coordinates are PDF user space (y-up).** SVG path data authored for the web
     (y-down) will appear vertically flipped unless you negate y values or apply a
     transform before calling `drawSvgPath`.
+- **Text rotation and opacity** — `drawText({ rotate, opacity })` — are **supported**
+  on both loaded and created PDFs (added in 0.12.0). `rotate` is free-angle (degrees,
+  counter-clockwise about the text anchor); `opacity` is 0–1.
+- **Document outlines / bookmarks** — `doc.setOutline(items)` — are **supported**
+  on both loaded and created PDFs (added in 0.12.0). Items are
+  `{ title: string; page: number; children?: OutlineItem[] }` at arbitrary depth.
 - **PNG images:** RGBA and gray+alpha PNGs are **supported** — the alpha channel
   is preserved as a soft mask (`/SMask`) on the embedded image XObject (added in
   0.8.0). Opaque RGB / grayscale PNGs are also supported.

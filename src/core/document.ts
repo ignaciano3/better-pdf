@@ -11,6 +11,7 @@ import { StandardFonts } from "../generate/fonts.js";
 import { FormBuilder } from "../generate/form-builder.js";
 import type { FieldDef } from "../generate/form-builder.js";
 import { toPdfDate, fromPdfDate, type DocumentMetadata } from "../generate/metadata.js";
+import type { OutlineItem } from "../generate/outline.js";
 
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
@@ -38,6 +39,7 @@ export interface CoreWasm {
   readMetadata(data: Uint8Array): string;
   setMetadata(data: Uint8Array, metaJson: string): Uint8Array;
   manipulatePages(docsBlob: Uint8Array, docsJson: string, planJson: string): Uint8Array;
+  setOutline(data: Uint8Array, json: string): Uint8Array;
 }
 
 export class PdfDocumentBase {
@@ -49,6 +51,7 @@ export class PdfDocumentBase {
   private readonly fieldNames = new Set<string>();
   private metadata: Record<string, string> = {};
   private metadataDirty = false;
+  private outlineItems?: OutlineItem[];
 
   /** @internal */
   protected constructor(
@@ -85,6 +88,9 @@ export class PdfDocumentBase {
         if (this.metadataDirty) {
           this.drawQueue.pushMetadata(this.metadata);
         }
+        if (this.outlineItems !== undefined) {
+          this.drawQueue.pushOutline(this.outlineItems);
+        }
         const { opsJson, images, fonts, fontsJson } = this.drawQueue.toCreatePayload();
         return this.wasm.createDocument(
           opsJson,
@@ -114,6 +120,9 @@ export class PdfDocumentBase {
       }
       if (this.metadataDirty) {
         bytes = this.wasm.setMetadata(bytes, JSON.stringify(this.metadata));
+      }
+      if (this.outlineItems !== undefined) {
+        bytes = this.wasm.setOutline(bytes, JSON.stringify(this.outlineItems));
       }
     } catch (e) {
       throw toPdfError(e);
@@ -170,6 +179,20 @@ export class PdfDocumentBase {
   setModificationDate(date: Date): void {
     this.metadata["modDate"] = toPdfDate(date);
     this.metadataDirty = true;
+  }
+
+  /**
+   * Set the document outline (bookmarks).
+   *
+   * Replaces any previously set outline. The outline is applied on `save()`.
+   * For loaded documents, it is applied via incremental update. For created
+   * documents, it is embedded as a create-op.
+   *
+   * @param items - Array of top-level {@link OutlineItem} entries. Each entry
+   *   must reference a valid zero-based page index.
+   */
+  setOutline(items: OutlineItem[]): void {
+    this.outlineItems = items;
   }
 
   /**
