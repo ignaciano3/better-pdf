@@ -16,6 +16,7 @@ import {
   read_pages,
   read_metadata,
   set_metadata,
+  set_outline,
 } from "../../pkg-web/better_pdf_core.js";
 
 initSync({
@@ -84,4 +85,8 @@ export function manipulatePages(
   planJson: string,
 ): Uint8Array {
   return manipulate_pages(docsBlob, docsJson, planJson);
+}
+
+export function setOutline(data: Uint8Array, json: string): Uint8Array {
+  return set_outline(data, json);
 }

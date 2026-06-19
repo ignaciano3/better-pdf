@@ -96,3 +96,4 @@ export type {
 } from "./forms/schema.js";
 export { FormBuilder } from "./generate/form-builder.js";
 export type { TextFieldOptions, CheckBoxOptions, RadioGroupOptions, RadioOption, ChoiceOptions, SignatureFieldOptions, FieldBorder } from "./generate/form-builder.js";
+export type { OutlineItem } from "./generate/outline.js";

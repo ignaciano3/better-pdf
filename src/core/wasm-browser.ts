@@ -13,6 +13,7 @@ import initCore, {
   read_pages,
   read_metadata,
   set_metadata,
+  set_outline,
   type InitInput,
 } from "../../pkg-web/better_pdf_core.js";
 
@@ -112,4 +113,9 @@ export function manipulatePages(
 ): Uint8Array {
   ensureInitialized();
   return manipulate_pages(docsBlob, docsJson, planJson);
+}
+
+export function setOutline(data: Uint8Array, json: string): Uint8Array {
+  ensureInitialized();
+  return set_outline(data, json);
 }
