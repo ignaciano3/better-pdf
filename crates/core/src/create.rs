@@ -44,6 +44,10 @@ enum CreateOp {
         text: String,
         #[serde(rename = "lineHeight")]
         line_height: Option<f32>,
+        #[serde(default)]
+        rotate: Option<f32>,
+        #[serde(default)]
+        opacity: Option<f32>,
     },
     Image {
         page: usize,
@@ -342,7 +346,7 @@ pub fn create_document_json(
     // Validation pass: check all ops before building anything
     for op in &ops {
         match op {
-            CreateOp::Text { page, font, font_id, .. } => {
+            CreateOp::Text { page, font, font_id, opacity, rotate, .. } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
                 }
@@ -352,6 +356,16 @@ pub fn create_document_json(
                     }
                 } else if standard_14_index(font).is_none() {
                     return Err(format!("unknown font: {font}"));
+                }
+                if let Some(o) = opacity {
+                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
+                }
+                if let Some(deg) = rotate {
+                    if !deg.is_finite() {
+                        return Err("invalid rotation".to_string());
+                    }
                 }
             }
             CreateOp::Image {
@@ -831,7 +845,21 @@ pub fn create_document_json(
                     color,
                     text,
                     line_height,
+                    rotate,
+                    opacity,
                 } if *page == page_index => {
+                    // Register ExtGState for opacity if present
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("BPG{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id =
+                            doc.add_object(Object::Dictionary(extgstate_dict(*o)));
+                        extgstate_res.set(key.clone(), Object::Reference(gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
+
                     if let Some(id) = font_id {
                         // Embedded font: emit a Type0/Identity-H hex glyph string.
                         // gids come from BuiltFont.gid_for (the REMAPPED subset ids),
@@ -858,6 +886,8 @@ pub fn create_document_json(
                             *color,
                             &gids_per_line,
                             *line_height,
+                            *rotate,
+                            gs_key.as_deref(),
                         );
                     } else {
                         let idx = standard_14_index(font).unwrap();
@@ -876,6 +906,8 @@ pub fn create_document_json(
                             *color,
                             text,
                             *line_height,
+                            *rotate,
+                            gs_key.as_deref(),
                         );
                     }
                 }
