@@ -148,6 +148,33 @@ fn rebuild_acroform(
         return;
     }
 
+    // Detect partial-name collisions across SOURCE docs and rename them with a
+    // per-source prefix so each field stays independently addressable.
+    fn partial_name(doc: &Document, id: ObjectId) -> Option<String> {
+        let d = doc.get_dictionary(id).ok()?;
+        let t = d.get(b"T").ok()?.as_str().ok()?;
+        Some(String::from_utf8_lossy(t).into_owned())
+    }
+    // name -> set of source indices that use it (among kept fields)
+    let mut name_sources: HashMap<String, HashSet<usize>> = HashMap::new();
+    for &fid in &kept_fields {
+        if let (Some(name), Some(&si)) = (partial_name(merged, fid), field_src.get(&fid)) {
+            name_sources.entry(name).or_default().insert(si);
+        }
+    }
+    for &fid in &kept_fields {
+        let (Some(name), Some(&si)) = (partial_name(merged, fid), field_src.get(&fid)) else {
+            continue;
+        };
+        let collides = name_sources.get(&name).map(|s| s.len() > 1).unwrap_or(false);
+        if collides {
+            let new_name = format!("d{si}_{name}");
+            if let Ok(d) = merged.get_dictionary_mut(fid) {
+                d.set("T", Object::string_literal(new_name));
+            }
+        }
+    }
+
     let fields: Vec<Object> = kept_fields.iter().map(|&id| Object::Reference(id)).collect();
 
     // Merge /DR /Font entries across sources (first-writer-wins per name).
@@ -497,6 +524,49 @@ mod tests {
         };
         assert!(!fonts.as_hashmap().is_empty(), "DR/Font must have entries");
         assert!(af.has(b"DA"), "AcroForm should carry a /DA");
+    }
+
+    #[test]
+    fn merge_self_renames_colliding_field_names() {
+        // Merging FICHA with itself: every field name appears in both sources,
+        // so all kept top-level fields must be prefixed d0_/d1_ — yielding no
+        // duplicate /T values among the rebuilt /Fields.
+        let (blob, docs) = pack(&[FICHA, FICHA]);
+        let n = page_count(FICHA);
+        let mut plan = String::from("[");
+        for d in 0..2 {
+            for p in 0..n {
+                if !(d == 0 && p == 0) {
+                    plan.push(',');
+                }
+                plan.push_str(&format!(r#"{{"doc":{d},"page":{p}}}"#));
+            }
+        }
+        plan.push(']');
+        let out = manipulate_pages_json(&blob, &docs, &plan).unwrap();
+
+        let doc = Document::load_mem(&out).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let cat = doc.get_dictionary(root).unwrap();
+        let af = match cat.get(b"AcroForm").unwrap() {
+            Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!(),
+        };
+        let fields = af.get(b"Fields").unwrap().as_array().unwrap();
+        let mut names: Vec<String> = Vec::new();
+        for f in fields {
+            let fd = doc.get_dictionary(f.as_reference().unwrap()).unwrap();
+            if let Ok(t) = fd.get(b"T").and_then(|o| o.as_str()) {
+                names.push(String::from_utf8_lossy(t).into_owned());
+            }
+        }
+        let unique: HashSet<&String> = names.iter().collect();
+        assert_eq!(unique.len(), names.len(), "no duplicate top-level /T names");
+        assert!(
+            names.iter().any(|n| n.starts_with("d0_")) && names.iter().any(|n| n.starts_with("d1_")),
+            "colliding names must be per-source prefixed"
+        );
     }
 
     #[test]
