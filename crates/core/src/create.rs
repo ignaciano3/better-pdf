@@ -139,6 +139,11 @@ enum CreateOp {
         stroke_width: Option<f32>,
         opacity: Option<f32>,
     },
+    /// Document outline (bookmarks). If multiple outline ops are present, the
+    /// last one wins.
+    Outline {
+        items: Vec<crate::outline::OutlineItem>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -585,6 +590,9 @@ pub fn create_document_json(
             }
             CreateOp::AddPage { .. } => {}
             CreateOp::Metadata { .. } => {}
+            CreateOp::Outline { items } => {
+                crate::outline::validate_pages(items, pages.len())?;
+            }
             CreateOp::Path {
                 page,
                 segments,
@@ -1717,6 +1725,24 @@ pub fn create_document_json(
     let catalog_id = doc.add_object(Object::Dictionary(catalog_dict));
     doc.trailer.set("Root", Object::Reference(catalog_id));
 
+    // Build the document outline if an outline op was present (last one wins),
+    // then wire /Outlines onto the catalog.
+    let outline_items = ops.iter().filter_map(|o| {
+        if let CreateOp::Outline { items } = o { Some(items) } else { None }
+    }).last();
+    if let Some(items) = outline_items {
+        let root = crate::outline::build_outline(
+            &mut doc,
+            items,
+            &|i| page_ids.get(i).copied(),
+        )?;
+        let catalog = doc
+            .get_object_mut(catalog_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(|e| e.to_string())?;
+        catalog.set("Outlines", Object::Reference(root));
+    }
+
     // Apply metadata if a metadata op was present (last one wins).
     let meta_op = ops.iter().filter_map(|o| {
         if let CreateOp::Metadata { meta } = o { Some(meta) } else { None }
@@ -2198,6 +2224,27 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Annots").unwrap().as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn creates_outline() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"addPage","width":595,"height":842},{"op":"outline","items":[{"title":"Cover","page":0},{"title":"Body","page":1,"children":[{"title":"Sub","page":1}]}]}]"#;
+        let out = create_document_json(ops, &[], &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let cat = doc.catalog().unwrap();
+        let outlines = doc
+            .get_object(cat.get(b"Outlines").unwrap().as_reference().unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        assert!(outlines.has(b"First") && outlines.has(b"Last"));
+        assert!(outlines.get(b"Count").unwrap().as_i64().unwrap() >= 2);
+    }
+
+    #[test]
+    fn outline_rejects_bad_page() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"outline","items":[{"title":"x","page":9}]}]"#;
+        assert!(create_document_json(ops, &[], &[], "[]", "[]").is_err());
     }
 
     fn get_first_field_dict(doc: &Document) -> Dictionary {

@@ -10,6 +10,7 @@ mod flatten;
 mod font_metrics;
 mod forms;
 mod metadata;
+mod outline;
 mod pageops;
 mod pages;
 
@@ -119,6 +120,13 @@ pub fn set_metadata(data: &[u8], meta_json: &str) -> Result<Vec<u8>, JsError> {
     metadata::set_metadata_json(data, meta_json).map_err(|e| JsError::new(&e))
 }
 
+/// Set the document outline (bookmarks) from a JSON array of outline items;
+/// returns new PDF bytes (incremental update).
+#[wasm_bindgen]
+pub fn set_outline(data: &[u8], json: &str) -> Result<Vec<u8>, JsError> {
+    outline::set_outline_json(data, json).map_err(|e| JsError::new(&e))
+}
+
 /// Internal re-exports for the fuzz targets in `fuzz/`. Not a public API.
 #[doc(hidden)]
 pub mod fuzz_api {
@@ -128,5 +136,6 @@ pub mod fuzz_api {
     pub use crate::fill::fill_fields_json;
     pub use crate::forms::read_fields_json;
     pub use crate::metadata::{read_metadata_json, set_metadata_json};
+    pub use crate::outline::set_outline_json;
     pub use crate::pageops::manipulate_pages_json;
 }
