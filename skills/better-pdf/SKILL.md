@@ -211,7 +211,7 @@ const result = await PdfDocument.assemble(
 
 **Rules:**
 - `copyPages` and `splitPages` require a loaded document (`PdfDocument.load`); they throw on created docs.
-- Form fields on merged/assembled pages keep their **visual appearance** but are **not interactive** — the AcroForm is not reconstructed. Flatten before merging if needed.
+- Form fields on merged/assembled pages stay **interactive** (0.15.0): a working `/AcroForm` is rebuilt with the kept fields, merged `/DR` fonts, and `/NeedAppearances true`. Names that collide across sources are renamed with a per-source prefix (`d0_`, `d1_`, …). `/XFA` data is dropped; a page selected twice shares its field objects.
 - In-place page rotation/resize is **supported**: `page.setRotation(degrees)`, `page.setSize(w, h)`, `page.setMediaBox(x0, y0, x1, y1)` — works on loaded and created pages.
 - **Page insertion/removal/move on loaded docs are supported** (added in 0.13.0): `doc.addPage(size?)` appends a blank drawable page; `doc.insertPage(index, size?)`, `doc.removePage(index)`, `doc.movePage(from, to)` are reflected after save + reload. Nested page trees are not supported (rare).
 - **Transparent PNGs are supported**: `embedPng` preserves the alpha channel of RGBA, gray+alpha, and palette/indexed-color (color type 3 with `tRNS`) PNGs as a soft mask (`/SMask`). No API change — just pass the PNG bytes.
