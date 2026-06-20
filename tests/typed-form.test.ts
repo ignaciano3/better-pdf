@@ -11,8 +11,8 @@ const FICHA = join(
 // A hand-written schema standing in for a generated `…Fields` const, with names
 // that exist in the FICHA fixture so the typed accessors reach the real runtime.
 const schema = {
-  "beneficiario.apellidos_nombres": { type: "text", readOnly: false, value: "", states: [] as const, options: [] as const },
-  "beneficiario.estado_civil": { type: "dropdown", readOnly: false, value: "Soltero", states: [] as const, options: ["Soltero", "Casado"] as const },
+  "beneficiario.apellidos_nombres": { type: "text", readOnly: false, value: "", states: [] as const, options: [] as const, multiSelect: false },
+  "beneficiario.estado_civil": { type: "dropdown", readOnly: false, value: "Soltero", states: [] as const, options: ["Soltero", "Casado"] as const, multiSelect: false },
 } as const;
 
 function load() {

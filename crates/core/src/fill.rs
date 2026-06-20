@@ -10,6 +10,7 @@ use serde::Deserialize;
 struct FillOp {
     name: String,
     value: Option<String>,
+    values: Option<Vec<String>>,
     image_offset: Option<usize>,
     image_length: Option<usize>,
 }
@@ -36,7 +37,10 @@ pub fn fill_fields_json(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Ve
     let touched_appearance = plan.iter().any(|r| {
         matches!(
             r.apply,
-            Apply::Text { .. } | Apply::Dropdown { .. } | Apply::Signature { .. }
+            Apply::Text { .. }
+                | Apply::Dropdown { .. }
+                | Apply::ListBoxMulti { .. }
+                | Apply::Signature { .. }
         )
     });
 
@@ -96,6 +100,14 @@ enum Apply {
         image: appearance::SignatureImage,
         widgets: Vec<WidgetBox>,
     },
+    /// Set /V to an array of strings and /I to the sorted array of indices,
+    /// then draw a multi-row highlight appearance on each widget.
+    ListBoxMulti {
+        values: Vec<String>,
+        indices: Vec<i64>,
+        options: Vec<String>,
+        ap: ApInputs,
+    },
 }
 
 /// Locate the field for `op.name`, classify it, and build the mutation plan.
@@ -134,6 +146,48 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
             widgets: widget_boxes(doc, field_id, dict),
         }
     } else {
+        // Multi-value fills are only legal on a multiselect list box.
+        if let Some(values) = &op.values {
+            if op.value.is_some() {
+                return Err(format!(
+                    "field {} op cannot contain both value and values",
+                    op.name
+                ));
+            }
+            if kind != "listbox" || !forms::is_multiselect(ff) {
+                return Err(format!(
+                    "field {} does not accept multiple values (not a multi-select list box)",
+                    op.name
+                ));
+            }
+            let options: Vec<String> = dict
+                .get(b"Opt")
+                .and_then(|o| o.as_array())
+                .map(|a| a.iter().map(forms::opt_export).collect())
+                .unwrap_or_default();
+            // Build (index, value) pairs so /V and /I stay positionally aligned
+            // after sorting by index (PDF §12.7.4.4 requires /V to match /I order).
+            let mut pairs: Vec<(i64, String)> = Vec::with_capacity(values.len());
+            for v in values {
+                match dropdown_index(dict, v) {
+                    Some(i) => pairs.push((i, v.clone())),
+                    None => {
+                        return Err(format!("'{}' is not a valid option for {}", v, op.name));
+                    }
+                }
+            }
+            pairs.sort_unstable_by_key(|(i, _)| *i);
+            let (indices, sorted_values): (Vec<i64>, Vec<String>) = pairs.into_iter().unzip();
+            return Ok(Resolved {
+                field_id,
+                apply: Apply::ListBoxMulti {
+                    values: sorted_values,
+                    indices,
+                    options,
+                    ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
+                },
+            });
+        }
         let value = op
             .value
             .as_ref()
@@ -438,6 +492,21 @@ fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
         Apply::Signature { image, widgets } => {
             draw_signature_appearances(inc, image, widgets)?;
         }
+        Apply::ListBoxMulti {
+            values,
+            indices,
+            options,
+            ap,
+        } => {
+            {
+                let d = field_dict_mut(inc, r.field_id)?;
+                let v_arr: Vec<Object> = values.iter().map(|s| text_string(s)).collect();
+                d.set("V", Object::Array(v_arr));
+                let i_arr: Vec<Object> = indices.iter().map(|i| Object::Integer(*i)).collect();
+                d.set("I", Object::Array(i_arr));
+            }
+            draw_listbox_multi_appearances(inc, options, indices, ap)?;
+        }
     }
     Ok(())
 }
@@ -486,6 +555,42 @@ fn draw_appearances(
                 &ap.widths,
             )
         };
+        let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, ap.font_ref);
+        let ap_id = inc.new_document.add_object(Object::Stream(xobj));
+
+        inc.opt_clone_object_to_new_document(wb.id)
+            .map_err(|e| e.to_string())?;
+        let d = field_dict_mut(inc, wb.id)?;
+        let mut apn = Dictionary::new();
+        apn.set("N", Object::Reference(ap_id));
+        d.set("AP", Object::Dictionary(apn));
+    }
+    Ok(())
+}
+
+/// Build and attach a multi-row highlight `/AP/N` on each widget.
+fn draw_listbox_multi_appearances(
+    inc: &mut IncrementalDocument,
+    options: &[String],
+    indices: &[i64],
+    ap: &ApInputs,
+) -> Result<(), String> {
+    let encoded: Vec<Vec<u8>> = options.iter().map(|s| appearance::encode_winansi(s)).collect();
+    let selected: Vec<bool> = (0..options.len() as i64)
+        .map(|i| indices.contains(&i))
+        .collect();
+    for wb in &ap.widgets {
+        let w = wb.rect[2] - wb.rect[0];
+        let h = wb.rect[3] - wb.rect[1];
+        let content = appearance::listbox_multi_content(
+            &encoded,
+            &selected,
+            ap.da.size,
+            w,
+            h,
+            &ap.da.color,
+            &ap.font,
+        );
         let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, ap.font_ref);
         let ap_id = inc.new_document.add_object(Object::Stream(xobj));
 
@@ -862,6 +967,83 @@ mod tests {
         assert_eq!(w.width(b'A'), 500);
         assert_eq!(w.width(b'B'), 750);
         assert_eq!(w.width(b'C'), 556); // default for unset codes
+    }
+
+    /// Load FICHA, set the Multiselect Ff bit on `field_name` (clearing Combo bit), return new bytes.
+    fn with_multiselect(bytes: &[u8], field_name: &str) -> Vec<u8> {
+        use lopdf::Document;
+        let mut doc = Document::load_mem(bytes).unwrap();
+        let (id, _) = find_field(&doc, field_name).unwrap();
+        let d = doc.get_object_mut(id).unwrap().as_dict_mut().unwrap();
+        let ff = d.get(b"Ff").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+        // Clear the Combo flag (bit 18, 1<<17) and set Multiselect (bit 22, 1<<21).
+        d.set("Ff", Object::Integer((ff & !(1 << 17)) | (1 << 21)));
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn multiselect_fill_sets_v_array_and_sorted_i() {
+        use lopdf::Document;
+        let base = with_multiselect(FICHA, "beneficiario.estado_civil");
+        // Provide values out of /Opt order; expect /I sorted ascending.
+        let ops = r#"[{"name":"beneficiario.estado_civil","values":["Viudo","Casado"]}]"#;
+        let out = fill_fields_json(&base, ops, &[]).unwrap();
+        // Check /V is an Array of 2 entries and /I == [1, 3].
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, field) = find_field(&doc, "beneficiario.estado_civil").unwrap();
+        let v_arr = field.get(b"V").unwrap().as_array().unwrap();
+        assert_eq!(v_arr.len(), 2, "/V must be an array of 2 strings");
+        let i_arr = field.get(b"I").unwrap().as_array().unwrap();
+        let i: Vec<i64> = i_arr.iter().map(|o| o.as_i64().unwrap()).collect();
+        // "Casado" is index 1, "Viudo" is index 3 in /Opt -> sorted [1, 3].
+        assert_eq!(i, vec![1, 3]);
+        // /V must be sorted by index too: Casado(1) before Viudo(3).
+        let v0 = lopdf::decode_text_string(&v_arr[0]).unwrap();
+        let v1 = lopdf::decode_text_string(&v_arr[1]).unwrap();
+        assert_eq!(v0, "Casado", "/V[0] must be Casado (index 1)");
+        assert_eq!(v1, "Viudo", "/V[1] must be Viudo (index 3)");
+        Document::load_mem(&out).unwrap();
+    }
+
+    #[test]
+    fn rejects_multivalue_on_single_select_listbox() {
+        // estado_civil WITHOUT the Multiselect flag set - first need to make it a listbox
+        // by clearing the Combo bit, but without setting Multiselect.
+        use lopdf::Document;
+        let mut doc = Document::load_mem(FICHA).unwrap();
+        let (id, _) = find_field(&doc, "beneficiario.estado_civil").unwrap();
+        let d = doc.get_object_mut(id).unwrap().as_dict_mut().unwrap();
+        let ff = d.get(b"Ff").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+        // Clear Combo bit only -> becomes a single-select listbox
+        d.set("Ff", Object::Integer(ff & !(1 << 17)));
+        let mut base = Vec::new();
+        doc.save_to(&mut base).unwrap();
+
+        let ops = r#"[{"name":"beneficiario.estado_civil","values":["Casado","Viudo"]}]"#;
+        let err = fill_fields_json(&base, ops, &[]).unwrap_err();
+        assert!(err.contains("does not accept multiple values"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_invalid_option_in_multivalue_fill() {
+        let base = with_multiselect(FICHA, "beneficiario.estado_civil");
+        let ops = r#"[{"name":"beneficiario.estado_civil","values":["Casado","Nope"]}]"#;
+        let err = fill_fields_json(&base, ops, &[]).unwrap_err();
+        assert!(err.contains("not a valid option"), "got: {err}");
+    }
+
+    #[test]
+    fn multiselect_fill_generates_highlight_appearance() {
+        let base = with_multiselect(FICHA, "beneficiario.estado_civil");
+        let ops = r#"[{"name":"beneficiario.estado_civil","values":["Viudo","Casado"]}]"#;
+        let out = fill_fields_json(&base, ops, &[]).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let ap = ap_content(&doc, "beneficiario.estado_civil").expect("AP/N present");
+        assert!(ap.contains("0.60 0.75 0.85 rg"), "no highlight: {ap}");
+        assert_eq!(ap.matches(" re").count(), 2, "expected 2 highlights: {ap}");
+        assert!(ap.contains("(Casado) Tj"), "missing option text: {ap}");
     }
 
     #[test]

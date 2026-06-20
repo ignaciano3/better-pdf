@@ -30,7 +30,8 @@ form.getCheckBox("agree").check();           // uses the field's real on-state
 form.getCheckBox("agree").uncheck();
 form.getRadioGroup("kind").select("Titular"); // must be a real export value
 form.getDropdown("status").select("Casado");  // must be a real option
-form.getListBox("plan").select("basic");      // single-select in this version
+form.getListBox("plan").select("basic");
+form.getListBox("plan").selectMultiple(["basic", "pro"]); // multi-select list boxes only
 ```
 
 :::caution[Use real values]

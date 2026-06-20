@@ -3,16 +3,14 @@ import {
   InvalidOptionError,
   MaxLengthExceededError,
   MissingOnStateError,
+  MultiSelectError,
 } from "../core/errors.js";
 
 /** One queued mutation: set field `name` to a value or visual signature image. */
-export type FillOp = {
-  name: string;
-  value: string;
-} | {
-  name: string;
-  image: Uint8Array;
-};
+export type FillOp =
+  | { name: string; value: string }
+  | { name: string; values: string[] }
+  | { name: string; image: Uint8Array };
 
 /** Shared, ordered list of pending mutations for a document. */
 export class FillQueue {
@@ -240,7 +238,9 @@ export class PdfDropdown<Opt extends string = string> {
  * A list-box choice field in a PDF form.
  *
  * `Opt` is the set of valid option values when the form is typed with generated
- * metadata. List boxes are single-select in this version.
+ * metadata. Use `select()` for single-select list boxes and `selectMultiple(values)`
+ * for multi-select list boxes (those with the PDF Multiselect flag set,
+ * i.e. `FieldInfo.multiSelect === true`).
  *
  * @example
  * ```ts
@@ -284,6 +284,38 @@ export class PdfListBox<Opt extends string = string> {
     }
     this.queue.push({ name: this.info.name, value });
     this.info.value = value;
+  }
+
+  /**
+   * Select multiple list-box options by their real export values.
+   *
+   * Only valid for multi-select list boxes (the PDF Multiselect flag). The
+   * queued values are written as the field's `/V` array and `/I` index array
+   * when `doc.save()` is called.
+   *
+   * @param values - Export values, each one of `options`.
+   * @throws `MultiSelectError` when this list box is single-select.
+   * @throws `InvalidOptionError` when any value is not a valid option.
+   *
+   * @example
+   * ```ts
+   * form.getListBox("person.languages").selectMultiple(["ES", "EN"]);
+   * ```
+   */
+  selectMultiple(values: Opt[]): void {
+    if (!this.info.multiSelect) {
+      throw new MultiSelectError(this.info.name);
+    }
+    const unique = [...new Set(values)] as Opt[];
+    if (this.info.options.length) {
+      for (const v of unique) {
+        if (!this.info.options.includes(v)) {
+          throw new InvalidOptionError(this.info.name, "listbox", v, this.info.options);
+        }
+      }
+    }
+    this.queue.push({ name: this.info.name, values: unique });
+    this.info.value = unique.join(", ");
   }
 }
 

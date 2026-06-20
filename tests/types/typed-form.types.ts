@@ -6,11 +6,11 @@
 import { PdfDocument } from "../../src/index.ts";
 
 const schema = {
-  "applicant.name": { type: "text", readOnly: false, value: "", states: [] as const, options: [] as const },
-  "applicant.status": { type: "dropdown", readOnly: false, value: "Single", states: [] as const, options: ["Single", "Married"] as const },
-  "applicant.kind": { type: "radio", readOnly: false, value: "Primary", states: ["Primary", "Dependent"] as const, options: [] as const },
-  "applicant.lang": { type: "listbox", readOnly: false, value: "ES", states: [] as const, options: ["ES", "EN"] as const },
-  "applicant.signature": { type: "signature", readOnly: false, value: "", states: [] as const, options: [] as const },
+  "applicant.name": { type: "text", readOnly: false, value: "", states: [] as const, options: [] as const, multiSelect: false },
+  "applicant.status": { type: "dropdown", readOnly: false, value: "Single", states: [] as const, options: ["Single", "Married"] as const, multiSelect: false },
+  "applicant.kind": { type: "radio", readOnly: false, value: "Primary", states: ["Primary", "Dependent"] as const, options: [] as const, multiSelect: false },
+  "applicant.lang": { type: "listbox", readOnly: false, value: "ES", states: [] as const, options: ["ES", "EN"] as const, multiSelect: false },
+  "applicant.signature": { type: "signature", readOnly: false, value: "", states: [] as const, options: [] as const, multiSelect: false },
 } as const;
 
 declare const doc: PdfDocument;

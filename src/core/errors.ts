@@ -65,6 +65,13 @@ export class MissingOnStateError extends PdfError {
   }
 }
 
+/** Thrown when `selectMultiple` is called on a single-select list box. */
+export class MultiSelectError extends PdfError {
+  constructor(readonly field: string) {
+    super(`list box '${field}' is single-select; use select() instead of selectMultiple()`);
+  }
+}
+
 /**
  * Thrown when the WASM core rejects an operation at save time (e.g. XFA forms,
  * unsupported images, malformed PDFs). The original core message is preserved.

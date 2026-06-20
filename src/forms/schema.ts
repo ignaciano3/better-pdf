@@ -15,6 +15,7 @@ export interface FieldMeta {
   value: string | null;
   states: readonly string[];
   options: readonly string[];
+  multiSelect: boolean;
 }
 
 /** The shape of a generated `…Fields` metadata object (i.e. `typeof myFormFields`). */
@@ -52,7 +53,10 @@ export interface TypedPdfForm<S extends FormSchema> {
   getRadioGroup<N extends NameOfType<S, "radio">>(name: N): PdfRadioGroup<OptionsOf<S, N>>;
   /** Get a typed dropdown wrapper whose `select()` values come from the schema. */
   getDropdown<N extends NameOfType<S, "dropdown">>(name: N): PdfDropdown<OptionsOf<S, N>>;
-  /** Get a typed single-select list-box wrapper whose `select()` values come from the schema. */
+  /**
+   * Get a typed list-box wrapper whose `select()` values come from the schema.
+   * For multi-select list boxes, use the runtime-guarded `selectMultiple()` method.
+   */
   getListBox<N extends NameOfType<S, "listbox">>(name: N): PdfListBox<OptionsOf<S, N>>;
   /** Get a typed visual signature field wrapper. */
   getSignature(name: NameOfType<S, "signature">): PdfSignature;

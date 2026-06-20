@@ -24,6 +24,7 @@ const fields: FieldInfo[] = [
     required: false,
     exported: true,
     maxLength: 40,
+    multiSelect: false,
     widgets: [],
   },
   {
@@ -36,6 +37,7 @@ const fields: FieldInfo[] = [
     required: false,
     exported: true,
     maxLength: null,
+    multiSelect: false,
     widgets: [],
   },
   {
@@ -48,6 +50,7 @@ const fields: FieldInfo[] = [
     required: false,
     exported: true,
     maxLength: null,
+    multiSelect: false,
     widgets: [],
   },
 ];
@@ -65,6 +68,7 @@ test("generates field name and typed metadata declarations", () => {
   expect(source).toContain("exported: true,");
   expect(source).toContain("maxLength: 40,");
   expect(source).toContain("maxLength: null,");
+  expect(source).toContain("multiSelect: false,");
   expect(source).toContain('options: ["Soltero", "Casado"] as const');
   expect(source).toContain('states: ["Titular", "Familiar"] as const');
   expect(source).toContain(

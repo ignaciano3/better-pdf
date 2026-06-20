@@ -14,7 +14,7 @@ core and stricter validation. This guide maps the APIs.
 | `form.getCheckBox(n).check()` / `.uncheck()` | same — uses the field's real on-state automatically |
 | `form.getRadioGroup(n).select(v)` | same — `v` must be a real export value (`field.states`) |
 | `form.getDropdown(n).select(v)` | same — `v` must be a real option (`field.options`) |
-| `form.getOptionList(n).select(v)` | `form.getListBox(n).select(v)` (single-select) |
+| `form.getOptionList(n).select(v)` | `form.getListBox(n).select(v)` — or `selectMultiple(values)` for multi-select list boxes |
 | `field.acroField.getWidgets()` | `field` info's `widgets` (`{page, rect}` per widget) |
 | `form.flatten()` | `form.flatten()` (or `form.flattenField(name)`) |
 | `pdfDoc.save()` | `doc.save()` — **incremental, append-only** |

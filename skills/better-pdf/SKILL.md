@@ -127,12 +127,13 @@ await doc.save();
 | `form.getCheckBox(name).check()` / `.uncheck()` | Toggle using real on-state |
 | `form.getRadioGroup(name).select(v)` | Select by real export value |
 | `form.getDropdown(name).select(v)` | Select by real option value |
-| `form.getListBox(name).select(v)` | Select list-box option (single-select) |
+| `form.getListBox(name).select(v)` | Select list-box option |
+| `form.getListBox(name).selectMultiple(values)` | Select multiple options (multi-select list boxes only; throws `MultiSelectError` otherwise) |
 | `form.getSignature(name).setImage(bytes)` | Embed visual signature (JPEG/PNG) |
 | `form.flattenField(name)` / `form.flatten()` | Flatten one / all fields |
 | `generateFormTypes(fields, { typeName })` | Emit a typed `…Fields` module (string) |
 
-`FieldInfo = { name, type, value, states, options, readOnly, required, exported, maxLength, widgets }`, where `exported` is false only when the `NoExport` flag is set, `maxLength` is a text field's `/MaxLen` (or null), and `widgets: { page, rect: [x0,y0,x1,y1] }[]` gives each widget's 0-based page index and `/Rect` in PDF points (origin bottom-left). `setText` throws if longer than `maxLength`. `type` ∈ `text | checkbox | radio | dropdown | listbox | signature | pushbutton | unknown`.
+`FieldInfo = { name, type, value, states, options, readOnly, required, exported, maxLength, multiSelect, widgets }`, where `exported` is false only when the `NoExport` flag is set, `maxLength` is a text field's `/MaxLen` (or null), `multiSelect` is true only for multi-select list boxes (the PDF Multiselect choice flag), and `widgets: { page, rect: [x0,y0,x1,y1] }[]` gives each widget's 0-based page index and `/Rect` in PDF points (origin bottom-left). `setText` throws if longer than `maxLength`. `type` ∈ `text | checkbox | radio | dropdown | listbox | signature | pushbutton | unknown`.
 
 ## Rotated & translucent text
 
