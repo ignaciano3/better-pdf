@@ -31,7 +31,7 @@ Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 - Embed transparent PNG images: the alpha channel of RGBA and gray+alpha PNGs is preserved as a PDF soft mask (`/SMask`). `embedPng` just works — no API change.
 - Embed pages from other PDFs as Form XObjects with `doc.embedPdfPage(src, pageIndex)` + `page.drawPage(embedded, {x, y, width?, height?})` — watermarks, letterhead, N-up layouts, overlays. Works on loaded and created documents.
 - Add clickable link annotations with `page.drawLink({ x, y, width, height, url })` (external URI) or `page.drawLink({ x, y, width, height, goToPage })` (internal page-index jump) on loaded and created documents.
-- Draw vector paths: `page.drawSvgPath(d, { fill?, stroke?, strokeWidth?, opacity? })` (SVG path-data string; supports M/L/H/V/C/S/Q/T/Z) and `page.drawPolygon(points, { fill?, stroke?, strokeWidth?, opacity?, closed? })` on loaded and created documents. SVG arc commands (A/a) are not yet supported.
+- Draw vector paths: `page.drawSvgPath(d, { fill?, stroke?, strokeWidth?, opacity? })` (SVG path-data string; supports M/L/H/V/C/S/Q/T/Z and arcs A/a) and `page.drawPolygon(points, { fill?, stroke?, strokeWidth?, opacity?, closed? })` on loaded and created documents.
 - Draw rotated and translucent text: `page.drawText(text, { rotate, opacity })` — `rotate` is free-angle degrees (counter-clockwise about the anchor), `opacity` is 0–1. Works on loaded and created documents.
 - Build PDF bookmarks / navigation outline: `doc.setOutline(items)` where each item is `{ title: string; page: number; children?: OutlineItem[] }`. Nested to arbitrary depth. Works on loaded and created documents.
 - Add, insert, remove, and move pages on loaded documents: `doc.addPage(size?)` appends a blank, immediately drawable page; `doc.insertPage(index, size?)`, `doc.removePage(index)`, and `doc.movePage(from, to)` restructure the page order (reflected after save + reload). Incremental — existing forms and content are preserved.
@@ -352,7 +352,7 @@ await Bun.write("paths.pdf", output);
 ```
 
 > Supported SVG commands: `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `S`/`s`,
-> `Q`/`q`, `T`/`t`, `Z`/`z`. Arc commands (`A`/`a`) are **not yet supported** and throw.
+> `Q`/`q`, `T`/`t`, `Z`/`z`, and `A`/`a` (elliptical arcs, converted to cubic béziers).
 > SVG artwork authored for screen (y-down) will appear flipped — negate y or apply a
 > transform before passing path data.
 
@@ -526,7 +526,7 @@ soon as they are made.
 - `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
 - `page.drawRectangle(options)` — `options`: `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`
 - `page.drawEllipse(options)` — `options`: `{ x, y, xScale, yScale, color?, borderColor?, borderWidth?, opacity? }` (`x`,`y` = center; `xScale`,`yScale` = radii)
-- `page.drawSvgPath(d: string, options): void` — draw an SVG path-data string; `options`: `{ fill?, stroke?, strokeWidth?, opacity? }`; supports M/L/H/V/C/S/Q/T/Z (arcs A/a throw)
+- `page.drawSvgPath(d: string, options): void` — draw an SVG path-data string; `options`: `{ fill?, stroke?, strokeWidth?, opacity? }`; supports M/L/H/V/C/S/Q/T/Z and A/a (arcs)
 - `page.drawPolygon(points: {x,y}[], options): void` — draw a polygon; `options`: `{ fill?, stroke?, strokeWidth?, opacity?, closed? }` (`closed` defaults to `true`)
 - `page.drawLink(options): void` — add a clickable link annotation; `options` is one of:
   - `{ x, y, width, height, url: string }` — external URI
@@ -757,8 +757,7 @@ we will deliberately never add, see [Non-Goals](#non-goals).)
   updated via `doc.setTitle()` / `doc.getMetadata()` etc.).
 - Nested page trees are not supported by `insertPage`/`removePage`/`movePage`
   (PDFs with nested `/Pages` nodes are rejected; use `merge`/`assemble` instead).
-- SVG arc commands (`A`/`a`) are not yet supported by `drawSvgPath`/`drawPolygon`;
-  path coordinates are PDF user space (y-up), so y-down artwork appears flipped.
+- SVG path coordinates are PDF user space (y-up), so y-down artwork appears flipped.
 - Interlaced and 16-bit-per-channel PNGs are not supported.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
   plus generated xref-stream/object-stream variants); real-world PDF 1.5+ coverage

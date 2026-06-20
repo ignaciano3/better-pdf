@@ -75,9 +75,9 @@ deliberately unsupported and not planned. The two are listed separately below.
 - **Vector paths** — `page.drawSvgPath(d, options)` (SVG path-data string) and
   `page.drawPolygon(points, options)` with fill/stroke/opacity — are **supported**
   on both loaded and created PDFs (added in 0.11.0).
-  - **SVG arc commands (`A`/`a`) are not yet supported** — they throw at call time.
-    Supported commands: `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `S`/`s`,
-    `Q`/`q`, `T`/`t`, `Z`/`z`.
+  - **Supported SVG commands:** `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`,
+    `S`/`s`, `Q`/`q`, `T`/`t`, `Z`/`z`, and `A`/`a` (elliptical arcs are
+    converted to cubic béziers).
   - **Coordinates are PDF user space (y-up).** SVG path data authored for the web
     (y-down) will appear vertically flipped unless you negate y values or apply a
     transform before calling `drawSvgPath`.

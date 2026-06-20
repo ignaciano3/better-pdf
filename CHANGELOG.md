@@ -8,6 +8,15 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-06-20
+
+### Added
+
+- `page.drawSvgPath()` now supports SVG elliptical-arc commands `A`/`a`. Arcs are
+  converted to cubic-bézier segments in TypeScript (SVG 1.1 Appendix F.6.5/F.6.6),
+  including out-of-range-radii correction, ≤90° sweep splitting, packed-flag
+  parsing, and the spec degenerate cases (zero radius → line, zero-length → no-op).
+
 ## [0.18.0] - 2026-06-20
 
 ### Added
