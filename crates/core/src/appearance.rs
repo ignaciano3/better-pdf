@@ -69,6 +69,58 @@ pub fn string_width(bytes: &[u8], size: f32, widths: &FontWidths) -> f32 {
     units as f32 / 1000.0 * size
 }
 
+/// Word-wrap WinAnsi `text` so each returned line's `string_width <= avail_w`.
+/// Hard breaks (`\n`, with `\r\n` and lone `\r` normalized to `\n`) split first;
+/// each resulting paragraph is greedily wrapped on ASCII spaces. A single word
+/// wider than `avail_w` is placed on its own line (overflow, no mid-word break).
+/// A blank paragraph yields one empty line, so blank lines survive. Mirrors the
+/// TypeScript `wrapText` in `src/generate/wrap-text.ts`.
+pub fn wrap_lines(text: &[u8], size: f32, avail_w: f32, widths: &FontWidths) -> Vec<Vec<u8>> {
+    // Normalize CRLF / lone CR to LF, then split on LF into paragraphs.
+    let mut normalized: Vec<u8> = Vec::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        if text[i] == b'\r' {
+            normalized.push(b'\n');
+            if i + 1 < text.len() && text[i + 1] == b'\n' {
+                i += 1;
+            }
+        } else {
+            normalized.push(text[i]);
+        }
+        i += 1;
+    }
+
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    for para in normalized.split(|&b| b == b'\n') {
+        let words: Vec<&[u8]> = para.split(|&b| b == b' ').filter(|w| !w.is_empty()).collect();
+        if words.is_empty() {
+            out.push(Vec::new());
+            continue;
+        }
+        let mut current: Vec<u8> = Vec::new();
+        for word in words {
+            if current.is_empty() {
+                current.extend_from_slice(word);
+                continue;
+            }
+            let mut candidate = current.clone();
+            candidate.push(b' ');
+            candidate.extend_from_slice(word);
+            if string_width(&candidate, size, widths) <= avail_w {
+                current = candidate;
+            } else {
+                out.push(std::mem::take(&mut current));
+                current.extend_from_slice(word);
+            }
+        }
+        if !current.is_empty() {
+            out.push(current);
+        }
+    }
+    out
+}
+
 /// Width in points of `text` rendered in standard-14 `font` at `size`.
 /// Errors if `font` is not a standard-14 base name.
 pub fn measure_text_width(font: &str, size: f32, text: &str) -> Result<f32, String> {
@@ -755,6 +807,51 @@ mod tests {
     fn measures_helvetica_width() {
         let w = measure_text_width("Helvetica", 12.0, "Hello").unwrap();
         assert!(w > 20.0 && w < 40.0, "width was {w}");
+    }
+
+    #[test]
+    fn wrap_lines_preserves_hard_breaks() {
+        // Wide box so no soft wrapping happens; only the explicit \n splits.
+        let lines = wrap_lines(b"alpha\nbeta", 10.0, 1000.0, &helvetica_widths());
+        assert_eq!(lines, vec![b"alpha".to_vec(), b"beta".to_vec()]);
+    }
+
+    #[test]
+    fn wrap_lines_normalizes_crlf() {
+        let lines = wrap_lines(b"alpha\r\nbeta\rgamma", 10.0, 1000.0, &helvetica_widths());
+        assert_eq!(
+            lines,
+            vec![b"alpha".to_vec(), b"beta".to_vec(), b"gamma".to_vec()]
+        );
+    }
+
+    #[test]
+    fn wrap_lines_greedy_word_wrap() {
+        // "aaaa" at size 10 is 4 * 0.556 * 10 = 22.24pt wide; a ~30pt box fits one
+        // word per line (two words + a space exceed 30pt), forcing a wrap.
+        let lines = wrap_lines(b"aaaa aaaa", 10.0, 30.0, &helvetica_widths());
+        assert_eq!(lines, vec![b"aaaa".to_vec(), b"aaaa".to_vec()]);
+    }
+
+    #[test]
+    fn wrap_lines_long_word_overflows_on_own_line() {
+        // A single word wider than avail_w gets its own line; the short word wraps after.
+        let lines = wrap_lines(b"wwwwwwwwww hi", 10.0, 30.0, &helvetica_widths());
+        assert_eq!(lines, vec![b"wwwwwwwwww".to_vec(), b"hi".to_vec()]);
+    }
+
+    #[test]
+    fn wrap_lines_empty_string_is_single_empty_line() {
+        assert_eq!(
+            wrap_lines(b"", 10.0, 100.0, &helvetica_widths()),
+            vec![Vec::<u8>::new()]
+        );
+    }
+
+    #[test]
+    fn wrap_lines_blank_paragraph_preserved() {
+        let lines = wrap_lines(b"a\n\nb", 10.0, 1000.0, &helvetica_widths());
+        assert_eq!(lines, vec![b"a".to_vec(), Vec::<u8>::new(), b"b".to_vec()]);
     }
 
     #[test]

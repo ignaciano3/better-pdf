@@ -155,6 +155,12 @@ pub(crate) fn classify(ft: &str, ff: i64) -> &'static str {
     }
 }
 
+/// True when a text field's Ff carries the Multiline flag (bit 13, `1 << 12`),
+/// i.e. it is a text-area field that should render wrapped, multi-line text.
+pub(crate) fn is_multiline(ff: i64) -> bool {
+    ff & (1 << 12) != 0
+}
+
 /// The document's AcroForm dictionary (inline in the catalog or via reference).
 pub(crate) fn acroform(doc: &Document) -> Option<&Dictionary> {
     let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
@@ -269,6 +275,15 @@ pub(crate) fn opt_export(o: &Object) -> String {
 #[cfg(test)]
 mod tests {
     use super::read_fields_json;
+
+    #[test]
+    fn is_multiline_reads_bit_13() {
+        assert!(super::is_multiline(1 << 12));
+        assert!(super::is_multiline((1 << 12) | (1 << 1)));
+        assert!(!super::is_multiline(0));
+        assert!(!super::is_multiline(1 << 11));
+        assert!(!super::is_multiline(1 << 13));
+    }
 
     fn fields(bytes: &[u8]) -> serde_json::Value {
         serde_json::from_str(&read_fields_json(bytes).unwrap()).unwrap()
