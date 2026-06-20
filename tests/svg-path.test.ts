@@ -73,15 +73,34 @@ test("packed arc flags parse to the correct endpoint", () => {
 });
 
 test("large-arc sweep yields multiple cubics on the correct side", () => {
-  // A near-full sweep (large-arc=1) of a circle r=5 from (0,0) to (10,0).
-  // The sweep is > 90deg so it must be split into more than one cubic.
   const segs = parseSvgPath("M0 0 A5 5 0 1 1 10 0");
   const cubics = segs.filter((s) => s.t === "c");
   expect(cubics.length).toBeGreaterThan(1);
-  // sweep-flag=1 (clockwise in SVG y-down terms); with large-arc the path bulges
-  // through y > 0. Assert at least one control point has y > 0.
-  const anyAbove = cubics.some((s) => s.t === "c" && (s.y1 > 0 || s.y2 > 0 || s.y > 0));
+  // sweep=1 (CW in SVG y-down) from the leftmost point traces through y<0
+  // (above the chord). largeArc is irrelevant here: a diameter-chord arc is
+  // always 180°, so only sweep selects the side.
+  const anyAbove = cubics.some((s) => s.t === "c" && (s.y1 < 0 || s.y2 < 0 || s.y < 0));
   expect(anyAbove).toBe(true);
+});
+
+test("largeArc is irrelevant for a diameter semicircle (both arcs are 180°)", () => {
+  const c0 = parseSvgPath("M0 0 A5 5 0 0 1 10 0").filter((s) => s.t === "c");
+  const c1 = parseSvgPath("M0 0 A5 5 0 1 1 10 0").filter((s) => s.t === "c");
+  expect(c0.length).toBe(c1.length);
+  for (let i = 0; i < c0.length; i++) {
+    const a = c0[i]!, b = c1[i]!;
+    if (a.t === "c" && b.t === "c") {
+      expect(Math.abs(a.x - b.x)).toBeLessThan(1e-6);
+      expect(Math.abs(a.y - b.y)).toBeLessThan(1e-6);
+    }
+  }
+});
+
+test("diameter semicircle with sweep=0 traces the opposite side", () => {
+  const cubics = parseSvgPath("M0 0 A5 5 0 1 0 10 0").filter((s) => s.t === "c");
+  expect(cubics.length).toBeGreaterThan(1);
+  const anyBelow = cubics.some((s) => s.t === "c" && (s.y1 > 0 || s.y2 > 0 || s.y > 0));
+  expect(anyBelow).toBe(true);
 });
 
 test("arcToCubics directly: quarter circle endpoint", () => {

@@ -135,14 +135,6 @@ export function arcToCubics(
   if (!sweep && deltaTheta > 0) deltaTheta -= 2 * Math.PI;
   if (sweep && deltaTheta < 0) deltaTheta += 2 * Math.PI;
 
-  // Degenerate case: when radicand == 0 the two possible arcs are equal-length
-  // semicircles (chord == diameter). The `angle` function cannot determine the
-  // correct sign from the cross product (it is zero for antiparallel vectors),
-  // so it defaults to +π. In this case the large-arc flag selects the
-  // "other" semicircle, which requires flipping the sign of deltaTheta after
-  // the sweep adjustment above.
-  if (coef === 0 && largeArc) deltaTheta = -deltaTheta;
-
   // Split the sweep into segments of at most 90 degrees (PI/2).
   const segCount = Math.max(1, Math.ceil(Math.abs(deltaTheta) / (Math.PI / 2)));
   const delta = deltaTheta / segCount;
@@ -315,7 +307,6 @@ export function parseSvgPath(d: string): Segment[] {
         cy = ay;
         prevCtrlX = cx;
         prevCtrlY = cy;
-        prevCmd = "A";
       } while (hasMoreCoords());
       prevCmd = "A";
       continue;
