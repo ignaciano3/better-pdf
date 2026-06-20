@@ -1,3 +1,14 @@
+/**
+ * @public
+ *
+ * Root barrel for `@ignaciano3/better-pdf`. All exports from this file
+ * constitute the stable public API as of 1.0.0. Symbols tagged `@internal`
+ * are excluded from the stability guarantee regardless of where they appear.
+ *
+ * See [docs/STABILITY.md](../docs/STABILITY.md) for the full semver and
+ * deprecation policy.
+ */
+
 import * as wasm from "./core/wasm.js";
 import { PdfDocumentBase } from "./core/document.js";
 import { toPdfError } from "./core/errors.js";

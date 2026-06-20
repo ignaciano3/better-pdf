@@ -8,6 +8,8 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
+From 1.0.0, the package follows Semantic Versioning — breaking changes only in major releases. See [docs/STABILITY.md](docs/STABILITY.md) for the full policy.
+
 ## Features
 
 - Read AcroForm fields with fully-qualified names, types, values, options, and button states.
