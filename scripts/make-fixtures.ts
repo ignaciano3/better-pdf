@@ -38,3 +38,30 @@ const source = readFileSync(FICHA);
   writeFileSync(join(OUT, "ficha-xfa.pdf"), bytes);
   console.log(`ficha-xfa.pdf: ${bytes.length} bytes`);
 }
+
+{
+  // Minimal PDF with /Encrypt in the trailer — NOT genuinely encrypted.
+  // This file exists solely to exercise EncryptedPdfError and trigger the
+  // ENCRYPTED: prefix from the Rust core when it detects /Encrypt in the trailer.
+  // Classic cross-reference layout so the trailer dict is plainly visible.
+  const encryptObjNum = 1;
+  const encryptObj =
+    `${encryptObjNum} 0 obj\n<< /Filter /Standard /V 1 /R 2 >>\nendobj\n`;
+  const bodyOffset = "%PDF-1.4\n".length;
+  const encryptObjOffset = bodyOffset;
+  const xrefOffset = bodyOffset + encryptObj.length;
+  const xrefSection =
+    `xref\n` +
+    `0 2\n` +
+    `0000000000 65535 f \n` +
+    `${String(encryptObjOffset).padStart(10, "0")} 00000 n \n`;
+  const trailer =
+    `trailer\n` +
+    `<< /Size 2 /Root 1 0 R /Encrypt ${encryptObjNum} 0 R >>\n` +
+    `startxref\n` +
+    `${xrefOffset}\n` +
+    `%%EOF\n`;
+  const content = `%PDF-1.4\n${encryptObj}${xrefSection}${trailer}`;
+  writeFileSync(join(OUT, "encrypted-min.pdf"), content);
+  console.log(`encrypted-min.pdf: ${content.length} bytes`);
+}

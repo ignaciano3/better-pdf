@@ -33,7 +33,7 @@ pub struct Widget {
 
 /// Parse `data` and return its AcroForm fields as a JSON array string.
 pub fn read_fields_json(data: &[u8]) -> Result<String, String> {
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = crate::doc_io::load_pdf(data)?;
     let fields = collect_fields(&doc).map_err(|e| e.to_string())?;
     serde_json::to_string(&fields).map_err(|e| e.to_string())
 }

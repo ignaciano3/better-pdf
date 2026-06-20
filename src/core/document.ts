@@ -1,5 +1,5 @@
 import { PdfForm } from "../forms/form.js";
-import { toPdfError, PageOutOfRangeError, PdfError, toInvalidImageError } from "./errors.js";
+import { toPdfError, PageOutOfRangeError, PdfError, toInvalidImageError, EncryptedPdfError } from "./errors.js";
 import type { FormSchema, TypedPdfForm } from "../forms/schema.js";
 import { PdfPage } from "../generate/page.js";
 import { DrawQueue } from "../generate/draw-queue.js";
@@ -221,7 +221,10 @@ export class PdfDocumentBase {
     if (this.mode === "load") {
       try {
         wire = JSON.parse(this.wasm.readMetadata(this.bytes)) as Record<string, string>;
-      } catch {
+      } catch (e) {
+        const err = toPdfError(e);
+        if (err instanceof EncryptedPdfError) throw err;
+        // optional metadata: soft-fallback on any other error
         wire = {};
       }
     }
@@ -561,7 +564,13 @@ export class PdfDocumentBase {
         "getForm is not available on documents created with PdfDocument.create(); creating AcroForm fields is not supported",
       );
     }
-    if (!this.form) this.form = new PdfForm(this.bytes, this.wasm.readFields);
+    if (!this.form) {
+      try {
+        this.form = new PdfForm(this.bytes, this.wasm.readFields);
+      } catch (e) {
+        throw toPdfError(e);
+      }
+    }
     return this.form;
   }
 

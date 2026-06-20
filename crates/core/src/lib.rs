@@ -3,6 +3,7 @@ use wasm_bindgen::prelude::*;
 mod appearance;
 pub mod create;
 mod fonts;
+mod doc_io;
 mod draw;
 mod embed;
 mod fill;

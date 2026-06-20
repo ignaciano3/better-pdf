@@ -599,6 +599,7 @@ whole family or a specific case:
   unsupported images, malformed PDFs); the core's message is preserved.
 - `PageOutOfRangeError` — `getPage(i)` called with an index outside `[0, pageCount)`.
 - `InvalidImageError` — `embedJpg`/`embedPng` rejected the image bytes (unsupported format or CMYK JPEG).
+- `EncryptedPdfError` — the PDF is encrypted; encrypted PDFs are not supported, so loading/reading fails fast with this typed error instead of a confusing downstream failure.
 
 ```ts
 import { FieldTypeError } from "@ignaciano3/better-pdf";
@@ -735,7 +736,7 @@ count).
 Gaps better-pdf does not cover **yet** — things we intend to close. (For features
 we will deliberately never add, see [Non-Goals](#non-goals).)
 
-- No encrypted PDF support.
+- No encrypted PDF support — encrypted PDFs are detected on load and rejected with a typed `EncryptedPdfError` (decrypt the file first).
 - No cryptographic signing (the API leaves room to add PAdES later).
 - List boxes are single-select; multi-select list boxes are not yet supported.
 - Form text fields with the Multiline flag are filled with wrapped, top-aligned

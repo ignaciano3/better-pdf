@@ -362,16 +362,14 @@ pub fn create_document_json(
                 } else if standard_14_index(font).is_none() {
                     return Err(format!("unknown font: {font}"));
                 }
-                if let Some(o) = opacity {
-                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
                         return Err("opacity must be in 0..1".to_string());
                     }
-                }
-                if let Some(deg) = rotate {
-                    if !deg.is_finite() {
+                if let Some(deg) = rotate
+                    && !deg.is_finite() {
                         return Err("invalid rotation".to_string());
                     }
-                }
             }
             CreateOp::Image {
                 page,
@@ -1729,7 +1727,7 @@ pub fn create_document_json(
     // then wire /Outlines onto the catalog.
     let outline_items = ops.iter().filter_map(|o| {
         if let CreateOp::Outline { items } = o { Some(items) } else { None }
-    }).last();
+    }).next_back();
     if let Some(items) = outline_items {
         let root = crate::outline::build_outline(
             &mut doc,
@@ -1746,7 +1744,7 @@ pub fn create_document_json(
     // Apply metadata if a metadata op was present (last one wins).
     let meta_op = ops.iter().filter_map(|o| {
         if let CreateOp::Metadata { meta } = o { Some(meta) } else { None }
-    }).last();
+    }).next_back();
     if let Some(meta) = meta_op {
         let info_id = doc.add_object(Object::Dictionary(crate::metadata::build_info_dict(meta)));
         doc.trailer.set("Info", Object::Reference(info_id));

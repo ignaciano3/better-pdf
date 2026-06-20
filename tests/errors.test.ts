@@ -8,6 +8,7 @@ import {
   FieldTypeError,
   InvalidOptionError,
   PdfCoreError,
+  EncryptedPdfError,
 } from "../src/index.ts";
 
 const FICHA = join(
@@ -73,4 +74,41 @@ test("core failures from save() are PdfCoreError (a PdfError)", async () => {
   doc.getForm().getTextField("beneficiario.apellidos_nombres").setText("X");
   await expect(doc.save()).rejects.toBeInstanceOf(PdfCoreError);
   await expect(doc.save()).rejects.toThrow(/XFA/);
+});
+
+test("loading an encrypted PDF throws EncryptedPdfError (a PdfError)", async () => {
+  const bytes = new Uint8Array(
+    readFileSync(
+      join(import.meta.dir, "fixtures/generated/encrypted-min.pdf"),
+    ),
+  );
+  const doc = await PdfDocument.load(bytes);
+  // Encryption surfaces on the first read into the core.
+  let err: unknown;
+  try {
+    doc.getForm();
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeInstanceOf(EncryptedPdfError);
+  expect(err).toBeInstanceOf(PdfError);
+  expect((err as Error).name).toBe("EncryptedPdfError");
+});
+
+test("getMetadata() on an encrypted PDF throws EncryptedPdfError", async () => {
+  const bytes = new Uint8Array(
+    readFileSync(
+      join(import.meta.dir, "fixtures/generated/encrypted-min.pdf"),
+    ),
+  );
+  const doc = await PdfDocument.load(bytes);
+  let err: unknown;
+  try {
+    await doc.getMetadata();
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeInstanceOf(EncryptedPdfError);
+  expect(err).toBeInstanceOf(PdfError);
+  expect((err as Error).name).toBe("EncryptedPdfError");
 });

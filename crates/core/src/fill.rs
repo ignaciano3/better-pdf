@@ -18,7 +18,7 @@ struct FillOp {
 /// save). `images` is the concatenated image blob the ops' offsets index into.
 pub fn fill_fields_json(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, String> {
     let ops: Vec<FillOp> = serde_json::from_str(ops_json).map_err(|e| e.to_string())?;
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = crate::doc_io::load_pdf(data)?;
     if forms::has_xfa(&doc) {
         return Err(
             "XFA form detected: filling is not supported because viewers render the XFA data, not the AcroForm values"

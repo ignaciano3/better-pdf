@@ -138,6 +138,7 @@ export {
   MaxLengthExceededError,
   MissingOnStateError,
   PdfCoreError,
+  EncryptedPdfError,
   InvalidImageError,
   InvalidRotationError,
 } from "./core/errors.js";

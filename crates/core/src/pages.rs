@@ -45,7 +45,7 @@ fn rect_f32(arr: &[Object]) -> Option<[f32; 4]> {
 
 /// Parse `data` and return its pages as a JSON array of `PageInfo` objects.
 pub fn read_pages_json(data: &[u8]) -> Result<String, String> {
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = crate::doc_io::load_pdf(data)?;
     let mut pages = Vec::new();
     for (i, (_, page_id)) in doc.get_pages().iter().enumerate() {
         let media = inherited(&doc, *page_id, b"MediaBox")

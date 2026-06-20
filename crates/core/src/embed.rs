@@ -67,7 +67,7 @@ pub fn embed_page_as_xobject(
     src_bytes: &[u8],
     src_page_index: usize,
 ) -> Result<(ObjectId, f32, f32), String> {
-    let src = Document::load_mem(src_bytes).map_err(|e| e.to_string())?;
+    let src = crate::doc_io::load_pdf(src_bytes)?;
     let page_ids: Vec<ObjectId> = src.get_pages().into_values().collect();
     let page_id = *page_ids
         .get(src_page_index)
@@ -84,15 +84,14 @@ pub fn embed_page_as_xobject(
     // Concatenate decompressed content streams.
     let mut content: Vec<u8> = Vec::new();
     for cid in src.get_page_contents(page_id) {
-        if let Ok(obj) = src.get_object(cid) {
-            if let Ok(stream) = obj.as_stream() {
+        if let Ok(obj) = src.get_object(cid)
+            && let Ok(stream) = obj.as_stream() {
                 let bytes = stream
                     .decompressed_content()
                     .unwrap_or_else(|_| stream.content.clone());
                 content.extend_from_slice(&bytes);
                 content.push(b'\n');
             }
-        }
     }
 
     // Import the page's resolved Resources subtree (deep copy into dst).
