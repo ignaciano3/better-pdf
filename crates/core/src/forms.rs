@@ -161,6 +161,11 @@ pub(crate) fn is_multiline(ff: i64) -> bool {
     ff & (1 << 12) != 0
 }
 
+/// True when a choice field carries the Multiselect flag (Ff bit 22).
+pub(crate) fn is_multiselect(ff: i64) -> bool {
+    ff & (1 << 21) != 0
+}
+
 /// The document's AcroForm dictionary (inline in the catalog or via reference).
 pub(crate) fn acroform(doc: &Document) -> Option<&Dictionary> {
     let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;

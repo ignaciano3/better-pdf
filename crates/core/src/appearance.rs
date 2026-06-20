@@ -844,6 +844,20 @@ pub fn build_signature_appearance_xobject(
     Stream::new(dict, content).with_compression(false)
 }
 
+/// PLACEHOLDER — replaced in Task 2 with real multi-row rendering.
+#[allow(clippy::too_many_arguments)]
+pub fn listbox_multi_content(
+    _options: &[Vec<u8>],
+    _selected: &[bool],
+    _da_size: f32,
+    _box_w: f32,
+    _box_h: f32,
+    _color: &str,
+    _font: &str,
+) -> Vec<u8> {
+    b"/Tx BMC q Q EMC".to_vec()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
