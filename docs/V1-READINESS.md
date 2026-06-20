@@ -43,9 +43,14 @@ V1 = commitment. Before tagging:
   *general pdf-lib replacement* hits encrypted files constantly (even empty-owner-
   password). Minimum: detect + throw a clean `EncryptedPdfError`, document it.
   pdf-lib reads these.
-- **Xref-stream / objstm on a real corpus** — only *generated* test variants exist.
-  Any Office/Chrome-print PDF uses these. Get real PDF 1.5+ files into fixtures
-  before claiming broad support.
+- **Xref-stream / objstm on a real corpus** — synthetic coverage now includes a
+  larger-objstm file (`ficha-objstreams-big.pdf`, ~419 KB, 8 ObjStm streams) and
+  an incremental-update-over-xref-stream file (`ficha-objstreams-updated.pdf`,
+  produced by our own incremental save with a `/Prev` pointer, 2 `startxref`
+  occurrences), both wired into the fill/flatten round-trip and qpdf-validate
+  loops. Genuine multi-producer files (Word, LibreOffice, Chrome, Acrobat),
+  linearized PDFs, and hybrid-reference files remain a **post-1.0** gap — they
+  require real input files or qpdf-based fixture generation.
 - **WASM panic safety** — a panic in wasm aborts the instance, unrecoverable.
   Every `.unwrap()` reachable from input is a landmine (many in `fill.rs`).
   Confirm all input-reachable paths return `Result`, not panic. Run sustained

@@ -40,6 +40,29 @@ const source = readFileSync(FICHA);
 }
 
 {
+  // Larger object-stream file — stresses objstm decoding at higher object counts.
+  // We load FICHA and embed the source page seven extra times as XObjects so that
+  // the object graph is ~8x larger than the single-form file while the AcroForm
+  // (and therefore all form fields, including beneficiario.apellidos_nombres) remains
+  // intact. pdf-lib's embedPdf() adds independent XObjects per embedded copy, so
+  // the resulting object table is substantially larger even if the number of ObjStm
+  // streams themselves doesn't increase linearly.
+  const doc = await PDFDocument.load(source);
+  const pageSize = doc.getPage(0).getSize();
+  for (let i = 0; i < 7; i++) {
+    const embedded = await PDFDocument.load(source);
+    const embPages = await doc.embedPdf(embedded, [0]);
+    const embPage = embPages[0];
+    if (!embPage) throw new Error("embedPdf returned no pages");
+    const newPage = doc.addPage([pageSize.width, pageSize.height]);
+    newPage.drawPage(embPage);
+  }
+  const bytes = await doc.save({ useObjectStreams: true, updateFieldAppearances: false });
+  writeFileSync(join(OUT, "ficha-objstreams-big.pdf"), bytes);
+  console.log(`ficha-objstreams-big.pdf: ${bytes.length} bytes`);
+}
+
+{
   // Minimal PDF with /Encrypt in the trailer — NOT genuinely encrypted.
   // This file exists solely to exercise EncryptedPdfError and trigger the
   // ENCRYPTED: prefix from the Rust core when it detects /Encrypt in the trailer.
