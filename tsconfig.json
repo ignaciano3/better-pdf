@@ -12,5 +12,5 @@
     "types": ["bun"]
   },
   "include": ["src", "tests", "examples", "bench", "scripts"],
-  "exclude": ["scripts/browser-entry-smoke.ts"]
+  "exclude": ["scripts/browser-entry-smoke.ts", "examples/runtimes"]
 }
