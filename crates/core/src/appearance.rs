@@ -844,23 +844,80 @@ pub fn build_signature_appearance_xobject(
     Stream::new(dict, content).with_compression(false)
 }
 
-/// PLACEHOLDER — replaced in Task 2 with real multi-row rendering.
+/// Build the content stream for a multi-select list box appearance: one row per
+/// option from top to bottom; each selected row gets a filled highlight
+/// rectangle drawn behind its text. `selected[i]` toggles option `i`.
 #[allow(clippy::too_many_arguments)]
 pub fn listbox_multi_content(
-    _options: &[Vec<u8>],
-    _selected: &[bool],
-    _da_size: f32,
-    _box_w: f32,
-    _box_h: f32,
-    _color: &str,
-    _font: &str,
+    options: &[Vec<u8>],
+    selected: &[bool],
+    da_size: f32,
+    box_w: f32,
+    box_h: f32,
+    color: &str,
+    font: &str,
 ) -> Vec<u8> {
-    b"/Tx BMC q Q EMC".to_vec()
+    // Row height: honor a positive DA size, else a sane default capped by box.
+    let line = if da_size > 0.0 { da_size } else { MAX_AUTO };
+    let row_h = (line + 2.0).max(MIN_AUTO + 2.0);
+    let mut out = Vec::new();
+    out.extend_from_slice(b"/Tx BMC q ");
+
+    // 1) Highlight rectangles for selected rows (painted first, behind text).
+    for (i, &sel) in selected.iter().enumerate() {
+        if !sel {
+            continue;
+        }
+        // Top-aligned: row 0 sits just under the top edge.
+        let y = box_h - row_h * (i as f32 + 1.0);
+        out.extend_from_slice(
+            format!(
+                "0.60 0.75 0.85 rg {:.2} {:.2} {:.2} {:.2} re f ",
+                PAD,
+                y,
+                (box_w - 2.0 * PAD).max(0.0),
+                row_h
+            )
+            .as_bytes(),
+        );
+    }
+
+    // 2) Text for every option, top to bottom.
+    out.extend_from_slice(b"BT ");
+    out.extend_from_slice(format!("/{font} {line:.2} Tf {color} ").as_bytes());
+    for (i, opt) in options.iter().enumerate() {
+        let baseline = box_h - row_h * (i as f32) - line;
+        let escaped = escape_pdf_literal(opt);
+        out.extend_from_slice(format!("1 0 0 1 {PAD:.2} {baseline:.2} Tm (").as_bytes());
+        out.extend_from_slice(&escaped);
+        out.extend_from_slice(b") Tj ");
+    }
+    out.extend_from_slice(b"ET Q EMC");
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn listbox_multi_highlights_selected_rows() {
+        let options = vec![b"ES".to_vec(), b"EN".to_vec(), b"PT".to_vec()];
+        let selected = vec![true, false, true];
+        let content = listbox_multi_content(&options, &selected, 0.0, 100.0, 60.0, "0 g", "Helv");
+        let s = String::from_utf8_lossy(&content);
+        // Marked content + save/restore framing.
+        assert!(s.starts_with("/Tx BMC q"));
+        assert!(s.trim_end().ends_with("EMC"));
+        // Every option is drawn.
+        assert!(s.contains("(ES) Tj"), "got: {s}");
+        assert!(s.contains("(EN) Tj"), "got: {s}");
+        assert!(s.contains("(PT) Tj"), "got: {s}");
+        // Two selected rows -> two highlight rectangles filled with the blue rg.
+        let blue = "0.60 0.75 0.85 rg";
+        assert_eq!(s.matches(blue).count(), 2, "expected 2 highlights in: {s}");
+        assert_eq!(s.matches(" re").count(), 2, "expected 2 rectangles in: {s}");
+    }
 
     #[test]
     fn measures_helvetica_width() {

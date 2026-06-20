@@ -1051,6 +1051,18 @@ mod tests {
     }
 
     #[test]
+    fn multiselect_fill_generates_highlight_appearance() {
+        let base = with_multiselect(FICHA, "beneficiario.estado_civil");
+        let ops = r#"[{"name":"beneficiario.estado_civil","values":["Viudo","Casado"]}]"#;
+        let out = fill_fields_json(&base, ops, &[]).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let ap = ap_content(&doc, "beneficiario.estado_civil").expect("AP/N present");
+        assert!(ap.contains("0.60 0.75 0.85 rg"), "no highlight: {ap}");
+        assert_eq!(ap.matches(" re").count(), 2, "expected 2 highlights: {ap}");
+        assert!(ap.contains("(Casado) Tj"), "missing option text: {ap}");
+    }
+
+    #[test]
     fn fills_xref_stream_pdf_incrementally() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA"}]"#;
         let out = fill_fields_json(FICHA_OBJSTREAMS, ops, &[]).unwrap();
