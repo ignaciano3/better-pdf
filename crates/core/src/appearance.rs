@@ -642,7 +642,7 @@ fn png_image(data: &[u8]) -> Result<SignatureImage, String> {
                 interlace = chunk[12];
             }
             b"PLTE" => {
-                if chunk.len() % 3 != 0 {
+                if !chunk.len().is_multiple_of(3) {
                     return Err("invalid PNG PLTE chunk length".to_string());
                 }
                 palette = chunk.chunks_exact(3).map(|t| (t[0], t[1], t[2])).collect();

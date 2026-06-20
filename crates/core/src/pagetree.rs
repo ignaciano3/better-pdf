@@ -13,7 +13,7 @@
 //! return `Err("nested page trees not supported")`. The FICHA fixture (and most
 //! PDFs) is flat, so the supported tests pass.
 
-use lopdf::{dictionary, Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream};
+use lopdf::{dictionary, Dictionary, IncrementalDocument, Object, ObjectId, Stream};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -42,7 +42,7 @@ pub fn insert_pages_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String>
     let ops: Vec<PageOp> =
         serde_json::from_str(ops_json).map_err(|e| format!("invalid page ops: {e}"))?;
 
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = crate::doc_io::load_pdf(data)?;
 
     // Find the /Pages root id from the catalog.
     let catalog = doc.catalog().map_err(|e| e.to_string())?;

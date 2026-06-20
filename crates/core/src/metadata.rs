@@ -1,6 +1,6 @@
 //! Metadata module: read and incrementally write the PDF Info dictionary.
 
-use lopdf::{Dictionary, Document, IncrementalDocument, Object, StringFormat};
+use lopdf::{Dictionary, IncrementalDocument, Object, StringFormat};
 use serde::{Deserialize, Serialize};
 
 /// Representation of the PDF Info dictionary entries.
@@ -81,7 +81,7 @@ fn get_str(dict: &Dictionary, key: &[u8]) -> Option<String> {
 
 /// Read the Info dictionary of `data` and return it as a JSON object string.
 pub fn read_metadata_json(data: &[u8]) -> Result<String, String> {
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = crate::doc_io::load_pdf(data)?;
 
     let info_dict: Option<Dictionary> = match doc.trailer.get(b"Info") {
         Ok(Object::Reference(id)) => {
@@ -114,7 +114,7 @@ pub fn read_metadata_json(data: &[u8]) -> Result<String, String> {
 pub fn set_metadata_json(data: &[u8], meta_json: &str) -> Result<Vec<u8>, String> {
     let meta: Metadata = serde_json::from_str(meta_json).map_err(|e| format!("invalid metadata json: {e}"))?;
 
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = crate::doc_io::load_pdf(data)?;
 
     // Clone any existing Info dict so unspecified keys survive.
     let existing_info: Dictionary = match doc.trailer.get(b"Info") {

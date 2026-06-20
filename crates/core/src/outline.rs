@@ -128,7 +128,7 @@ pub fn set_outline_json(data: &[u8], json: &str) -> Result<Vec<u8>, String> {
     let items: Vec<OutlineItem> =
         serde_json::from_str(json).map_err(|e| format!("invalid outline json: {e}"))?;
 
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = crate::doc_io::load_pdf(data)?;
     let page_count = doc.get_pages().len();
     validate_pages(&items, page_count)?;
 

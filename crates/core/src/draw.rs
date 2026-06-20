@@ -1,7 +1,7 @@
 //! Draw engine: apply draw ops (text, images, etc.) to existing PDF pages via
 //! incremental update.
 
-use lopdf::{dictionary, Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream};
+use lopdf::{dictionary, Dictionary, IncrementalDocument, Object, ObjectId, Stream};
 use serde::Deserialize;
 
 use crate::appearance::{encode_winansi, escape_pdf_literal};
@@ -390,6 +390,7 @@ fn paint_op(has_fill: bool, has_stroke: bool) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_line(
     out: &mut Vec<u8>,
     gs_key: Option<&str>,
@@ -414,6 +415,7 @@ pub(crate) fn emit_line(
     out.extend_from_slice(b"S\nQ\n");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_rectangle(
     out: &mut Vec<u8>,
     gs_key: Option<&str>,
@@ -449,6 +451,7 @@ pub(crate) fn emit_rectangle(
     out.extend_from_slice(b"\nQ\n");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_ellipse(
     out: &mut Vec<u8>,
     gs_key: Option<&str>,
@@ -784,7 +787,7 @@ pub fn apply_draw_ops_json(
         }
     }
 
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = crate::doc_io::load_pdf(data)?;
     let page_count = doc.get_pages().len();
 
     // Validate ALL ops before mutating anything
@@ -803,16 +806,14 @@ pub fn apply_draw_ops_json(
                 } else if !STANDARD_14.contains(&font.as_str()) {
                     return Err(format!("unknown font: {font}"));
                 }
-                if let Some(o) = opacity {
-                    if !o.is_finite() || *o < 0.0 || *o > 1.0 {
+                if let Some(o) = opacity
+                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
                         return Err("opacity must be in 0..1".to_string());
                     }
-                }
-                if let Some(deg) = rotate {
-                    if !deg.is_finite() {
+                if let Some(deg) = rotate
+                    && !deg.is_finite() {
                         return Err("invalid rotation".to_string());
                     }
-                }
             }
             DrawOp::Image {
                 page,

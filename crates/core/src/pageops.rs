@@ -181,11 +181,10 @@ fn rebuild_acroform(
     let mut merged_fonts = lopdf::Dictionary::new();
     let mut da: Option<Object> = None;
     for s in sources {
-        if da.is_none() {
-            if let Some(d) = &s.da {
+        if da.is_none()
+            && let Some(d) = &s.da {
                 da = Some(d.clone());
             }
-        }
         let Some(dr_obj) = &s.dr else { continue };
         let dr_dict = match dr_obj {
             Object::Reference(r) => merged.get_dictionary(*r).ok().cloned(),
@@ -260,7 +259,7 @@ pub fn manipulate_pages_json(
         if end > docs_blob.len() {
             return Err("doc range out of bounds".to_string());
         }
-        let mut doc = Document::load_mem(&docs_blob[d.offset..end]).map_err(|e| e.to_string())?;
+        let mut doc = crate::doc_io::load_pdf(&docs_blob[d.offset..end])?;
 
         // Resolve inherited attrs onto each page BEFORE renumber/move, while the
         // /Parent chain is still intact. Only set keys the page itself lacks.

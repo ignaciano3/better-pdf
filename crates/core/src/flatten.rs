@@ -24,7 +24,7 @@ pub(crate) struct RawWidget {
 
 pub fn flatten_fields_json(data: &[u8], names_json: &str) -> Result<Vec<u8>, String> {
     let names: Vec<String> = serde_json::from_str(names_json).map_err(|e| e.to_string())?;
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = crate::doc_io::load_pdf(data)?;
     if forms::has_xfa(&doc) {
         return Err(
             "XFA form detected: flattening is not supported because viewers render the XFA data, not the AcroForm values"
