@@ -19,6 +19,9 @@ pub struct FieldInfo {
     /// Text field `/MaxLen`, if declared; `null` for other fields or when unset.
     #[serde(rename = "maxLength")]
     pub max_length: Option<u32>,
+    /// True only for multi-select list boxes (the PDF Multiselect choice flag).
+    #[serde(rename = "multiSelect")]
+    pub multi_select: bool,
     /// One entry per widget annotation: its page index (0-based) and `/Rect`
     /// `[x0, y0, x1, y1]` in PDF points (origin bottom-left). Most fields have
     /// one; radio groups and fields repeated across pages have several.
@@ -77,7 +80,13 @@ fn describe_field(
     let ft = inherited_name(doc, d, b"FT").unwrap_or_default();
     let ff = inherited_int(doc, d, b"Ff").unwrap_or(0);
     let field_type = classify(&ft, ff).to_string();
-    let value = d.get(b"V").ok().and_then(value_to_string);
+    let value = d.get(b"V").ok().and_then(|o| match o {
+        Object::Array(a) => {
+            let parts: Vec<String> = a.iter().filter_map(value_to_string).collect();
+            if parts.is_empty() { None } else { Some(parts.join(", ")) }
+        }
+        other => value_to_string(other),
+    });
 
     let mut states = Vec::new();
     collect_on_states(doc, d, &mut states);
@@ -119,7 +128,7 @@ fn describe_field(
 
     FieldInfo {
         name,
-        field_type,
+        field_type: field_type.clone(),
         value,
         states,
         options,
@@ -127,6 +136,7 @@ fn describe_field(
         required: ff & 2 != 0,
         exported: ff & 4 == 0,
         max_length,
+        multi_select: field_type == "listbox" && is_multiselect(ff),
         widgets,
     }
 }
@@ -383,5 +393,101 @@ mod tests {
             .map(|s| s.as_str().unwrap())
             .collect();
         assert!(opts.contains(&"Soltero"));
+    }
+
+    #[test]
+    fn array_v_is_joined_as_comma_separated_string() {
+        use lopdf::{Document, Object, dictionary};
+        // Build a minimal PDF with a listbox field whose /V is an array of strings.
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let field_id = doc.new_object_id();
+        let page_id = doc.new_object_id();
+        let page = dictionary! {
+            "Type" => Object::Name(b"Page".to_vec()),
+            "Parent" => Object::Reference(pages_id),
+            "MediaBox" => vec![0i64.into(), 0i64.into(), 612i64.into(), 792i64.into()],
+        };
+        doc.set_object(page_id, Object::Dictionary(page));
+        let pages = dictionary! {
+            "Type" => Object::Name(b"Pages".to_vec()),
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => Object::Integer(1),
+        };
+        doc.set_object(pages_id, Object::Dictionary(pages));
+        let field = dictionary! {
+            "FT" => Object::Name(b"Ch".to_vec()),
+            "T" => Object::string_literal("lang"),
+            "V" => Object::Array(vec![
+                Object::string_literal("ES"),
+                Object::string_literal("PT"),
+            ]),
+            "Opt" => Object::Array(vec![
+                Object::string_literal("ES"),
+                Object::string_literal("EN"),
+                Object::string_literal("PT"),
+            ]),
+        };
+        doc.set_object(field_id, Object::Dictionary(field));
+        let acroform = dictionary! {
+            "Fields" => Object::Array(vec![Object::Reference(field_id)]),
+        };
+        let acroform_id = doc.add_object(Object::Dictionary(acroform));
+        let catalog = dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+            "AcroForm" => Object::Reference(acroform_id),
+        };
+        let catalog_id = doc.add_object(Object::Dictionary(catalog));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+        let mut pdf_bytes = Vec::new();
+        doc.save_to(&mut pdf_bytes).unwrap();
+
+        let f = fields(&pdf_bytes);
+        let field_val = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "lang")
+            .unwrap();
+        assert_eq!(field_val["value"], "ES, PT");
+    }
+
+    fn with_multiselect_forms(bytes: &[u8]) -> Vec<u8> {
+        use lopdf::{Document, Object};
+        let mut doc = Document::load_mem(bytes).unwrap();
+        let (id, _) = crate::fill::find_field(&doc, "beneficiario.estado_civil").unwrap();
+        let d = doc.get_object_mut(id).unwrap().as_dict_mut().unwrap();
+        let ff = d.get(b"Ff").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+        // Clear Combo (1<<17) and set Multiselect (1<<21).
+        d.set("Ff", Object::Integer((ff & !(1 << 17)) | (1 << 21)));
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn multi_select_flag_is_true_for_multiselect_listbox() {
+        let base = with_multiselect_forms(FICHA);
+        let f = fields(&base);
+        let lb = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "beneficiario.estado_civil")
+            .unwrap();
+        assert_eq!(lb["type"], "listbox");
+        assert_eq!(lb["multiSelect"], true);
+    }
+
+    /// Emit `tests/fixtures/generated/ficha-multiselect-listbox.pdf` from FICHA
+    /// with the Multiselect flag set on `beneficiario.estado_civil`. Idempotent.
+    #[test]
+    fn emit_ficha_multiselect_listbox_fixture() {
+        use std::path::Path;
+        let dest = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/generated/ficha-multiselect-listbox.pdf");
+        let out = with_multiselect_forms(FICHA);
+        std::fs::write(&dest, &out).expect("failed to write fixture");
     }
 }

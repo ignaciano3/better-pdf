@@ -17,6 +17,7 @@ function textInfo(maxLength: number | null): FieldInfo {
     required: false,
     exported: true,
     maxLength,
+    multiSelect: false,
     widgets: [],
   };
 }

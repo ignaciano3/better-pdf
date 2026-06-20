@@ -37,6 +37,8 @@ export interface FieldInfo {
   exported: boolean;
   /** Text field `/MaxLen`, or null for non-text fields / when undeclared. */
   maxLength: number | null;
+  /** True only for multi-select list boxes (the PDF Multiselect choice flag). */
+  multiSelect: boolean;
   /** One entry per widget annotation (page + position). Usually one; radio
    * groups and fields repeated across pages have several. */
   widgets: FieldWidget[];

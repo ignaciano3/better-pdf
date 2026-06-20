@@ -80,6 +80,7 @@ export function generateFormTypes(
     lines.push(`    required: ${field.required ? "true" : "false"},`);
     lines.push(`    exported: ${field.exported ? "true" : "false"},`);
     lines.push(`    maxLength: ${field.maxLength === null ? "null" : field.maxLength},`);
+    lines.push(`    multiSelect: ${field.multiSelect ? "true" : "false"},`);
     lines.push(`    value: ${field.value === null ? "null" : quote(field.value)},`);
     lines.push(`    states: ${readonlyTuple(field.states)},`);
     lines.push(`    options: ${readonlyTuple(field.options)},`);

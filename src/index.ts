@@ -137,6 +137,7 @@ export {
   InvalidOptionError,
   MaxLengthExceededError,
   MissingOnStateError,
+  MultiSelectError,
   PdfCoreError,
   EncryptedPdfError,
   InvalidImageError,
