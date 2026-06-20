@@ -1,9 +1,9 @@
 import { StandardFonts } from "./fonts.js";
 import { rgb, type Color } from "./color.js";
 import type { DrawQueue, LineOp, RectangleOp, EllipseOp, LinkOp, PathOp } from "./draw-queue.js";
-import { PdfImage } from "./image.js";
-import { EmbeddedPdfPage } from "./embedded-page.js";
-import { PdfFont } from "./font.js";
+import { PdfImage, kImageBytes } from "./image.js";
+import { EmbeddedPdfPage, kEmbeddedBytes } from "./embedded-page.js";
+import { PdfFont, kFontId } from "./font.js";
 import { InvalidRotationError } from "../core/errors.js";
 import { parseSvgPath, type Segment } from "./svg-path.js";
 import { wrapText } from "./wrap-text.js";
@@ -231,8 +231,8 @@ export class PdfPage {
       text2 = wrapText(text, options.maxWidth, measure);
     }
     const embeddedId =
-      options.font instanceof PdfFont && options.font._fontId !== undefined
-        ? options.font._fontId
+      options.font instanceof PdfFont && options.font[kFontId] !== undefined
+        ? options.font[kFontId]
         : undefined;
     const fontName =
       embeddedId !== undefined
@@ -270,7 +270,7 @@ export class PdfPage {
       if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
     }
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
-    this.queue.pushImage(this._slot, image.bytes, {
+    this.queue.pushImage(this._slot, image[kImageBytes], {
       x: options.x,
       y: options.y,
       width,
@@ -294,7 +294,7 @@ export class PdfPage {
       if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
     }
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
-    this.queue.pushPage(this._slot, embedded.bytes, {
+    this.queue.pushPage(this._slot, embedded[kEmbeddedBytes], {
       x: options.x,
       y: options.y,
       width,

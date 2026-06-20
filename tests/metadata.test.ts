@@ -50,3 +50,16 @@ test("getMetadata returns Date for creationDate after save/reload", async () => 
     Math.floor(original.getTime() / 1000),
   );
 });
+
+test("getMetadata returns Date for modificationDate after save/reload", async () => {
+  const original = new Date("2025-11-20T08:15:00.000Z");
+  const doc = await PdfDocument.load(readFileSync(FIXTURE));
+  doc.setModificationDate(original);
+  const bytes = await doc.save();
+  const reopened = await PdfDocument.load(bytes);
+  const meta = await reopened.getMetadata();
+  expect(meta.modificationDate).toBeInstanceOf(Date);
+  expect(Math.floor(meta.modificationDate!.getTime() / 1000)).toBe(
+    Math.floor(original.getTime() / 1000),
+  );
+});

@@ -1,4 +1,4 @@
-import { PdfForm } from "../forms/form.js";
+import { PdfForm, kFormQueue, kFlattenQueue } from "../forms/form.js";
 import { toPdfError, PageOutOfRangeError, PdfError, toInvalidImageError, EncryptedPdfError } from "./errors.js";
 import type { FormSchema, TypedPdfForm } from "../forms/schema.js";
 import { PdfPage } from "../generate/page.js";
@@ -117,12 +117,12 @@ export class PdfDocumentBase {
     const form = this.form;
     let bytes = this.bytes;
     try {
-      if (form && form.queue.length > 0) {
-        const { opsJson, images } = form.queue.toPayload();
+      if (form && form[kFormQueue].length > 0) {
+        const { opsJson, images } = form[kFormQueue].toPayload();
         bytes = this.wasm.fillFields(bytes, opsJson, images);
       }
-      if (form && form.flattenQueue.length > 0) {
-        bytes = this.wasm.flattenFields(bytes, JSON.stringify(form.flattenQueue));
+      if (form && form[kFlattenQueue].length > 0) {
+        bytes = this.wasm.flattenFields(bytes, JSON.stringify(form[kFlattenQueue]));
       }
       if (this.structureOps.length > 0) {
         bytes = this.wasm.insertPages(bytes, JSON.stringify(this.structureOps));
@@ -247,7 +247,7 @@ export class PdfDocumentBase {
     }
     if (merged["modDate"] !== undefined) {
       const d = fromPdfDate(merged["modDate"]);
-      if (d !== undefined) result.modDate = d;
+      if (d !== undefined) result.modificationDate = d;
     }
     return result;
   }

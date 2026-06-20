@@ -7,7 +7,7 @@ export interface DocumentMetadata {
   creator?: string;
   producer?: string;
   creationDate?: Date;
-  modDate?: Date;
+  modificationDate?: Date;
 }
 
 /**
