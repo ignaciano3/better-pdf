@@ -1,0 +1,15 @@
+{
+  "name": "better-pdf-cloudflare-workers-example",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@ignaciano3/better-pdf": "^0.21.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
