@@ -134,3 +134,11 @@ test("drawPolygon defaults to closed", async () => {
   const out = await doc.save();
   expect((await PdfDocument.load(out)).getPageCount()).toBe(1);
 });
+test("drawSvgPath with an arc round-trips into a valid PDF", async () => {
+  const doc = await PdfDocument.create();
+  const page = doc.addPage();
+  // Half-circle arc plus a closing line — must not throw and must render.
+  page.drawSvgPath("M50 100 A50 50 0 0 1 150 100 Z", { fill: rgb(0, 0, 1) });
+  const out = await doc.save();
+  expect((await PdfDocument.load(out)).getPageCount()).toBe(1);
+});
