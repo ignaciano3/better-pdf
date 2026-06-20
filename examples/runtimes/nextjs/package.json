@@ -1,0 +1,23 @@
+{
+  "name": "better-pdf-nextjs-example",
+  "version": "0.1.0",
+  "description": "Next.js App Router example for @ignaciano3/better-pdf",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "postinstall": "node scripts/copy-wasm.mjs"
+  },
+  "dependencies": {
+    "@ignaciano3/better-pdf": "^0.21.0",
+    "next": "^15.5.19",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}

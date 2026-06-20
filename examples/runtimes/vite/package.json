@@ -1,0 +1,15 @@
+{
+  "name": "better-pdf-vite-example",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Vite browser example for @ignaciano3/better-pdf",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@ignaciano3/better-pdf": "^0.21.0",
+    "vite": "^5.4.21"
+  }
+}

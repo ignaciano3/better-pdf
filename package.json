@@ -1,6 +1,6 @@
 {
   "name": "@ignaciano3/better-pdf",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "A maintained, fast alternative to pdf-lib for filling and flattening PDF AcroForms.",
   "type": "module",
   "author": "Ignacio Garcia P <ignaciogp08@gmail.com>",
@@ -45,12 +45,13 @@
     "./typegen": {
       "types": "./dist/forms/typegen.d.ts",
       "import": "./dist/forms/typegen.js"
-    }
+    },
+    "./wasm": "./pkg-web/better_pdf_core_bg.wasm"
   },
   "bin": {
     "better-pdf-generate-types": "dist/bin/generate-types.js"
   },
-  "sideEffects": false,
+  "sideEffects": ["./dist/core/wasm.js", "./dist/core/wasm-browser.js"],
   "files": [
     "dist",
     "pkg-web/package.json",
@@ -79,6 +80,7 @@
     "generate:font-metrics": "bun run scripts/gen-font-metrics.ts",
     "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
+    "pack-smoke": "bun run scripts/pack-smoke.ts",
     "test:browser-entry": "bun run build && bun run scripts/browser-entry-smoke.ts",
     "test:browser": "bun run build && bun run scripts/browser-real-test.ts",
     "test:render": "bun run scripts/render-check.ts",

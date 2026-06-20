@@ -4,11 +4,29 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.20.0, API-freeze prep. The full feature set — AcroForm reading/filling/flattening/visual-signatures/typed-form generation (incl. multi-line text fields and multi-select list boxes), PDF generation and drawing (text, images, rectangles, lines, ellipses, SVG paths/arcs, polygons, links), custom TTF/OTF font embedding with Unicode/CJK, document metadata, outlines, page operations (merge/copy/reorder/split/insert/remove/move), page rotation/resize, PNG transparency + palette, PDF page embedding, and encrypted-PDF detection — is implemented and tested. 0.20.0 is the last breaking minor before 1.0.0: the public API is being frozen (see the [0.19 → 0.20 migration guide](docs/site/src/content/docs/migrating/0.19-to-0.20.md)). From 1.0.0 the package follows Semantic Versioning.
+> **Status:** 0.21.0, API-freeze prep. The full feature set — AcroForm reading/filling/flattening/visual-signatures/typed-form generation (incl. multi-line text fields and multi-select list boxes), PDF generation and drawing (text, images, rectangles, lines, ellipses, SVG paths/arcs, polygons, links), custom TTF/OTF font embedding with Unicode/CJK, document metadata, outlines, page operations (merge/copy/reorder/split/insert/remove/move), page rotation/resize, PNG transparency + palette, PDF page embedding, and encrypted-PDF detection — is implemented and tested. 0.20.0 was the last breaking minor before 1.0.0: the public API is being frozen (see the [0.19 → 0.20 migration guide](docs/site/src/content/docs/migrating/0.19-to-0.20.md)). From 1.0.0 the package follows Semantic Versioning.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
 From 1.0.0, the package follows Semantic Versioning — breaking changes only in major releases. See [docs/STABILITY.md](docs/STABILITY.md) for the full policy.
+
+## Runtime support
+
+| Runtime | Init | Status |
+| --- | --- | --- |
+| Node.js ≥ 18 | zero-config — wasm self-initializes on import | **Verified** (Node v24.16.0) |
+| Bun | zero-config — wasm self-initializes on import | **Verified** (Bun v1.3.14) |
+| Deno | zero-config — use `npm:@ignaciano3/better-pdf` specifier | Config provided |
+| Browser (Playwright) | `initializeWasm(wasmUrl)` | **Verified** |
+| Vite | `initializeWasm(wasmUrl)` — `import wasmUrl from "@ignaciano3/better-pdf/wasm?url"` | **Verified** (Vite v5.4.21 build) |
+| webpack 5 | `initializeWasm(wasmUrl)` — `new URL("@ignaciano3/better-pdf/wasm", import.meta.url)` | **Verified** (webpack v5.107.2 build) |
+| Next.js | `initializeWasm("/better_pdf_core_bg.wasm")` — copy wasm to `public/` | **Verified** (Next.js v15.5.19 build) |
+| Cloudflare Workers | `initializeWasm(wasmModule)` — import wasm as a module; use `/browser` entry | Config provided |
+
+"Verified" = ran end-to-end (create + draw + save, valid `%PDF-` output) in this environment.
+"Config provided" = runnable example + config shipped; toolchain absent from this environment.
+
+See the [per-runtime guide](docs/site/src/content/docs/guides/runtimes.md) and [examples/runtimes/](examples/runtimes/) for working code.
 
 ## Features
 
@@ -764,8 +782,12 @@ we will deliberately never add, see [Non-Goals](#non-goals).)
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
   plus generated xref-stream/object-stream variants); real-world PDF 1.5+ coverage
   is thin.
-- Browser support expects a modern bundler/runtime that can serve the packaged
-  `.wasm` asset referenced from the browser entry.
+- Browser/bundler support requires calling `initializeWasm(wasmUrl)` before any
+  PDF operation. Pass the URL of `@ignaciano3/better-pdf/wasm` (use `?url` in
+  Vite, `new URL(…, import.meta.url)` in webpack, or copy to `public/` in
+  Next.js). Node, Bun, and Deno self-initialize — no call needed. See the
+  [per-runtime guide](docs/site/src/content/docs/guides/runtimes.md) and
+  [examples/runtimes/](examples/runtimes/).
 
 ## Non-Goals
 

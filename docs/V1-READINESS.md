@@ -56,12 +56,26 @@ V1 = commitment. Before tagging:
   Confirm all input-reachable paths return `Result`, not panic. Run sustained
   fuzzing, not just the existing target.
 
-## 5. Distribution proof
+## 5. Distribution proof ✓ DONE (0.21.0)
 
-README hedges: *"expects a modern bundler/runtime that can serve the `.wasm`."*
-That hedge = support tickets. Before V1, ship verified working examples:
-Vite, webpack, Next.js, Deno, Bun, Node, Cloudflare Workers. "Runs everywhere"
-was a core requirement — prove it.
+The `./wasm` export subpath is in `package.json`. Runtime examples ship in
+`examples/runtimes/` with per-runtime READMEs. A per-runtime guide lives at
+`docs/site/src/content/docs/guides/runtimes.md`. The README Limitations section
+now names the exact init pattern instead of hedging.
+
+**Verified end-to-end** (create + draw + save, valid `%PDF-` output confirmed in
+this environment):
+- Node v24.16.0 — via `pack-smoke.ts` installing from the packed tarball
+- Bun v1.3.14 — via `pack-smoke.ts` installing from the packed tarball
+- Browser — existing Playwright test
+- Vite v5.4.21 — `npm run build` completed
+- webpack v5.107.2 — `npm run build` completed
+- Next.js v15.5.19 — `npm run build` completed
+
+**Config provided** (runnable example + config shipped; toolchain absent here):
+- Deno — `npm:` specifier example in `examples/runtimes/deno/`
+- Cloudflare Workers — wrangler wasm-module binding example in
+  `examples/runtimes/cloudflare-workers/`
 
 ## 6. Smaller — document-or-fix
 

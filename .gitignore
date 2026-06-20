@@ -5,6 +5,7 @@ target/
 dist/
 docs/api/
 *.wasm
+*.tgz
 .DS_Store
 .env
 .env.*
@@ -12,8 +13,22 @@ docs/api/
 signature.png
 signature.jpg
 signature.jpeg
-examples/
+examples/*
 !examples/playground.ts
+# Re-include the runtimes subtree (but not node_modules/out.pdf/lockfiles)
+!examples/runtimes/
+examples/runtimes/*/node_modules/
+examples/runtimes/*/out.pdf
+examples/runtimes/*/bun.lock
+examples/runtimes/*/package-lock.json
+# Bundler build outputs
+examples/runtimes/vite/dist/
+examples/runtimes/webpack/dist/
+examples/runtimes/nextjs/.next/
+examples/runtimes/nextjs/public/better_pdf_core_bg.wasm
+# Wrangler (Cloudflare Workers) build outputs
+examples/runtimes/cloudflare-workers/.wrangler/
+examples/runtimes/cloudflare-workers/dist/
 
 # Claude Code local agent scratch (worktrees, sdd journals)
 .claude/

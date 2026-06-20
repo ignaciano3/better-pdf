@@ -1,0 +1,13 @@
+{
+  "name": "better-pdf-webpack-example",
+  "version": "0.1.0",
+  "description": "webpack 5 browser example for @ignaciano3/better-pdf",
+  "scripts": {
+    "build": "webpack --mode=production"
+  },
+  "devDependencies": {
+    "@ignaciano3/better-pdf": "^0.21.0",
+    "webpack": "^5.107.2",
+    "webpack-cli": "^5.1.4"
+  }
+}

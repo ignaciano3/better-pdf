@@ -1,0 +1,11 @@
+name            = "better-pdf-worker"
+main            = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+# Tell wrangler to compile any .wasm import into a WebAssembly.Module binding.
+# This is what lets `import wasmModule from "@ignaciano3/better-pdf/wasm"` work
+# at bundle time instead of requiring a runtime fetch.
+[[rules]]
+type    = "CompiledWasm"
+globs   = ["**/*.wasm"]
+fallthrough = false
