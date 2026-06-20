@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>better-pdf — webpack example</title>
+    <style>
+      body { font-family: sans-serif; padding: 1rem; }
+      iframe { width: 100%; height: 600px; border: 1px solid #ccc; margin-top: 1rem; }
+      button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
+      #status { margin-top: 0.5rem; color: #555; }
+    </style>
+  </head>
+  <body>
+    <h1>better-pdf — webpack example</h1>
+    <button id="generate">Generate PDF</button>
+    <p id="status">Click the button to generate a PDF in the browser.</p>
+    <iframe id="preview" title="PDF preview"></iframe>
+    <script src="dist/bundle.js"></script>
+  </body>
+</html>

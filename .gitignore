@@ -21,6 +21,11 @@ examples/runtimes/*/node_modules/
 examples/runtimes/*/out.pdf
 examples/runtimes/*/bun.lock
 examples/runtimes/*/package-lock.json
+# Bundler build outputs
+examples/runtimes/vite/dist/
+examples/runtimes/webpack/dist/
+examples/runtimes/nextjs/.next/
+examples/runtimes/nextjs/public/better_pdf_core_bg.wasm
 
 # Claude Code local agent scratch (worktrees, sdd journals)
 .claude/
