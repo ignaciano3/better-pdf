@@ -8,6 +8,12 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-06-20
+
+### Added
+
+- Encrypted PDFs are now detected on load (an `/Encrypt` trailer entry) and rejected with a new typed `EncryptedPdfError` (a `PdfError`), exported from both the Node and browser entry points. Encryption remains unsupported; this turns a confusing downstream failure into an explicit, catchable error.
+
 ## [0.16.0] - 2026-06-20
 
 ### Added
