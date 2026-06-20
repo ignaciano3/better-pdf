@@ -37,9 +37,9 @@ export interface DrawLineOptions {
   start: { x: number; y: number };
   end: { x: number; y: number };
   /** Stroke width in points. Default 1. */
-  thickness?: number;
+  strokeWidth?: number;
   /** Stroke color. Default black. */
-  color?: Color;
+  stroke?: Color;
   /** Opacity 0..1. Default 1 (opaque). */
   opacity?: number;
 }
@@ -51,11 +51,11 @@ export interface DrawRectangleOptions {
   width: number;
   height: number;
   /** Fill color. Omit for no fill. */
-  color?: Color;
-  /** Border color. Omit for no border. */
-  borderColor?: Color;
-  /** Border width in points. Default 1 when borderColor is set. */
-  borderWidth?: number;
+  fill?: Color;
+  /** Stroke (border) color. Omit for no border. */
+  stroke?: Color;
+  /** Stroke (border) width in points. Default 1 when stroke is set. */
+  strokeWidth?: number;
   /** Opacity 0..1. Default 1. */
   opacity?: number;
 }
@@ -107,11 +107,11 @@ export interface DrawEllipseOptions {
   /** Vertical radius in points. */
   yScale: number;
   /** Fill color. Omit for no fill. */
-  color?: Color;
-  /** Border color. Omit for no border. */
-  borderColor?: Color;
-  /** Border width in points. Default 1 when borderColor is set. */
-  borderWidth?: number;
+  fill?: Color;
+  /** Stroke (border) color. Omit for no border. */
+  stroke?: Color;
+  /** Stroke (border) width in points. Default 1 when stroke is set. */
+  strokeWidth?: number;
   /** Opacity 0..1. Default 1. */
   opacity?: number;
 }
@@ -308,7 +308,7 @@ export class PdfPage {
    * convention: origin bottom-left.
    */
   drawLine(options: DrawLineOptions): void {
-    const { start, end, thickness, color, opacity } = options;
+    const { start, end, strokeWidth, stroke, opacity } = options;
     for (const [v, name] of [
       [start.x, "start.x"],
       [start.y, "start.y"],
@@ -317,7 +317,7 @@ export class PdfPage {
     ] as const) {
       if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
     }
-    validateBorderWidth(thickness, "thickness");
+    validateBorderWidth(strokeWidth, "strokeWidth");
     validateOpacity(opacity);
     const op: LineOp = {
       op: "line",
@@ -326,8 +326,8 @@ export class PdfPage {
       y1: start.y,
       x2: end.x,
       y2: end.y,
-      ...(thickness !== undefined ? { thickness } : {}),
-      ...(color !== undefined ? { color: tuple(color) } : {}),
+      ...(strokeWidth !== undefined ? { thickness: strokeWidth } : {}),
+      ...(stroke !== undefined ? { color: tuple(stroke) } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
     };
     this.queue.pushLine(op);
@@ -338,7 +338,7 @@ export class PdfPage {
    * corner. Coordinates use the PDF convention: origin bottom-left.
    */
   drawRectangle(options: DrawRectangleOptions): void {
-    const { x, y, width, height, color, borderColor, borderWidth, opacity } = options;
+    const { x, y, width, height, fill, stroke, strokeWidth, opacity } = options;
     for (const [v, name] of [
       [x, "x"],
       [y, "y"],
@@ -349,7 +349,7 @@ export class PdfPage {
     }
     if (width <= 0) throw new RangeError(`width must be > 0, got ${width}`);
     if (height <= 0) throw new RangeError(`height must be > 0, got ${height}`);
-    validateBorderWidth(borderWidth);
+    validateBorderWidth(strokeWidth, "strokeWidth");
     validateOpacity(opacity);
     const op: RectangleOp = {
       op: "rectangle",
@@ -358,9 +358,9 @@ export class PdfPage {
       y,
       width,
       height,
-      ...(color !== undefined ? { color: tuple(color) } : {}),
-      ...(borderColor !== undefined ? { borderColor: tuple(borderColor) } : {}),
-      ...(borderWidth !== undefined ? { borderWidth } : {}),
+      ...(fill !== undefined ? { color: tuple(fill) } : {}),
+      ...(stroke !== undefined ? { borderColor: tuple(stroke) } : {}),
+      ...(strokeWidth !== undefined ? { borderWidth: strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
     };
     this.queue.pushRectangle(op);
@@ -415,7 +415,7 @@ export class PdfPage {
    * bottom-left.
    */
   drawEllipse(options: DrawEllipseOptions): void {
-    const { x, y, xScale, yScale, color, borderColor, borderWidth, opacity } = options;
+    const { x, y, xScale, yScale, fill, stroke, strokeWidth, opacity } = options;
     for (const [v, name] of [
       [x, "x"],
       [y, "y"],
@@ -426,7 +426,7 @@ export class PdfPage {
     }
     if (xScale <= 0) throw new RangeError(`xScale must be > 0, got ${xScale}`);
     if (yScale <= 0) throw new RangeError(`yScale must be > 0, got ${yScale}`);
-    validateBorderWidth(borderWidth);
+    validateBorderWidth(strokeWidth, "strokeWidth");
     validateOpacity(opacity);
     const op: EllipseOp = {
       op: "ellipse",
@@ -435,9 +435,9 @@ export class PdfPage {
       y,
       xScale,
       yScale,
-      ...(color !== undefined ? { color: tuple(color) } : {}),
-      ...(borderColor !== undefined ? { borderColor: tuple(borderColor) } : {}),
-      ...(borderWidth !== undefined ? { borderWidth } : {}),
+      ...(fill !== undefined ? { color: tuple(fill) } : {}),
+      ...(stroke !== undefined ? { borderColor: tuple(stroke) } : {}),
+      ...(strokeWidth !== undefined ? { borderWidth: strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
     };
     this.queue.pushEllipse(op);
