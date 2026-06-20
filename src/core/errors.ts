@@ -71,6 +71,18 @@ export class MissingOnStateError extends PdfError {
  */
 export class PdfCoreError extends PdfError {}
 
+/**
+ * Thrown when loading or operating on an encrypted PDF. Encryption is not
+ * supported; the document must be decrypted before use.
+ */
+export class EncryptedPdfError extends PdfError {
+  constructor(
+    message = "this PDF is encrypted; encrypted PDFs are not supported",
+  ) {
+    super(message);
+  }
+}
+
 /** Thrown when a page index is outside the document's page range. */
 export class PageOutOfRangeError extends PdfError {
   constructor(readonly index: number, readonly pageCount: number) {
@@ -96,5 +108,7 @@ export function toInvalidImageError(e: unknown): InvalidImageError {
 /** @internal Wrap a core failure so every error this library throws is a PdfError. */
 export function toPdfError(e: unknown): PdfError {
   if (e instanceof PdfError) return e;
-  return new PdfCoreError(e instanceof Error ? e.message : String(e));
+  const message = e instanceof Error ? e.message : String(e);
+  if (message.includes("ENCRYPTED:")) return new EncryptedPdfError();
+  return new PdfCoreError(message);
 }

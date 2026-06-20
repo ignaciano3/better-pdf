@@ -561,7 +561,13 @@ export class PdfDocumentBase {
         "getForm is not available on documents created with PdfDocument.create(); creating AcroForm fields is not supported",
       );
     }
-    if (!this.form) this.form = new PdfForm(this.bytes, this.wasm.readFields);
+    if (!this.form) {
+      try {
+        this.form = new PdfForm(this.bytes, this.wasm.readFields);
+      } catch (e) {
+        throw toPdfError(e);
+      }
+    }
     return this.form;
   }
 
