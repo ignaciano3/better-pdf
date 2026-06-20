@@ -127,7 +127,8 @@ await doc.save();
 | `form.getCheckBox(name).check()` / `.uncheck()` | Toggle using real on-state |
 | `form.getRadioGroup(name).select(v)` | Select by real export value |
 | `form.getDropdown(name).select(v)` | Select by real option value |
-| `form.getListBox(name).select(v)` | Select list-box option (single-select) |
+| `form.getListBox(name).select(v)` | Select list-box option |
+| `form.getListBox(name).selectMultiple(values)` | Select multiple options (multi-select list boxes only; throws `MultiSelectError` otherwise) |
 | `form.getSignature(name).setImage(bytes)` | Embed visual signature (JPEG/PNG) |
 | `form.flattenField(name)` / `form.flatten()` | Flatten one / all fields |
 | `generateFormTypes(fields, { typeName })` | Emit a typed `…Fields` module (string) |

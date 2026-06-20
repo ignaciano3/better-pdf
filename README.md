@@ -580,7 +580,8 @@ Each `FieldInfo` carries `name`, `type`, `value`, `states`, `options`, `readOnly
 annotation giving its 0-based `page` index and `rect` (`[x0, y0, x1, y1]` in PDF
 points, origin bottom-left). `setText()` throws if its value exceeds `maxLength`.
 
-List boxes are single-select in this version.
+Use `listBox.selectMultiple(values)` for multi-select list boxes (those with
+`FieldInfo.multiSelect === true`); `listBox.select(value)` for single-select ones.
 
 ### Errors
 
@@ -600,6 +601,7 @@ whole family or a specific case:
 - `PageOutOfRangeError` — `getPage(i)` called with an index outside `[0, pageCount)`.
 - `InvalidImageError` — `embedJpg`/`embedPng` rejected the image bytes (unsupported format or CMYK JPEG).
 - `EncryptedPdfError` — the PDF is encrypted; encrypted PDFs are not supported, so loading/reading fails fast with this typed error instead of a confusing downstream failure.
+- `MultiSelectError` — `selectMultiple()` was called on a list box that does not have the Multiselect flag set (`.field`).
 
 ```ts
 import { FieldTypeError } from "@ignaciano3/better-pdf";
@@ -738,7 +740,7 @@ we will deliberately never add, see [Non-Goals](#non-goals).)
 
 - No encrypted PDF support — encrypted PDFs are detected on load and rejected with a typed `EncryptedPdfError` (decrypt the file first).
 - No cryptographic signing (the API leaves room to add PAdES later).
-- List boxes are single-select; multi-select list boxes are not yet supported.
+- Multi-select list boxes are supported via `listBox.selectMultiple(values)` (requires the Multiselect flag to be set on the field).
 - Form text fields with the Multiline flag are filled with wrapped, top-aligned
   multi-line appearances (honoring `\n` hard breaks and per-line quadding);
   single-line fields are filled single-line. Mid-word breaking is not performed

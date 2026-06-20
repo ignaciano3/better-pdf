@@ -204,8 +204,9 @@ export class PdfForm {
   /**
    * Get a list-box field by name.
    *
-   * List boxes are single-select in this version. Select one of the list box's
-   * real export values from `listBox.options` or `FieldInfo.options`.
+   * Select one of the list box's real export values from `listBox.options` or
+   * `FieldInfo.options`. For multi-select list boxes (those with the Multiselect
+   * flag set), use `listBox.selectMultiple(values)` instead.
    *
    * @param name - The fully-qualified list-box field name.
    * @returns A list-box wrapper for selecting an option.

@@ -10,7 +10,7 @@ deliberately unsupported and not planned. The two are listed separately below.
 
 - No encrypted PDF support — encrypted PDFs are detected on load (an `/Encrypt` trailer entry) and rejected with a typed `EncryptedPdfError`, so they fail fast with a clear, catchable error rather than breaking somewhere downstream.
 - No cryptographic signing (the API leaves room to add PAdES later).
-- List boxes are single-select; multi-select list boxes are not yet supported.
+- Multi-select list boxes are supported via `listBox.selectMultiple(values)` (requires the Multiselect flag to be set on the field).
 - Drawing APIs support standard-14 fonts and custom TTF/OTF font embedding via
   `doc.embedFont(bytes)`. Embedded fonts render as Unicode-capable Type0/CIDFontType2
   composites with a ToUnicode CMap — full Unicode (including CJK and accented Latin)

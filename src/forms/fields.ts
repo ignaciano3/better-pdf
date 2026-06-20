@@ -238,8 +238,9 @@ export class PdfDropdown<Opt extends string = string> {
  * A list-box choice field in a PDF form.
  *
  * `Opt` is the set of valid option values when the form is typed with generated
- * metadata. Use `select()` for single-select list boxes and `selectMultiple()`
- * for multi-select list boxes (those with the PDF Multiselect flag set).
+ * metadata. Use `select()` for single-select list boxes and `selectMultiple(values)`
+ * for multi-select list boxes (those with the PDF Multiselect flag set,
+ * i.e. `FieldInfo.multiSelect === true`).
  *
  * @example
  * ```ts

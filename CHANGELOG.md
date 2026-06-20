@@ -8,6 +8,23 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-06-20
+
+### Added
+
+- Multi-select list boxes. `PdfListBox.selectMultiple(values)` fills a choice
+  field that has the Multiselect flag set, writing `/V` as an array of export
+  values and `/I` as the sorted array of selected indices, and generating an
+  appearance that highlights every selected row. `FieldInfo.multiSelect` reports
+  whether a list box is multi-select. Calling `selectMultiple` on a single-select
+  list box throws `MultiSelectError`.
+
+### Changed
+
+- The fill op wire schema gained an optional `values` array (single-value
+  `value` fills are unchanged). The reader renders an array `/V` as a
+  comma-joined string.
+
 ## [0.17.0] - 2026-06-20
 
 ### Added
