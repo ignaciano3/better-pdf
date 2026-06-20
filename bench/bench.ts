@@ -360,26 +360,26 @@ const generationScenarios: Scenario[] = [
           y: 600,
           width: 50,
           height: 40,
-          color: bpRgb(0.8, 0.2, 0.2),
-          borderColor: bpRgb(0, 0, 0),
+          fill: bpRgb(0.8, 0.2, 0.2),
+          stroke: bpRgb(0, 0, 0),
         });
       }
       for (let i = 0; i < 3; i++) {
         page.drawLine({
           start: { x: 50, y: 550 - i * 20 },
           end: { x: 300, y: 550 - i * 20 },
-          thickness: 1,
-          color: bpRgb(0, 0, 0.8),
+          strokeWidth: 1,
+          stroke: bpRgb(0, 0, 0.8),
         });
       }
       for (let i = 0; i < 3; i++) {
         page.drawEllipse({
           x: 100 + i * 80,
           y: 480,
-          xScale: 30,
-          yScale: 20,
-          color: bpRgb(0.2, 0.7, 0.2),
-          borderColor: bpRgb(0, 0, 0),
+          radiusX: 30,
+          radiusY: 20,
+          fill: bpRgb(0.2, 0.7, 0.2),
+          stroke: bpRgb(0, 0, 0),
         });
       }
       remember(await doc.save());

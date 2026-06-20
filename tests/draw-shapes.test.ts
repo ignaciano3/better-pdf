@@ -10,8 +10,8 @@ describe("drawLine", () => {
     doc.getPage(0).drawLine({
       start: { x: 50, y: 100 },
       end: { x: 250, y: 100 },
-      thickness: 2,
-      color: rgb(1, 0, 0),
+      strokeWidth: 2,
+      stroke: rgb(1, 0, 0),
     });
     const out = await doc.save();
     const reloaded = await PdfDocument.load(out);
@@ -31,9 +31,9 @@ describe("drawRectangle", () => {
       y: 100,
       width: 200,
       height: 80,
-      color: rgb(0.9, 0.9, 0.9),
-      borderColor: rgb(0, 0, 0),
-      borderWidth: 1,
+      fill: rgb(0.9, 0.9, 0.9),
+      stroke: rgb(0, 0, 0),
+      strokeWidth: 1,
     });
     const out = await doc.save();
     expect(out.length).toBeGreaterThan(original.length);
@@ -51,9 +51,9 @@ describe("drawEllipse", () => {
     doc.getPage(0).drawEllipse({
       x: 150,
       y: 140,
-      xScale: 100,
-      yScale: 40,
-      color: rgb(0, 0, 1),
+      radiusX: 100,
+      radiusY: 40,
+      fill: rgb(0, 0, 1),
     });
     const out = await doc.save();
     const reloaded = await PdfDocument.load(out);
@@ -72,7 +72,7 @@ describe("opacity", () => {
       y: 10,
       width: 100,
       height: 50,
-      color: rgb(0.5, 0.5, 0.5),
+      fill: rgb(0.5, 0.5, 0.5),
       opacity: 0.5,
     });
     const out = await doc.save();
@@ -92,11 +92,11 @@ describe("shapes validation", () => {
     ).toThrow(RangeError);
   });
 
-  test("drawEllipse xScale 0 throws RangeError", async () => {
+  test("drawEllipse radiusX 0 throws RangeError", async () => {
     const doc = await PdfDocument.create();
     doc.addPage(PageSizes.A4);
     expect(() =>
-      doc.getPage(0).drawEllipse({ x: 0, y: 0, xScale: 0, yScale: 10 }),
+      doc.getPage(0).drawEllipse({ x: 0, y: 0, radiusX: 0, radiusY: 10 }),
     ).toThrow(RangeError);
   });
 
@@ -108,11 +108,11 @@ describe("shapes validation", () => {
     ).toThrow(RangeError);
   });
 
-  test("drawLine thickness -1 throws RangeError", async () => {
+  test("drawLine strokeWidth -1 throws RangeError", async () => {
     const doc = await PdfDocument.create();
     doc.addPage(PageSizes.A4);
     expect(() =>
-      doc.getPage(0).drawLine({ start: { x: 0, y: 0 }, end: { x: 10, y: 10 }, thickness: -1 }),
+      doc.getPage(0).drawLine({ start: { x: 0, y: 0 }, end: { x: 10, y: 10 }, strokeWidth: -1 }),
     ).toThrow(RangeError);
   });
 });
@@ -123,7 +123,7 @@ describe("shapes compose with text", () => {
     doc.addPage(PageSizes.A4);
     const p = doc.getPage(0);
     p.drawText("T", { x: 10, y: 10, size: 10 });
-    p.drawRectangle({ x: 20, y: 20, width: 30, height: 30, color: rgb(0, 0, 0) });
+    p.drawRectangle({ x: 20, y: 20, width: 30, height: 30, fill: rgb(0, 0, 0) });
     const out = await doc.save();
     const s = new TextDecoder("latin1").decode(out);
     expect(s).toContain("(T) Tj");

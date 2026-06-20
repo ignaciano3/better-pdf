@@ -8,6 +8,7 @@ import {
   PdfSignature,
 } from "./fields.js";
 import { UnknownFieldError, FieldTypeError } from "../core/errors.js";
+import { kFormQueue, kFlattenQueue } from "../core/internal.js";
 
 export type FieldType =
   | "text" | "checkbox" | "radio" | "dropdown"
@@ -67,9 +68,9 @@ export type ReadFields = (bytes: Uint8Array) => string;
 export class PdfForm {
   private readonly fields: FieldInfo[];
   /** @internal — shared with PdfDocument so save() can flush pending ops. */
-  readonly queue = new FillQueue();
+  readonly [kFormQueue] = new FillQueue();
   /** @internal — fully-qualified names queued for flattening on save. */
-  readonly flattenQueue: string[] = [];
+  readonly [kFlattenQueue]: string[] = [];
 
   /** @internal */
   constructor(bytes: Uint8Array, readFields: ReadFields) {
@@ -142,7 +143,7 @@ export class PdfForm {
    * ```
    */
   getTextField(name: string): PdfTextField {
-    return new PdfTextField(this.require(name, "text"), this.queue);
+    return new PdfTextField(this.require(name, "text"), this[kFormQueue]);
   }
   /**
    * Get a checkbox field by name.
@@ -158,7 +159,7 @@ export class PdfForm {
    * ```
    */
   getCheckBox(name: string): PdfCheckBox {
-    return new PdfCheckBox(this.require(name, "checkbox"), this.queue);
+    return new PdfCheckBox(this.require(name, "checkbox"), this[kFormQueue]);
   }
   /**
    * Get a radio-button group by name.
@@ -179,7 +180,7 @@ export class PdfForm {
    * ```
    */
   getRadioGroup(name: string): PdfRadioGroup {
-    return new PdfRadioGroup(this.require(name, "radio"), this.queue);
+    return new PdfRadioGroup(this.require(name, "radio"), this[kFormQueue]);
   }
   /**
    * Get a dropdown field by name.
@@ -199,7 +200,7 @@ export class PdfForm {
    * ```
    */
   getDropdown(name: string): PdfDropdown {
-    return new PdfDropdown(this.require(name, "dropdown"), this.queue);
+    return new PdfDropdown(this.require(name, "dropdown"), this[kFormQueue]);
   }
   /**
    * Get a list-box field by name.
@@ -220,7 +221,7 @@ export class PdfForm {
    * ```
    */
   getListBox(name: string): PdfListBox {
-    return new PdfListBox(this.require(name, "listbox"), this.queue);
+    return new PdfListBox(this.require(name, "listbox"), this[kFormQueue]);
   }
   /**
    * Get a visual signature field by name.
@@ -240,7 +241,7 @@ export class PdfForm {
    * ```
    */
   getSignature(name: string): PdfSignature {
-    return new PdfSignature(this.require(name, "signature"), this.queue);
+    return new PdfSignature(this.require(name, "signature"), this[kFormQueue]);
   }
 
   /**
@@ -263,7 +264,7 @@ export class PdfForm {
    */
   flattenField(name: string): void {
     if (!this.getField(name)) throw new UnknownFieldError(name);
-    if (!this.flattenQueue.includes(name)) this.flattenQueue.push(name);
+    if (!this[kFlattenQueue].includes(name)) this[kFlattenQueue].push(name);
   }
 
   /**
@@ -282,7 +283,9 @@ export class PdfForm {
    */
   flatten(): void {
     for (const f of this.fields) {
-      if (!this.flattenQueue.includes(f.name)) this.flattenQueue.push(f.name);
+      if (!this[kFlattenQueue].includes(f.name)) this[kFlattenQueue].push(f.name);
     }
   }
 }
+
+export { kFormQueue, kFlattenQueue };

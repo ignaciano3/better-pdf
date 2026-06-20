@@ -1,4 +1,5 @@
 import { StandardFonts } from "./fonts.js";
+import { kFontId, kFontBytes } from "../core/internal.js";
 
 type MeasureStandard = (font: string, size: number, text: string) => number;
 type MeasureEmbedded = (bytes: Uint8Array, size: number, text: string) => number;
@@ -11,14 +12,20 @@ type MeasureEmbedded = (bytes: Uint8Array, size: number, text: string) => number
  */
 export class PdfFont {
   /** @internal Embedded-font id within the document's draw queue; undefined for standard-14. */
-  readonly _fontId?: number;
+  readonly [kFontId]?: number;
   /** @internal Embedded-font bytes; undefined for standard-14. */
-  readonly _bytes?: Uint8Array;
+  readonly [kFontBytes]?: Uint8Array;
   private readonly measureEmbedded?: MeasureEmbedded;
 
   /** @internal */
   constructor(
-    /** The standard-14 base font name (also a {@link StandardFonts} value). */
+    /**
+     * The standard-14 base font name (also a {@link StandardFonts} value).
+     *
+     * **Note:** For embedded fonts this returns a Helvetica placeholder and
+     * should not be relied upon. Use the font handle for drawing and measuring
+     * only; do not inspect `name` to identify an embedded font.
+     */
     readonly name: StandardFonts,
     private readonly measure: MeasureStandard,
   ) {}
@@ -27,7 +34,7 @@ export class PdfFont {
   static embedded(fontId: number, bytes: Uint8Array, measureEmbedded: MeasureEmbedded): PdfFont {
     // name is unused for embedded fonts; keep a placeholder to satisfy the field.
     const font = new PdfFont(StandardFonts.Helvetica, () => 0);
-    Object.assign(font, { _fontId: fontId, _bytes: bytes, measureEmbedded });
+    Object.assign(font, { [kFontId]: fontId, [kFontBytes]: bytes, measureEmbedded });
     return font;
   }
 
@@ -36,9 +43,13 @@ export class PdfFont {
     if (!Number.isFinite(size) || size <= 0) {
       throw new RangeError(`size must be > 0, got ${size}`);
     }
-    if (this._fontId !== undefined && this._bytes !== undefined && this.measureEmbedded) {
-      return this.measureEmbedded(this._bytes, size, text);
+    const fontId = this[kFontId];
+    const fontBytes = this[kFontBytes];
+    if (fontId !== undefined && fontBytes !== undefined && this.measureEmbedded) {
+      return this.measureEmbedded(fontBytes, size, text);
     }
     return this.measure(this.name, size, text);
   }
 }
+
+export { kFontId, kFontBytes };

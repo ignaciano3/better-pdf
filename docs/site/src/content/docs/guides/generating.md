@@ -81,9 +81,9 @@ unaffected.
 // filled + bordered rectangle with transparency
 page.drawRectangle({
   x: 50, y: 50, width: 200, height: 100,
-  color: rgb(0.9, 0.95, 1),
-  borderColor: rgb(0.2, 0.4, 0.8),
-  borderWidth: 2,
+  fill: rgb(0.9, 0.95, 1),
+  stroke: rgb(0.2, 0.4, 0.8),
+  strokeWidth: 2,
   opacity: 0.85,
 });
 
@@ -91,12 +91,12 @@ page.drawRectangle({
 page.drawLine({
   start: { x: 50, y: 40 },
   end:   { x: 250, y: 40 },
-  thickness: 1.5,
-  color: rgb(0.5, 0.5, 0.5),
+  strokeWidth: 1.5,
+  stroke: rgb(0.5, 0.5, 0.5),
 });
 
-// ellipse — (x, y) is the centre; xScale/yScale are the x and y radii
-page.drawEllipse({ x: 150, y: 200, xScale: 60, yScale: 30, color: rgb(1, 0.8, 0) });
+// ellipse — (x, y) is the centre; radiusX/radiusY are the x and y radii
+page.drawEllipse({ x: 150, y: 200, radiusX: 60, radiusY: 30, fill: rgb(1, 0.8, 0) });
 ```
 
 ## Vector paths

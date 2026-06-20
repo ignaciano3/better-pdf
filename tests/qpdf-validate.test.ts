@@ -27,6 +27,9 @@ const FIXTURES = [
   "fixtures/Medicamentos/Modulo-de-Diabetes.pdf",
   "fixtures/Discapacidad/Convenio-OSFATUN-Discapacidad-2022.pdf",
   "fixtures/generated/ficha-objstreams.pdf",
+  // Synthetic PDF-1.5+ fixtures: larger objstm and incremental update over xref-stream
+  "fixtures/generated/ficha-objstreams-big.pdf",
+  "fixtures/generated/ficha-objstreams-updated.pdf",
 ];
 
 const dir = mkdtempSync(join(tmpdir(), "better-pdf-qpdf-"));

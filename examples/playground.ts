@@ -152,8 +152,8 @@ page.drawText(title, { x: 56, y: 780, size: 18, font: titleFont, color: rgb(0.1,
 page.drawLine({
   start: { x: 56, y: 772 },
   end: { x: 56 + titleFont.widthOfTextAtSize(title, 18), y: 772 },
-  thickness: 1.5,
-  color: rgb(0.1, 0.1, 0.4),
+  strokeWidth: 1.5,
+  stroke: rgb(0.1, 0.1, 0.4),
 });
 
 // Multiline text via "\n" + lineHeight. Default font is Helvetica.
@@ -164,9 +164,9 @@ page.drawText("Standard-14 fonts, WinAnsi text.\nUse \\n + lineHeight for multip
 // Vector shapes: fill color, border, and opacity (via an ExtGState).
 page.drawRectangle({
   x: 56, y: 600, width: 220, height: 90,
-  color: rgb(0.85, 0.9, 1), borderColor: rgb(0.1, 0.1, 0.4), borderWidth: 1, opacity: 0.8,
+  fill: rgb(0.85, 0.9, 1), stroke: rgb(0.1, 0.1, 0.4), strokeWidth: 1, opacity: 0.8,
 });
-page.drawEllipse({ x: 360, y: 645, xScale: 70, yScale: 40, color: rgb(1, 0.6, 0.2) });
+page.drawEllipse({ x: 360, y: 645, radiusX: 70, radiusY: 40, fill: rgb(1, 0.6, 0.2) });
 
 // Embed an image once, then draw it (here the same logo could be drawn N times).
 const logo = await made.embedPng(TINY_PNG);

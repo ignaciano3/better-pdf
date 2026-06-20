@@ -4,9 +4,11 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 0.13.x, pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual signatures, and typed form-type generation — are implemented and tested against the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText, drawImage, drawRectangle, drawLine, drawEllipse) is available, custom TTF/OTF font embedding with Unicode/CJK support was added in 0.4.0, document metadata (Info dictionary) read/write in 0.5.0, page operations (merge, copy, reorder, split) in 0.6.0, page rotation/resize in 0.7.0, PNG transparency (RGBA/gray+alpha alpha channel preserved as a soft mask) in 0.8.0, PDF page embedding (`embedPdfPage` + `drawPage` Form XObject stamping) in 0.9.0, clickable link annotations (`page.drawLink`) in 0.10.0, vector paths (`page.drawSvgPath` + `page.drawPolygon`) in 0.11.0, text rotation/opacity (`drawText({rotate, opacity})`) + document outlines/bookmarks (`doc.setOutline()`) in 0.12.0, and page insertion/removal/move on loaded PDFs (`doc.insertPage`, `doc.removePage`, `doc.movePage`) + non-ASCII metadata (UTF-16BE) + palette PNG embedding in 0.13.0. The public API may still change before 1.0.
+> **Status:** 0.20.0, API-freeze prep. The full feature set — AcroForm reading/filling/flattening/visual-signatures/typed-form generation (incl. multi-line text fields and multi-select list boxes), PDF generation and drawing (text, images, rectangles, lines, ellipses, SVG paths/arcs, polygons, links), custom TTF/OTF font embedding with Unicode/CJK, document metadata, outlines, page operations (merge/copy/reorder/split/insert/remove/move), page rotation/resize, PNG transparency + palette, PDF page embedding, and encrypted-PDF detection — is implemented and tested. 0.20.0 is the last breaking minor before 1.0.0: the public API is being frozen (see the [0.19 → 0.20 migration guide](docs/site/src/content/docs/migrating/0.19-to-0.20.md)). From 1.0.0 the package follows Semantic Versioning.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
+
+From 1.0.0, the package follows Semantic Versioning — breaking changes only in major releases. See [docs/STABILITY.md](docs/STABILITY.md) for the full policy.
 
 ## Features
 
@@ -140,9 +142,9 @@ const output = await doc.save();
 // filled + bordered rectangle with transparency
 page.drawRectangle({
   x: 50, y: 50, width: 200, height: 100,
-  color: rgb(0.9, 0.95, 1),
-  borderColor: rgb(0.2, 0.4, 0.8),
-  borderWidth: 2,
+  fill: rgb(0.9, 0.95, 1),
+  stroke: rgb(0.2, 0.4, 0.8),
+  strokeWidth: 2,
   opacity: 0.85,
 });
 
@@ -150,12 +152,12 @@ page.drawRectangle({
 page.drawLine({
   start: { x: 50, y: 40 },
   end:   { x: 250, y: 40 },
-  thickness: 1.5,
-  color: rgb(0.5, 0.5, 0.5),
+  strokeWidth: 1.5,
+  stroke: rgb(0.5, 0.5, 0.5),
 });
 
-// ellipse — (x, y) is the centre; xScale/yScale are the x and y radii
-page.drawEllipse({ x: 150, y: 200, xScale: 60, yScale: 30, color: rgb(1, 0.8, 0) });
+// ellipse — (x, y) is the centre; radiusX/radiusY are the x and y radii
+page.drawEllipse({ x: 150, y: 200, radiusX: 60, radiusY: 30, fill: rgb(1, 0.8, 0) });
 ```
 
 ### (d) Text layout with `widthOfTextAtSize`
@@ -523,9 +525,9 @@ soon as they are made.
 
 - `page.drawText(text, options)` — `options`: `{ x, y, size, font?, color?, lineHeight?, rotate?, opacity? }` (`rotate` is degrees counter-clockwise; `opacity` 0–1)
 - `page.drawImage(image, options)` — `options`: `{ x, y, width?, height? }`
-- `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
-- `page.drawRectangle(options)` — `options`: `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`
-- `page.drawEllipse(options)` — `options`: `{ x, y, xScale, yScale, color?, borderColor?, borderWidth?, opacity? }` (`x`,`y` = center; `xScale`,`yScale` = radii)
+- `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, stroke?, strokeWidth?, opacity? }`
+- `page.drawRectangle(options)` — `options`: `{ x, y, width, height, fill?, stroke?, strokeWidth?, opacity? }`
+- `page.drawEllipse(options)` — `options`: `{ x, y, radiusX, radiusY, fill?, stroke?, strokeWidth?, opacity? }` (`x`,`y` = center; `radiusX`,`radiusY` = radii)
 - `page.drawSvgPath(d: string, options): void` — draw an SVG path-data string; `options`: `{ fill?, stroke?, strokeWidth?, opacity? }`; supports M/L/H/V/C/S/Q/T/Z and A/a (arcs)
 - `page.drawPolygon(points: {x,y}[], options): void` — draw a polygon; `options`: `{ fill?, stroke?, strokeWidth?, opacity?, closed? }` (`closed` defaults to `true`)
 - `page.drawLink(options): void` — add a clickable link annotation; `options` is one of:

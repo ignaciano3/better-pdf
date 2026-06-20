@@ -8,6 +8,43 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-06-20
+
+See [Migration guide: 0.19 → 0.20](docs/site/src/content/docs/migrating/0.19-to-0.20.md) for
+before/after examples of every breaking change.
+
+### Changed (BREAKING)
+
+- **Shape draw-options unified.** `drawRectangle` and `drawEllipse` options
+  `color`/`borderColor`/`borderWidth` are renamed to `fill`/`stroke`/`strokeWidth`.
+  `drawLine` options `color`/`thickness` are renamed to `stroke`/`strokeWidth`. These
+  now match the already-stable `drawSvgPath`/`drawPolygon` option names.
+- **`drawEllipse` radii renamed.** `xScale`/`yScale` → `radiusX`/`radiusY`.
+- **`DocumentMetadata.modDate` → `modificationDate`.** The field read by
+  `doc.getMetadata()` is now `modificationDate`.
+- **Internal fields removed from the public type surface.** `PdfImage.bytes`,
+  `EmbeddedPdfPage.bytes`, `PdfForm.queue`/`flattenQueue`, and the `_fontId`/`_bytes`
+  accessors are no longer part of the public TypeScript types. These were always
+  marked `@internal` and never documented.
+
+### Added
+
+- `DrawLinkOptions`, `DrawSvgPathOptions`, and `DrawPolygonOptions` are now exported
+  from both the Node (`@ignaciano3/better-pdf`) and browser entry points.
+- `docs/STABILITY.md` — semver and deprecation policy for the library.
+- `fixtures:generate:update` npm script for the incremental-update fixture generator
+  (`scripts/make-objstream-update-fixture.ts`), making it discoverable alongside
+  `fixtures:generate`.
+- Two new synthetic PDF-1.5+ test fixtures: a larger multi-object objstm file and an
+  incremental-update over an xref-stream base. Both pass the fill/flatten round-trip
+  and qpdf-validate loops.
+
+### Fixed
+
+- Page-index resolution in `draw.rs` and `create.rs` converted from bare array index
+  (panic on out-of-range) to clean `Err` propagation. A `goToPage` link to a
+  non-existent page now returns a typed error instead of crashing.
+
 ## [0.19.0] - 2026-06-20
 
 ### Added

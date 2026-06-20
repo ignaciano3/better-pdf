@@ -1,6 +1,6 @@
 {
   "name": "@ignaciano3/better-pdf",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "A maintained, fast alternative to pdf-lib for filling and flattening PDF AcroForms.",
   "type": "module",
   "author": "Ignacio Garcia P <ignaciogp08@gmail.com>",
@@ -75,6 +75,7 @@
     "build:js": "rm -rf dist && tsc -p tsconfig.build.json",
     "build": "bun run build:wasm && bun run build:js",
     "fixtures:generate": "bun run scripts/make-fixtures.ts",
+    "fixtures:generate:update": "bun run scripts/make-objstream-update-fixture.ts",
     "generate:font-metrics": "bun run scripts/gen-font-metrics.ts",
     "prepack": "bun run build",
     "typecheck": "tsc --noEmit",

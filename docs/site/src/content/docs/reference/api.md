@@ -41,9 +41,9 @@ originally loaded bytes (calling it twice returns the same result), and
 
 - `page.drawText(text, options)` — `{ x, y, size, font?, color?, lineHeight? }`
 - `page.drawImage(image, options)` — `{ x, y, width?, height? }`
-- `page.drawLine(options)` — `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
-- `page.drawRectangle(options)` — `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`
-- `page.drawEllipse(options)` — `{ x, y, xScale, yScale, color?, borderColor?, borderWidth?, opacity? }` (`x`,`y` = center; `xScale`,`yScale` = radii)
+- `page.drawLine(options)` — `{ start: {x,y}, end: {x,y}, stroke?, strokeWidth?, opacity? }`
+- `page.drawRectangle(options)` — `{ x, y, width, height, fill?, stroke?, strokeWidth?, opacity? }`
+- `page.drawEllipse(options)` — `{ x, y, radiusX, radiusY, fill?, stroke?, strokeWidth?, opacity? }` (`x`,`y` = center; `radiusX`,`radiusY` = radii)
 
 Available on both loaded pages (`doc.getPage(i)`) and created pages
 (`doc.addPage(...)`).
