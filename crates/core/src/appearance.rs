@@ -235,6 +235,51 @@ pub fn text_appearance_content(
     out
 }
 
+/// Build the content stream for a wrapped, multi-line text appearance. `lines`
+/// are pre-wrapped WinAnsi byte strings (see `wrap_lines`). `q` is the quadding
+/// applied per line: 0=left, 1=center, 2=right. Text is top-aligned: the first
+/// baseline sits near the top of the box (Acrobat-like), and successive lines
+/// step down by the leading (`size * 1.15`). Coordinates are in the field's
+/// space (BBox origin 0,0). Each line uses an absolute `Tm` so its horizontal
+/// quad offset and vertical baseline are independent of the previous line.
+#[allow(clippy::too_many_arguments)]
+pub fn text_appearance_content_multiline(
+    lines: &[Vec<u8>],
+    size: f32,
+    box_w: f32,
+    box_h: f32,
+    q: i64,
+    color: &str,
+    font: &str,
+    widths: &FontWidths,
+) -> Vec<u8> {
+    let leading = size * 1.15;
+    let mut out = Vec::new();
+    out.extend_from_slice(b"/Tx BMC q BT ");
+    out.extend_from_slice(format!("/{font} {size:.2} Tf {color} ").as_bytes());
+    out.extend_from_slice(format!("{leading:.2} TL ").as_bytes());
+
+    // First baseline near the top of the box; step down by the leading per line.
+    let mut ty = box_h - PAD - size;
+    for line in lines {
+        let tw = string_width(line, size, widths);
+        let tx = match q {
+            1 => ((box_w - tw) / 2.0).max(PAD), // center
+            2 => (box_w - PAD - tw).max(PAD),   // right
+            _ => PAD,                           // left
+        };
+        let escaped = escape_pdf_literal(line);
+        // Absolute text matrix per line keeps each line's quad offset and
+        // baseline independent of the running text matrix.
+        out.extend_from_slice(format!("1 0 0 1 {tx:.2} {ty:.2} Tm (").as_bytes());
+        out.extend_from_slice(&escaped);
+        out.extend_from_slice(b") Tj ");
+        ty -= leading;
+    }
+    out.extend_from_slice(b"ET Q EMC");
+    out
+}
+
 /// Build a Form XObject appearance stream of size `box_w`x`box_h` whose
 /// Resources reference the font named `font` at indirect object `font_ref`.
 pub fn build_appearance_xobject(
@@ -852,6 +897,65 @@ mod tests {
     fn wrap_lines_blank_paragraph_preserved() {
         let lines = wrap_lines(b"a\n\nb", 10.0, 1000.0, &helvetica_widths());
         assert_eq!(lines, vec![b"a".to_vec(), Vec::<u8>::new(), b"b".to_vec()]);
+    }
+
+    #[test]
+    fn multiline_content_emits_multiple_tj_and_tl() {
+        let lines = vec![b"hello".to_vec(), b"world".to_vec()];
+        let c = text_appearance_content_multiline(
+            &lines,
+            10.0,
+            100.0,
+            40.0,
+            0,
+            "0 g",
+            "Helv",
+            &helvetica_widths(),
+        );
+        let s = String::from_utf8(c).unwrap();
+        assert!(s.contains("/Tx BMC"));
+        assert!(s.contains("/Helv 10.00 Tf"));
+        assert!(s.contains("TL"), "missing leading operator: {s}");
+        assert_eq!(s.matches(" Tj").count(), 2, "expected two Tj: {s}");
+        assert!(s.contains("(hello) Tj"));
+        assert!(s.contains("(world) Tj"));
+        assert!(s.ends_with("ET Q EMC"));
+    }
+
+    #[test]
+    fn multiline_content_escapes_text() {
+        let lines = vec![b"a(b)".to_vec()];
+        let c = text_appearance_content_multiline(
+            &lines,
+            10.0,
+            100.0,
+            40.0,
+            0,
+            "0 g",
+            "Helv",
+            &helvetica_widths(),
+        );
+        assert!(String::from_utf8(c).unwrap().contains("(a\\(b\\)) Tj"));
+    }
+
+    #[test]
+    fn multiline_content_quads_right() {
+        // Right-quad: each line's tx = box_w - PAD - line_width, so a short line
+        // sits well to the right (tx well above the left PAD of 2.0).
+        let lines = vec![b"hi".to_vec()];
+        let c = text_appearance_content_multiline(
+            &lines,
+            10.0,
+            200.0,
+            40.0,
+            2,
+            "0 g",
+            "Helv",
+            &helvetica_widths(),
+        );
+        let s = String::from_utf8(c).unwrap();
+        // "hi" width = (222 + 556)/1000 * 10 = 7.78; tx = 200 - 2 - 7.78 = 190.22.
+        assert!(s.contains("190.22"), "expected right-quad tx 190.22 in: {s}");
     }
 
     #[test]
