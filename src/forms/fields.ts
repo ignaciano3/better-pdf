@@ -306,15 +306,16 @@ export class PdfListBox<Opt extends string = string> {
     if (!this.info.multiSelect) {
       throw new MultiSelectError(this.info.name);
     }
+    const unique = [...new Set(values)] as Opt[];
     if (this.info.options.length) {
-      for (const v of values) {
+      for (const v of unique) {
         if (!this.info.options.includes(v)) {
           throw new InvalidOptionError(this.info.name, "listbox", v, this.info.options);
         }
       }
     }
-    this.queue.push({ name: this.info.name, values: [...values] });
-    this.info.value = values.join(", ");
+    this.queue.push({ name: this.info.name, values: unique });
+    this.info.value = unique.join(", ");
   }
 }
 

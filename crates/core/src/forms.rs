@@ -482,7 +482,12 @@ mod tests {
 
     /// Emit `tests/fixtures/generated/ficha-multiselect-listbox.pdf` from FICHA
     /// with the Multiselect flag set on `beneficiario.estado_civil`. Idempotent.
+    ///
+    /// Ignored by default so routine `cargo test` runs don't overwrite the
+    /// committed fixture. Run on demand with:
+    ///   cargo test emit_ficha_multiselect_listbox_fixture -- --ignored
     #[test]
+    #[ignore]
     fn emit_ficha_multiselect_listbox_fixture() {
         use std::path::Path;
         let dest = Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -60,6 +60,15 @@ test("PdfListBox.selectMultiple throws on a single-select list box", () => {
   expect(() => lb.selectMultiple(["ES", "PT"])).toThrow(MultiSelectError);
 });
 
+test("PdfListBox.selectMultiple deduplicates values preserving first-seen order", () => {
+  const queue = new FillQueue();
+  new PdfListBox(listboxInfo(true), queue).selectMultiple(["ES", "ES", "PT"]);
+  expect(queue.length).toBe(1);
+  expect(JSON.parse(queue.toPayload().opsJson)).toEqual([
+    { name: "preferencias.idioma", values: ["ES", "PT"] },
+  ]);
+});
+
 test("selectMultiple round-trips both values", async () => {
   const bytes = new Uint8Array(
     await Bun.file("tests/fixtures/generated/ficha-multiselect-listbox.pdf").arrayBuffer(),

@@ -165,20 +165,23 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
                 .and_then(|o| o.as_array())
                 .map(|a| a.iter().map(forms::opt_export).collect())
                 .unwrap_or_default();
-            let mut indices = Vec::with_capacity(values.len());
+            // Build (index, value) pairs so /V and /I stay positionally aligned
+            // after sorting by index (PDF §12.7.4.4 requires /V to match /I order).
+            let mut pairs: Vec<(i64, String)> = Vec::with_capacity(values.len());
             for v in values {
                 match dropdown_index(dict, v) {
-                    Some(i) => indices.push(i),
+                    Some(i) => pairs.push((i, v.clone())),
                     None => {
                         return Err(format!("'{}' is not a valid option for {}", v, op.name));
                     }
                 }
             }
-            indices.sort_unstable();
+            pairs.sort_unstable_by_key(|(i, _)| *i);
+            let (indices, sorted_values): (Vec<i64>, Vec<String>) = pairs.into_iter().unzip();
             return Ok(Resolved {
                 field_id,
                 apply: Apply::ListBoxMulti {
-                    values: values.clone(),
+                    values: sorted_values,
                     indices,
                     options,
                     ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
@@ -996,6 +999,11 @@ mod tests {
         let i: Vec<i64> = i_arr.iter().map(|o| o.as_i64().unwrap()).collect();
         // "Casado" is index 1, "Viudo" is index 3 in /Opt -> sorted [1, 3].
         assert_eq!(i, vec![1, 3]);
+        // /V must be sorted by index too: Casado(1) before Viudo(3).
+        let v0 = lopdf::decode_text_string(&v_arr[0]).unwrap();
+        let v1 = lopdf::decode_text_string(&v_arr[1]).unwrap();
+        assert_eq!(v0, "Casado", "/V[0] must be Casado (index 1)");
+        assert_eq!(v1, "Viudo", "/V[1] must be Viudo (index 3)");
         Document::load_mem(&out).unwrap();
     }
 
