@@ -13,8 +13,14 @@ docs/api/
 signature.png
 signature.jpg
 signature.jpeg
-examples/
+examples/*
 !examples/playground.ts
+# Re-include the runtimes subtree (but not node_modules/out.pdf/lockfiles)
+!examples/runtimes/
+examples/runtimes/*/node_modules/
+examples/runtimes/*/out.pdf
+examples/runtimes/*/bun.lock
+examples/runtimes/*/package-lock.json
 
 # Claude Code local agent scratch (worktrees, sdd journals)
 .claude/

@@ -1,0 +1,8 @@
+{
+  "name": "better-pdf-bun-example",
+  "version": "0.1.0",
+  "description": "Bun TypeScript example for @ignaciano3/better-pdf",
+  "dependencies": {
+    "@ignaciano3/better-pdf": "^0.20.0"
+  }
+}

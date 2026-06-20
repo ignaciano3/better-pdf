@@ -1,0 +1,9 @@
+{
+  "name": "better-pdf-node-example",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Node.js ESM example for @ignaciano3/better-pdf",
+  "dependencies": {
+    "@ignaciano3/better-pdf": "^0.20.0"
+  }
+}
