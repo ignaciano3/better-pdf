@@ -158,9 +158,9 @@ pub fn escape_pdf_literal(b: &[u8]) -> Vec<u8> {
     out
 }
 
-const PAD: f32 = 2.0;
-const MAX_AUTO: f32 = 12.0;
-const MIN_AUTO: f32 = 4.0;
+pub(crate) const PAD: f32 = 2.0;
+pub(crate) const MAX_AUTO: f32 = 12.0;
+pub(crate) const MIN_AUTO: f32 = 4.0;
 
 /// Parsed default-appearance string.
 pub struct Da {
