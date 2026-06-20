@@ -8,6 +8,12 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-06-20
+
+### Added
+
+- Filling a form text field that carries the Multiline flag (AcroForm `Tx` field, Ff bit 13) now generates a wrapped, top-aligned multi-line `/AP/N` appearance. Hard `\n` breaks are preserved, each paragraph is greedily word-wrapped to the field width, per-line quadding (left/center/right) is honored, and a word wider than the field overflows onto its own line. Single-line text fields are unchanged.
+
 ## [0.15.0] - 2026-06-19
 
 ### Added

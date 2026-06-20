@@ -732,12 +732,16 @@ count).
 
 ## Limitations
 
-- XFA forms are detected and rejected on fill/flatten (reading fields still works).
+Gaps better-pdf does not cover **yet** — things we intend to close. (For features
+we will deliberately never add, see [Non-Goals](#non-goals).)
+
 - No encrypted PDF support.
-- No lenient recovery for malformed PDFs.
-- No cryptographic signing.
+- No cryptographic signing (the API leaves room to add PAdES later).
 - List boxes are single-select; multi-select list boxes are not yet supported.
-- Text fields are single-line; multi-line wrapping is not yet generated.
+- Form text fields with the Multiline flag are filled with wrapped, top-aligned
+  multi-line appearances (honoring `\n` hard breaks and per-line quadding);
+  single-line fields are filled single-line. Mid-word breaking is not performed
+  — a word wider than the field overflows onto its own line.
 - Drawing APIs support standard-14 fonts and custom TTF/OTF font embedding via
   `doc.embedFont(bytes)` (Type0/CIDFontType2, full Unicode including CJK).
   OpenType-CFF subsetting may be unsupported — use `{ subset: false }` for CFF-outline `.otf` fonts.
@@ -746,24 +750,29 @@ count).
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
 - Color: RGB and grayscale only; CMYK is not supported.
-- Document metadata (Info dictionary) is supported (`doc.setTitle()` / `doc.getMetadata()`).
-  XMP metadata streams are not written or modified.
-- Page operations (merge, copy/reorder, split, assemble) are supported. Form fields on
-  assembled/merged pages keep their visual appearance but are not interactive — no AcroForm
-  is reconstructed.
-- Page rotation and resize are supported: `page.setRotation(degrees)`, `page.setSize(w, h)`,
-  `page.setMediaBox(x0, y0, x1, y1)` on loaded and created pages (0.7.0).
-- Page insertion/removal/move on loaded PDFs is supported (0.13.0): `doc.addPage(size?)`,
-  `doc.insertPage(index, size?)`, `doc.removePage(index)`, `doc.movePage(from, to)`.
-  Appended pages are immediately drawable; insert/remove/move are reflected after save + reload.
-  Nested page trees are not supported (rare PDFs rejected).
-- Vector paths (`page.drawSvgPath`, `page.drawPolygon`) are supported (0.11.0).
-  SVG arc commands (A/a) are not yet supported. Path coordinates are PDF user space (y-up);
-  SVG artwork authored y-down will appear flipped.
+- XMP metadata streams are not written or modified (only the Info dictionary is
+  updated via `doc.setTitle()` / `doc.getMetadata()` etc.).
+- Nested page trees are not supported by `insertPage`/`removePage`/`movePage`
+  (PDFs with nested `/Pages` nodes are rejected; use `merge`/`assemble` instead).
+- SVG arc commands (`A`/`a`) are not yet supported by `drawSvgPath`/`drawPolygon`;
+  path coordinates are PDF user space (y-up), so y-down artwork appears flipped.
+- Interlaced and 16-bit-per-channel PNGs are not supported.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
-  plus generated xref-stream/object-stream variants).
+  plus generated xref-stream/object-stream variants); real-world PDF 1.5+ coverage
+  is thin.
 - Browser support expects a modern bundler/runtime that can serve the packaged
   `.wasm` asset referenced from the browser entry.
+
+## Non-Goals
+
+Deliberately unsupported. **Not planned** — legacy, rare, or better served by
+another tool.
+
+- **XFA forms** — Adobe's XML-based form format, deprecated and removed in
+  PDF 2.0. Detected and rejected on fill/flatten; reading the static AcroForm
+  fields still works.
+- **Lenient recovery of malformed / off-spec PDFs** — the parser is strict by
+  design and rejects broken structure rather than guessing at it.
 
 ## Develop
 
