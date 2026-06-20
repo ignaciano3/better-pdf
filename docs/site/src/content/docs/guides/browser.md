@@ -18,6 +18,15 @@ const output = await doc.save();
 `PdfDocument.load()` initializes the browser WASM module on first use.
 
 :::note[Bundler requirements]
-Browser support expects a modern bundler/runtime that can serve the packaged
-`.wasm` asset referenced from the browser entry.
+Browser bundlers must resolve and serve the `.wasm` binary from the
+`@ignaciano3/better-pdf/wasm` asset subpath, then pass its URL to
+`initializeWasm()` before any PDF operation:
+
+- **Vite**: `import wasmUrl from "@ignaciano3/better-pdf/wasm?url"` → `initializeWasm(wasmUrl)`
+- **webpack 5**: `new URL("@ignaciano3/better-pdf/wasm", import.meta.url).href` → `initializeWasm(url)`
+- **Next.js**: copy wasm to `public/`, then `initializeWasm("/better_pdf_core_bg.wasm")`
+
+See the [per-runtime guide](/guides/runtimes/) and
+[examples/runtimes/](https://github.com/ignaciano3/better-pdf/tree/master/examples/runtimes/)
+for complete working examples.
 :::

@@ -8,6 +8,27 @@ While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-06-20
+
+### Added
+
+- `./wasm` export subpath — resolves to the raw `.wasm` binary; gives bundlers
+  (Vite, webpack, Next.js) and edge runtimes (Cloudflare Workers) a stable asset
+  handle to pass to `initializeWasm()`.
+- Runtime examples in `examples/runtimes/`: Node.js, Bun, Deno, Vite, webpack
+  5, Next.js 15, Cloudflare Workers — each with a README, working code, and
+  honest status (Verified or Config provided).
+- Per-runtime guide at `docs/site/src/content/docs/guides/runtimes.md` with
+  one section per runtime, exact init snippet, and a summary matrix.
+- Runtime support matrix in README (replaces the vague bundler-requirements
+  hedge); links to `examples/runtimes/` and the new guide.
+
+### Fixed
+
+- `sideEffects` in `package.json` now lists `./dist/core/wasm.js` and
+  `./dist/core/wasm-browser.js` — bundlers no longer tree-shake the wasm init
+  side effect.
+
 ## [0.20.0] - 2026-06-20
 
 See [Migration guide: 0.19 → 0.20](docs/site/src/content/docs/migrating/0.19-to-0.20.md) for

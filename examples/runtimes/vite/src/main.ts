@@ -35,7 +35,8 @@ document.getElementById("generate")!.addEventListener("click", async () => {
   status.textContent = "Generating…";
   try {
     const bytes = await generatePdf();
-    const blob = new Blob([bytes], { type: "application/pdf" });
+    // Cast: TS 5.9 strict Uint8Array<ArrayBufferLike> is not assignable to BlobPart
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     preview.src = url;
     status.textContent = `Done — ${bytes.length} bytes`;
