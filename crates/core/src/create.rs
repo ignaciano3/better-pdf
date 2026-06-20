@@ -1162,11 +1162,12 @@ pub fn create_document_json(
             let dest_page = go_to_page.map(|t| page_ids[t]);
             let annot = link_annot_dict(*rect, uri.as_deref(), dest_page);
             let annot_id = doc.add_object(Object::Dictionary(annot));
-            let page_dict = doc
+            let page_obj = doc
                 .get_object_mut(page_ids[*page])
-                .expect("page must exist")
+                .map_err(|e| format!("internal: page object {:?} missing: {e}", page_ids[*page]))?;
+            let page_dict = page_obj
                 .as_dict_mut()
-                .expect("page must be a dict");
+                .map_err(|e| format!("internal: page object is not a dict: {e}"))?;
             match page_dict.get_mut(b"Annots") {
                 Ok(Object::Array(arr)) => arr.push(Object::Reference(annot_id)),
                 _ => page_dict.set("Annots", Object::Array(vec![Object::Reference(annot_id)])),
@@ -1679,8 +1680,10 @@ pub fn create_document_json(
             }
             let page_obj = doc
                 .get_object_mut(page_ids[pg_idx])
-                .expect("page must exist");
-            let page_dict = page_obj.as_dict_mut().expect("page must be a dict");
+                .map_err(|e| format!("internal: page object {:?} missing: {e}", page_ids[pg_idx]))?;
+            let page_dict = page_obj
+                .as_dict_mut()
+                .map_err(|e| format!("internal: page object is not a dict: {e}"))?;
             let annots = page_dict
                 .get_mut(b"Annots")
                 .ok()

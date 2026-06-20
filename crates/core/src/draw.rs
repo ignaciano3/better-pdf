@@ -1432,7 +1432,10 @@ pub fn apply_draw_ops_json(
             let prev = inc.get_prev_documents();
             let mut sorted_pages: Vec<(u32, ObjectId)> = prev.get_pages().into_iter().collect();
             sorted_pages.sort_by_key(|(num, _)| *num);
-            sorted_pages[*page_idx].1
+            sorted_pages
+                .get(*page_idx)
+                .map(|(_, id)| *id)
+                .ok_or_else(|| format!("page index {page_idx} out of range"))?
         };
 
         // Clone the page into the new document so we can mutate it
@@ -1459,12 +1462,23 @@ pub fn apply_draw_ops_json(
             if let DrawOp::Link { rect, uri, go_to_page, .. } = op {
                 // Resolve the destination page id (for goToPage) the same way we
                 // resolve the current page id: from the prev doc's sorted pages.
-                let dest_page = go_to_page.map(|target| {
-                    let prev = inc.get_prev_documents();
-                    let mut sorted: Vec<(u32, ObjectId)> = prev.get_pages().into_iter().collect();
-                    sorted.sort_by_key(|(num, _)| *num);
-                    sorted[target].1
-                });
+                let dest_page = match go_to_page {
+                    Some(target) => {
+                        let prev = inc.get_prev_documents();
+                        let mut sorted: Vec<(u32, ObjectId)> =
+                            prev.get_pages().into_iter().collect();
+                        sorted.sort_by_key(|(num, _)| *num);
+                        Some(
+                            sorted
+                                .get(*target)
+                                .map(|(_, id)| *id)
+                                .ok_or_else(|| {
+                                    format!("link goToPage index {target} out of range")
+                                })?,
+                        )
+                    }
+                    None => None,
+                };
                 let annot = link_annot_dict(*rect, uri.as_deref(), dest_page);
                 let annot_id = inc.new_document.add_object(Object::Dictionary(annot));
                 append_annot_to_page(&mut inc, page_id, annot_id)?;
@@ -2495,5 +2509,24 @@ mod tests {
             &[], &[], "[]").unwrap();
         let s = last_draw_stream_content(&out);
         assert!(s.contains("50 700 Td"), "plain text keeps x y Td: {s}");
+    }
+
+    /// Regression: a link op whose goToPage index is out of range must return
+    /// Err(...) containing "out of range", never panic (which would abort wasm).
+    #[test]
+    fn link_go_to_page_out_of_range_returns_err() {
+        // FICHA is a 1-page PDF; page index 99 is well out of range.
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"link","page":0,"rect":[10,10,100,30],"goToPage":99}]"#,
+            &[],
+            &[],
+            "[]",
+        );
+        let err = r.unwrap_err();
+        assert!(
+            err.contains("out of range"),
+            "expected 'out of range' in error, got: {err}"
+        );
     }
 }
