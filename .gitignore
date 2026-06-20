@@ -5,6 +5,7 @@ target/
 dist/
 docs/api/
 *.wasm
+*.tgz
 .DS_Store
 .env
 .env.*
