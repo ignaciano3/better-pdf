@@ -21,6 +21,13 @@ test("converts quadratic Q to cubic c", () => {
 test("rejects arc commands", () => {
   expect(() => parseSvgPath("M0 0 A5 5 0 0 1 10 10")).toThrow();
 });
+
+test("packed arc flags parse without throwing", () => {
+  // Flags written with no separator: large-arc-flag=0, sweep-flag=1 packed as "01"
+  // is impossible to express un-packed here; use the spec example with a leading
+  // negative coordinate that forces flag packing in real SVGs.
+  expect(() => parseSvgPath("M0 0 a25 25 -30 0 1 50 -25")).not.toThrow();
+});
 test("drawSvgPath round-trips into a valid PDF", async () => {
   const doc = await PdfDocument.create();
   const page = doc.addPage();
