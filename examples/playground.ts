@@ -166,7 +166,7 @@ page.drawRectangle({
   x: 56, y: 600, width: 220, height: 90,
   fill: rgb(0.85, 0.9, 1), stroke: rgb(0.1, 0.1, 0.4), strokeWidth: 1, opacity: 0.8,
 });
-page.drawEllipse({ x: 360, y: 645, xScale: 70, yScale: 40, fill: rgb(1, 0.6, 0.2) });
+page.drawEllipse({ x: 360, y: 645, radiusX: 70, radiusY: 40, fill: rgb(1, 0.6, 0.2) });
 
 // Embed an image once, then draw it (here the same logo could be drawn N times).
 const logo = await made.embedPng(TINY_PNG);

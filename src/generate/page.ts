@@ -103,9 +103,9 @@ export interface DrawEllipseOptions {
   x: number;
   y: number;
   /** Horizontal radius in points. */
-  xScale: number;
+  radiusX: number;
   /** Vertical radius in points. */
-  yScale: number;
+  radiusY: number;
   /** Fill color. Omit for no fill. */
   fill?: Color;
   /** Stroke (border) color. Omit for no border. */
@@ -410,22 +410,22 @@ export class PdfPage {
   }
 
   /**
-   * Draw an ellipse centered at `(x, y)` with horizontal radius `xScale` and
-   * vertical radius `yScale`. Coordinates use the PDF convention: origin
+   * Draw an ellipse centered at `(x, y)` with horizontal radius `radiusX` and
+   * vertical radius `radiusY`. Coordinates use the PDF convention: origin
    * bottom-left.
    */
   drawEllipse(options: DrawEllipseOptions): void {
-    const { x, y, xScale, yScale, fill, stroke, strokeWidth, opacity } = options;
+    const { x, y, radiusX, radiusY, fill, stroke, strokeWidth, opacity } = options;
     for (const [v, name] of [
       [x, "x"],
       [y, "y"],
-      [xScale, "xScale"],
-      [yScale, "yScale"],
+      [radiusX, "radiusX"],
+      [radiusY, "radiusY"],
     ] as const) {
       if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
     }
-    if (xScale <= 0) throw new RangeError(`xScale must be > 0, got ${xScale}`);
-    if (yScale <= 0) throw new RangeError(`yScale must be > 0, got ${yScale}`);
+    if (radiusX <= 0) throw new RangeError(`radiusX must be > 0, got ${radiusX}`);
+    if (radiusY <= 0) throw new RangeError(`radiusY must be > 0, got ${radiusY}`);
     validateBorderWidth(strokeWidth, "strokeWidth");
     validateOpacity(opacity);
     const op: EllipseOp = {
@@ -433,8 +433,8 @@ export class PdfPage {
       page: this._slot,
       x,
       y,
-      xScale,
-      yScale,
+      xScale: radiusX,
+      yScale: radiusY,
       ...(fill !== undefined ? { color: tuple(fill) } : {}),
       ...(stroke !== undefined ? { borderColor: tuple(stroke) } : {}),
       ...(strokeWidth !== undefined ? { borderWidth: strokeWidth } : {}),

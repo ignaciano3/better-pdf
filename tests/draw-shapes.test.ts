@@ -51,8 +51,8 @@ describe("drawEllipse", () => {
     doc.getPage(0).drawEllipse({
       x: 150,
       y: 140,
-      xScale: 100,
-      yScale: 40,
+      radiusX: 100,
+      radiusY: 40,
       fill: rgb(0, 0, 1),
     });
     const out = await doc.save();
@@ -92,11 +92,11 @@ describe("shapes validation", () => {
     ).toThrow(RangeError);
   });
 
-  test("drawEllipse xScale 0 throws RangeError", async () => {
+  test("drawEllipse radiusX 0 throws RangeError", async () => {
     const doc = await PdfDocument.create();
     doc.addPage(PageSizes.A4);
     expect(() =>
-      doc.getPage(0).drawEllipse({ x: 0, y: 0, xScale: 0, yScale: 10 }),
+      doc.getPage(0).drawEllipse({ x: 0, y: 0, radiusX: 0, radiusY: 10 }),
     ).toThrow(RangeError);
   });
 

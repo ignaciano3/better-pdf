@@ -376,8 +376,8 @@ const generationScenarios: Scenario[] = [
         page.drawEllipse({
           x: 100 + i * 80,
           y: 480,
-          xScale: 30,
-          yScale: 20,
+          radiusX: 30,
+          radiusY: 20,
           fill: bpRgb(0.2, 0.7, 0.2),
           stroke: bpRgb(0, 0, 0),
         });

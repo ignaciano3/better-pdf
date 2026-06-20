@@ -52,7 +52,7 @@ export class PdfDocument extends PdfDocumentBase {
 }
 
 export { PdfPage } from "./generate/page.js";
-export type { DrawTextOptions, DrawImageOptions, DrawPageOptions, DrawLineOptions, DrawRectangleOptions, DrawEllipseOptions } from "./generate/page.js";
+export type { DrawTextOptions, DrawImageOptions, DrawPageOptions, DrawLineOptions, DrawRectangleOptions, DrawEllipseOptions, DrawLinkOptions, DrawSvgPathOptions, DrawPolygonOptions } from "./generate/page.js";
 export { PdfFont } from "./generate/font.js";
 export { PdfImage } from "./generate/image.js";
 export { EmbeddedPdfPage } from "./generate/embedded-page.js";
