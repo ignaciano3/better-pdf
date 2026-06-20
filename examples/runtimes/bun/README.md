@@ -33,7 +33,7 @@ Starts with %PDF- : true
 Saved to out.pdf
 ```
 
-Run on 2026-06-20 using `@ignaciano3/better-pdf@0.20.0` (installed from local tarball; end users `bun add @ignaciano3/better-pdf`).
+Run on 2026-06-20 using `@ignaciano3/better-pdf@0.21.0` (installed from local tarball; end users `bun add @ignaciano3/better-pdf`).
 
 ## How it works
 

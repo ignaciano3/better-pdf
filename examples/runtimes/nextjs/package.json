@@ -9,7 +9,7 @@
     "postinstall": "node scripts/copy-wasm.mjs"
   },
   "dependencies": {
-    "@ignaciano3/better-pdf": "file:../../../ignaciano3-better-pdf-0.20.0.tgz",
+    "@ignaciano3/better-pdf": "^0.21.0",
     "next": "^15.5.19",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

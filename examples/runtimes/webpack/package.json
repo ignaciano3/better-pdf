@@ -6,7 +6,7 @@
     "build": "webpack --mode=production"
   },
   "devDependencies": {
-    "@ignaciano3/better-pdf": "file:../../../ignaciano3-better-pdf-0.20.0.tgz",
+    "@ignaciano3/better-pdf": "^0.21.0",
     "webpack": "^5.107.2",
     "webpack-cli": "^5.1.4"
   }

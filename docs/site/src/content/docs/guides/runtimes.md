@@ -137,7 +137,7 @@ async function generatePdf() {
 ```
 
 `webpack.config.js` needs `experiments: { asyncWebAssembly: true }` and
-`type: "javascript/auto"` for the `.wasm` rule. See
+`type: "asset/resource"` for the `.wasm` rule. See
 [`examples/runtimes/webpack/`](https://github.com/ignaciano3/better-pdf/tree/master/examples/runtimes/webpack/).
 
 ---

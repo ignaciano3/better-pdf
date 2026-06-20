@@ -34,5 +34,5 @@ writeFileSync("out.pdf", bytes);
 const header = String.fromCharCode(...bytes.slice(0, 5));
 console.log(`Bytes written : ${bytes.length}`);
 console.log(`PDF header    : ${header}`);
-console.log(`Starts with %%PDF- : ${header === "%PDF-"}`);
+console.log(`Starts with %PDF- : ${header === "%PDF-"}`);
 console.log("Saved to out.pdf");

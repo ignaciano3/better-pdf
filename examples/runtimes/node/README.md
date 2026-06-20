@@ -19,7 +19,7 @@ node index.mjs
 ```
 Bytes written : 829
 PDF header    : %PDF-
-Starts with %%PDF- : true
+Starts with %PDF- : true
 Saved to out.pdf
 ```
 
@@ -29,11 +29,11 @@ Saved to out.pdf
 $ node index.mjs
 Bytes written : 829
 PDF header    : %PDF-
-Starts with %%PDF- : true
+Starts with %PDF- : true
 Saved to out.pdf
 ```
 
-Run on 2026-06-20 using `@ignaciano3/better-pdf@0.20.0` (installed from local tarball; end users `npm install @ignaciano3/better-pdf`).
+Run on 2026-06-20 using `@ignaciano3/better-pdf@0.21.0` (installed from local tarball; end users `npm install @ignaciano3/better-pdf`).
 
 ## How it works
 
