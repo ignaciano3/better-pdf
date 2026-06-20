@@ -73,6 +73,8 @@ struct ApInputs {
     font: String,
     widths: appearance::FontWidths,
     widgets: Vec<WidgetBox>,
+    /// True for text-area fields (Ff Multiline bit); choice fields are always false.
+    multiline: bool,
 }
 
 enum Apply {
@@ -139,7 +141,7 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
         match kind {
             "text" => Apply::Text {
                 value: value.clone(),
-                ap: ap_inputs(doc, field_id, dict, &op.name)?,
+                ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
             },
             "checkbox" | "radio" => {
                 let widgets = button_widgets(doc, field_id, dict, value)?;
@@ -156,7 +158,7 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
                 Apply::Dropdown {
                     value: value.clone(),
                     index,
-                    ap: ap_inputs(doc, field_id, dict, &op.name)?,
+                    ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
                 }
             }
             other => return Err(format!("cannot fill field {} of type {}", op.name, other)),
@@ -172,6 +174,7 @@ fn ap_inputs(
     field_id: ObjectId,
     dict: &Dictionary,
     name: &str,
+    ff: i64,
 ) -> Result<ApInputs, String> {
     let acro = forms::acroform(doc).ok_or_else(|| "no AcroForm".to_string())?;
     let da_str = effective_da(doc, dict, acro);
@@ -185,6 +188,7 @@ fn ap_inputs(
         da,
         font_ref,
         widgets: widget_boxes(doc, field_id, dict),
+        multiline: forms::is_multiline(ff),
     })
 }
 
@@ -455,17 +459,33 @@ fn draw_appearances(
     for wb in &ap.widgets {
         let w = wb.rect[2] - wb.rect[0];
         let h = wb.rect[3] - wb.rect[1];
-        let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h, &ap.widths);
-        let content = appearance::text_appearance_content(
-            &text,
-            size,
-            w,
-            h,
-            ap.q,
-            &ap.da.color,
-            &ap.font,
-            &ap.widths,
-        );
+        let content = if ap.multiline {
+            // Multiline: do not shrink-to-fit width (we wrap instead). Honor an
+            // explicit DA size; for auto (size 0) use a fixed, height-clamped
+            // default so wrapping has a stable measure.
+            let size = if ap.da.size > 0.0 {
+                ap.da.size
+            } else {
+                (h - 2.0).clamp(appearance::MIN_AUTO, appearance::MAX_AUTO)
+            };
+            let avail_w = (w - 4.0).max(1.0);
+            let lines = appearance::wrap_lines(&text, size, avail_w, &ap.widths);
+            appearance::text_appearance_content_multiline(
+                &lines, size, w, h, ap.q, &ap.da.color, &ap.font, &ap.widths,
+            )
+        } else {
+            let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h, &ap.widths);
+            appearance::text_appearance_content(
+                &text,
+                size,
+                w,
+                h,
+                ap.q,
+                &ap.da.color,
+                &ap.font,
+                &ap.widths,
+            )
+        };
         let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, ap.font_ref);
         let ap_id = inc.new_document.add_object(Object::Stream(xobj));
 
@@ -709,6 +729,36 @@ mod tests {
         acro.get(b"NeedAppearances")
             .ok()
             .and_then(|o| o.as_bool().ok())
+    }
+
+    /// Set the Multiline flag (Ff bit 13) on a text field and return the bytes of
+    /// the modified document, so we can exercise the multiline fill path on a real
+    /// fixture field even though the corpus ships only single-line text fields.
+    fn with_multiline_flag(bytes: &[u8], field_name: &str) -> Vec<u8> {
+        let mut doc = Document::load_mem(bytes).unwrap();
+        let (id, _) = find_field(&doc, field_name).unwrap();
+        let d = doc.get_object_mut(id).unwrap().as_dict_mut().unwrap();
+        d.set("Ff", Object::Integer(1 << 12));
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn multiline_text_fill_wraps_into_multiple_lines() {
+        // Confirm the target field is wide-but-short enough to force a wrap. The
+        // value is long with spaces so greedy wrapping must break it across lines.
+        let base = with_multiline_flag(FICHA, "beneficiario.apellidos_nombres");
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"the quick brown fox jumps over the lazy dog several times to overflow"}]"#;
+        let out = fill_fields_json(&base, ops, &[]).unwrap();
+        Document::load_mem(&out).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let ap = ap_content(&doc, "beneficiario.apellidos_nombres").expect("AP/N present");
+        assert!(ap.contains("TL"), "multiline AP should set leading: {ap}");
+        assert!(
+            ap.matches(" Tj").count() >= 2,
+            "expected multiple Tj (wrapped lines), got: {ap}"
+        );
     }
 
     #[test]

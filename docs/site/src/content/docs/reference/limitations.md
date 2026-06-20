@@ -1,14 +1,16 @@
 ---
 title: Limitations
-description: What better-pdf does not (yet) support.
+description: What better-pdf does not (yet) support, and what it will never support.
 ---
 
-- XFA forms are detected and rejected on fill/flatten (reading fields still works).
+**Limitations** are gaps we intend to close. **[Non-Goals](#non-goals)** are
+deliberately unsupported and not planned. The two are listed separately below.
+
+## Limitations
+
 - No encrypted PDF support.
-- No lenient recovery for malformed PDFs.
-- No cryptographic signing.
+- No cryptographic signing (the API leaves room to add PAdES later).
 - List boxes are single-select; multi-select list boxes are not yet supported.
-- Text fields are single-line; multi-line wrapping is not yet generated.
 - Drawing APIs support standard-14 fonts and custom TTF/OTF font embedding via
   `doc.embedFont(bytes)`. Embedded fonts render as Unicode-capable Type0/CIDFontType2
   composites with a ToUnicode CMap — full Unicode (including CJK and accented Latin)
@@ -19,9 +21,11 @@ description: What better-pdf does not (yet) support.
     fonts.
   - Characters with no glyph in the font are silently skipped.
 - **Multi-line text:** `drawText` honors `\n` as hard line breaks, and the
-  `maxWidth` option word-wraps text to fit a given width (added in 0.14.0). A
-  single word wider than `maxWidth` overflows onto its own line; mid-word
-  breaking and text alignment are not yet supported.
+  `maxWidth` option word-wraps text to fit a given width (added in 0.14.0).
+  Filling a form text field that carries the Multiline flag also produces a
+  wrapped, top-aligned multi-line appearance with per-line quadding (added in
+  0.16.0). In both cases a single word wider than the available width overflows
+  onto its own line; mid-word breaking is not performed.
 - Appearance metrics cover the standard 14 text fonts (with Arial / Times New
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
@@ -92,3 +96,14 @@ description: What better-pdf does not (yet) support.
   forms, plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged
   `.wasm` asset referenced from the browser entry.
+
+## Non-Goals
+
+Deliberately unsupported. **Not planned** — legacy, rare, or better served by
+another tool.
+
+- **XFA forms** — Adobe's XML-based form format, deprecated and removed in
+  PDF 2.0. Detected and rejected on fill/flatten; reading the static AcroForm
+  fields still works.
+- **Lenient recovery of malformed / off-spec PDFs** — the parser is strict by
+  design and rejects broken structure rather than guessing at it.

@@ -69,6 +69,58 @@ pub fn string_width(bytes: &[u8], size: f32, widths: &FontWidths) -> f32 {
     units as f32 / 1000.0 * size
 }
 
+/// Word-wrap WinAnsi `text` so each returned line's `string_width <= avail_w`.
+/// Hard breaks (`\n`, with `\r\n` and lone `\r` normalized to `\n`) split first;
+/// each resulting paragraph is greedily wrapped on ASCII spaces. A single word
+/// wider than `avail_w` is placed on its own line (overflow, no mid-word break).
+/// A blank paragraph yields one empty line, so blank lines survive. Mirrors the
+/// TypeScript `wrapText` in `src/generate/wrap-text.ts`.
+pub fn wrap_lines(text: &[u8], size: f32, avail_w: f32, widths: &FontWidths) -> Vec<Vec<u8>> {
+    // Normalize CRLF / lone CR to LF, then split on LF into paragraphs.
+    let mut normalized: Vec<u8> = Vec::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        if text[i] == b'\r' {
+            normalized.push(b'\n');
+            if i + 1 < text.len() && text[i + 1] == b'\n' {
+                i += 1;
+            }
+        } else {
+            normalized.push(text[i]);
+        }
+        i += 1;
+    }
+
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    for para in normalized.split(|&b| b == b'\n') {
+        let words: Vec<&[u8]> = para.split(|&b| b == b' ').filter(|w| !w.is_empty()).collect();
+        if words.is_empty() {
+            out.push(Vec::new());
+            continue;
+        }
+        let mut current: Vec<u8> = Vec::new();
+        for word in words {
+            if current.is_empty() {
+                current.extend_from_slice(word);
+                continue;
+            }
+            let mut candidate = current.clone();
+            candidate.push(b' ');
+            candidate.extend_from_slice(word);
+            if string_width(&candidate, size, widths) <= avail_w {
+                current = candidate;
+            } else {
+                out.push(std::mem::take(&mut current));
+                current.extend_from_slice(word);
+            }
+        }
+        if !current.is_empty() {
+            out.push(current);
+        }
+    }
+    out
+}
+
 /// Width in points of `text` rendered in standard-14 `font` at `size`.
 /// Errors if `font` is not a standard-14 base name.
 pub fn measure_text_width(font: &str, size: f32, text: &str) -> Result<f32, String> {
@@ -106,9 +158,9 @@ pub fn escape_pdf_literal(b: &[u8]) -> Vec<u8> {
     out
 }
 
-const PAD: f32 = 2.0;
-const MAX_AUTO: f32 = 12.0;
-const MIN_AUTO: f32 = 4.0;
+pub(crate) const PAD: f32 = 2.0;
+pub(crate) const MAX_AUTO: f32 = 12.0;
+pub(crate) const MIN_AUTO: f32 = 4.0;
 
 /// Parsed default-appearance string.
 pub struct Da {
@@ -180,6 +232,51 @@ pub fn text_appearance_content(
     out.extend_from_slice(format!("{tx:.2} {ty:.2} Td (").as_bytes());
     out.extend_from_slice(&escaped);
     out.extend_from_slice(b") Tj ET Q EMC");
+    out
+}
+
+/// Build the content stream for a wrapped, multi-line text appearance. `lines`
+/// are pre-wrapped WinAnsi byte strings (see `wrap_lines`). `q` is the quadding
+/// applied per line: 0=left, 1=center, 2=right. Text is top-aligned: the first
+/// baseline sits near the top of the box (Acrobat-like), and successive lines
+/// step down by the leading (`size * 1.15`). Coordinates are in the field's
+/// space (BBox origin 0,0). Each line uses an absolute `Tm` so its horizontal
+/// quad offset and vertical baseline are independent of the previous line.
+#[allow(clippy::too_many_arguments)]
+pub fn text_appearance_content_multiline(
+    lines: &[Vec<u8>],
+    size: f32,
+    box_w: f32,
+    box_h: f32,
+    q: i64,
+    color: &str,
+    font: &str,
+    widths: &FontWidths,
+) -> Vec<u8> {
+    let leading = size * 1.15;
+    let mut out = Vec::new();
+    out.extend_from_slice(b"/Tx BMC q BT ");
+    out.extend_from_slice(format!("/{font} {size:.2} Tf {color} ").as_bytes());
+    out.extend_from_slice(format!("{leading:.2} TL ").as_bytes());
+
+    // First baseline near the top of the box; step down by the leading per line.
+    let mut ty = box_h - PAD - size;
+    for line in lines {
+        let tw = string_width(line, size, widths);
+        let tx = match q {
+            1 => ((box_w - tw) / 2.0).max(PAD), // center
+            2 => (box_w - PAD - tw).max(PAD),   // right
+            _ => PAD,                           // left
+        };
+        let escaped = escape_pdf_literal(line);
+        // Absolute text matrix per line keeps each line's quad offset and
+        // baseline independent of the running text matrix.
+        out.extend_from_slice(format!("1 0 0 1 {tx:.2} {ty:.2} Tm (").as_bytes());
+        out.extend_from_slice(&escaped);
+        out.extend_from_slice(b") Tj ");
+        ty -= leading;
+    }
+    out.extend_from_slice(b"ET Q EMC");
     out
 }
 
@@ -755,6 +852,110 @@ mod tests {
     fn measures_helvetica_width() {
         let w = measure_text_width("Helvetica", 12.0, "Hello").unwrap();
         assert!(w > 20.0 && w < 40.0, "width was {w}");
+    }
+
+    #[test]
+    fn wrap_lines_preserves_hard_breaks() {
+        // Wide box so no soft wrapping happens; only the explicit \n splits.
+        let lines = wrap_lines(b"alpha\nbeta", 10.0, 1000.0, &helvetica_widths());
+        assert_eq!(lines, vec![b"alpha".to_vec(), b"beta".to_vec()]);
+    }
+
+    #[test]
+    fn wrap_lines_normalizes_crlf() {
+        let lines = wrap_lines(b"alpha\r\nbeta\rgamma", 10.0, 1000.0, &helvetica_widths());
+        assert_eq!(
+            lines,
+            vec![b"alpha".to_vec(), b"beta".to_vec(), b"gamma".to_vec()]
+        );
+    }
+
+    #[test]
+    fn wrap_lines_greedy_word_wrap() {
+        // "aaaa" at size 10 is 4 * 0.556 * 10 = 22.24pt wide; a ~30pt box fits one
+        // word per line (two words + a space exceed 30pt), forcing a wrap.
+        let lines = wrap_lines(b"aaaa aaaa", 10.0, 30.0, &helvetica_widths());
+        assert_eq!(lines, vec![b"aaaa".to_vec(), b"aaaa".to_vec()]);
+    }
+
+    #[test]
+    fn wrap_lines_long_word_overflows_on_own_line() {
+        // A single word wider than avail_w gets its own line; the short word wraps after.
+        let lines = wrap_lines(b"wwwwwwwwww hi", 10.0, 30.0, &helvetica_widths());
+        assert_eq!(lines, vec![b"wwwwwwwwww".to_vec(), b"hi".to_vec()]);
+    }
+
+    #[test]
+    fn wrap_lines_empty_string_is_single_empty_line() {
+        assert_eq!(
+            wrap_lines(b"", 10.0, 100.0, &helvetica_widths()),
+            vec![Vec::<u8>::new()]
+        );
+    }
+
+    #[test]
+    fn wrap_lines_blank_paragraph_preserved() {
+        let lines = wrap_lines(b"a\n\nb", 10.0, 1000.0, &helvetica_widths());
+        assert_eq!(lines, vec![b"a".to_vec(), Vec::<u8>::new(), b"b".to_vec()]);
+    }
+
+    #[test]
+    fn multiline_content_emits_multiple_tj_and_tl() {
+        let lines = vec![b"hello".to_vec(), b"world".to_vec()];
+        let c = text_appearance_content_multiline(
+            &lines,
+            10.0,
+            100.0,
+            40.0,
+            0,
+            "0 g",
+            "Helv",
+            &helvetica_widths(),
+        );
+        let s = String::from_utf8(c).unwrap();
+        assert!(s.contains("/Tx BMC"));
+        assert!(s.contains("/Helv 10.00 Tf"));
+        assert!(s.contains("TL"), "missing leading operator: {s}");
+        assert_eq!(s.matches(" Tj").count(), 2, "expected two Tj: {s}");
+        assert!(s.contains("(hello) Tj"));
+        assert!(s.contains("(world) Tj"));
+        assert!(s.ends_with("ET Q EMC"));
+    }
+
+    #[test]
+    fn multiline_content_escapes_text() {
+        let lines = vec![b"a(b)".to_vec()];
+        let c = text_appearance_content_multiline(
+            &lines,
+            10.0,
+            100.0,
+            40.0,
+            0,
+            "0 g",
+            "Helv",
+            &helvetica_widths(),
+        );
+        assert!(String::from_utf8(c).unwrap().contains("(a\\(b\\)) Tj"));
+    }
+
+    #[test]
+    fn multiline_content_quads_right() {
+        // Right-quad: each line's tx = box_w - PAD - line_width, so a short line
+        // sits well to the right (tx well above the left PAD of 2.0).
+        let lines = vec![b"hi".to_vec()];
+        let c = text_appearance_content_multiline(
+            &lines,
+            10.0,
+            200.0,
+            40.0,
+            2,
+            "0 g",
+            "Helv",
+            &helvetica_widths(),
+        );
+        let s = String::from_utf8(c).unwrap();
+        // "hi" width = (222 + 556)/1000 * 10 = 7.78; tx = 200 - 2 - 7.78 = 190.22.
+        assert!(s.contains("190.22"), "expected right-quad tx 190.22 in: {s}");
     }
 
     #[test]
