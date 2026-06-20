@@ -86,9 +86,10 @@ identical; the differences are noted below.
   `doc.createForm()` builder (see below). `getForm()` itself is not available on
   a created document until it is saved and reloaded.
 - **RGB and grayscale only.** CMYK color is not supported.
-- **Ellipse center semantics.** `drawEllipse({ x, y, xScale, yScale, … })` uses
-  `(x, y)` as the center and `xScale`/`yScale` as the x and y radii — the same
-  as pdf-lib.
+- **Ellipse center semantics and option names.** `drawEllipse({ x, y, radiusX, radiusY, … })` uses
+  `(x, y)` as the center and `radiusX`/`radiusY` as the x and y radii. pdf-lib used
+  `xScale`/`yScale` — rename these when migrating. Fill/stroke options also follow
+  the unified naming: `fill`, `stroke`, `strokeWidth` (not pdf-lib's `color`/`borderColor`/`borderWidth`).
 - **`setRotation` takes a plain number.** pdf-lib wraps the angle in a `degrees(n)`
   object from `pdf-lib`; better-pdf takes a plain `number` (e.g. `page.setRotation(90)`).
   The value must be a multiple of 90; non-multiples throw `InvalidRotationError`.
@@ -287,11 +288,13 @@ better-pdf matches that API and adds `page.drawPolygon`:
 
 ### Differences from pdf-lib
 
-- **Option names differ slightly.** pdf-lib uses `color`/`borderColor`/`borderWidth`;
-  better-pdf uses `fill`/`stroke`/`strokeWidth`.
-- **SVG arc commands (`A`/`a`) are not yet supported** — they throw at call time.
+- **Option names differ.** pdf-lib uses `color`/`borderColor`/`borderWidth`;
+  better-pdf uses `fill`/`stroke`/`strokeWidth`. This applies to all shape-drawing
+  methods: `drawRectangle`, `drawEllipse`, `drawLine`, `drawSvgPath`, `drawPolygon`.
+- **SVG arc commands (`A`/`a`) are supported** — arcs are converted to cubic-bézier
+  segments in TypeScript (SVG 1.1 Appendix F.6.5/F.6.6).
   Supported commands: `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `S`/`s`,
-  `Q`/`q`, `T`/`t`, `Z`/`z` (absolute and relative).
+  `Q`/`q`, `T`/`t`, `A`/`a`, `Z`/`z` (absolute and relative).
 - **Coordinates are PDF user space (y-up).** SVG artwork authored for screen (y-down)
   will appear vertically flipped; negate y values or apply a transform before passing
   the path data.
@@ -354,7 +357,7 @@ page.drawSvgPath("M 0 0 L 100 0 L 50 80 Z", {
   borderWidth: 1.5,
 });
 
-// better-pdf
+// better-pdf — all shape methods use fill/stroke/strokeWidth
 page.drawSvgPath("M 0 0 L 100 0 L 50 80 Z", {
   fill: rgb(0.2, 0.5, 0.9),
   stroke: rgb(0.1, 0.3, 0.7),

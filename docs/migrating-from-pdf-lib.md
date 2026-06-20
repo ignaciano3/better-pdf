@@ -71,9 +71,10 @@ largely identical; the differences are noted below.
   `doc.createForm()` builder (see below). `getForm()` itself is not available on
   a created document until it is saved and reloaded.
 - **RGB and grayscale only.** CMYK color is not supported.
-- **Ellipse center semantics.** `drawEllipse({ x, y, xScale, yScale, … })` uses
-  `(x, y)` as the center and `xScale`/`yScale` as the x and y radii — the same
-  as pdf-lib.
+- **Ellipse center semantics and option names.** `drawEllipse({ x, y, radiusX, radiusY, … })` uses
+  `(x, y)` as the center and `radiusX`/`radiusY` as the x and y radii. pdf-lib used
+  `xScale`/`yScale` — rename these when migrating. Fill/stroke options also follow
+  the unified naming: `fill`, `stroke`, `strokeWidth` (not pdf-lib's `color`/`borderColor`/`borderWidth`).
 - **`save()` is always async** and returns `Promise<Uint8Array>`. There is no
   synchronous `saveSync()`.
 - **`PdfDocument.create()` is async** — it may initialize WASM, so you must

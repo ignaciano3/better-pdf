@@ -142,9 +142,9 @@ const output = await doc.save();
 // filled + bordered rectangle with transparency
 page.drawRectangle({
   x: 50, y: 50, width: 200, height: 100,
-  color: rgb(0.9, 0.95, 1),
-  borderColor: rgb(0.2, 0.4, 0.8),
-  borderWidth: 2,
+  fill: rgb(0.9, 0.95, 1),
+  stroke: rgb(0.2, 0.4, 0.8),
+  strokeWidth: 2,
   opacity: 0.85,
 });
 
@@ -152,12 +152,12 @@ page.drawRectangle({
 page.drawLine({
   start: { x: 50, y: 40 },
   end:   { x: 250, y: 40 },
-  thickness: 1.5,
-  color: rgb(0.5, 0.5, 0.5),
+  strokeWidth: 1.5,
+  stroke: rgb(0.5, 0.5, 0.5),
 });
 
-// ellipse — (x, y) is the centre; xScale/yScale are the x and y radii
-page.drawEllipse({ x: 150, y: 200, xScale: 60, yScale: 30, color: rgb(1, 0.8, 0) });
+// ellipse — (x, y) is the centre; radiusX/radiusY are the x and y radii
+page.drawEllipse({ x: 150, y: 200, radiusX: 60, radiusY: 30, fill: rgb(1, 0.8, 0) });
 ```
 
 ### (d) Text layout with `widthOfTextAtSize`
@@ -525,9 +525,9 @@ soon as they are made.
 
 - `page.drawText(text, options)` — `options`: `{ x, y, size, font?, color?, lineHeight?, rotate?, opacity? }` (`rotate` is degrees counter-clockwise; `opacity` 0–1)
 - `page.drawImage(image, options)` — `options`: `{ x, y, width?, height? }`
-- `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, thickness?, color?, opacity? }`
-- `page.drawRectangle(options)` — `options`: `{ x, y, width, height, color?, borderColor?, borderWidth?, opacity? }`
-- `page.drawEllipse(options)` — `options`: `{ x, y, xScale, yScale, color?, borderColor?, borderWidth?, opacity? }` (`x`,`y` = center; `xScale`,`yScale` = radii)
+- `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, stroke?, strokeWidth?, opacity? }`
+- `page.drawRectangle(options)` — `options`: `{ x, y, width, height, fill?, stroke?, strokeWidth?, opacity? }`
+- `page.drawEllipse(options)` — `options`: `{ x, y, radiusX, radiusY, fill?, stroke?, strokeWidth?, opacity? }` (`x`,`y` = center; `radiusX`,`radiusY` = radii)
 - `page.drawSvgPath(d: string, options): void` — draw an SVG path-data string; `options`: `{ fill?, stroke?, strokeWidth?, opacity? }`; supports M/L/H/V/C/S/Q/T/Z and A/a (arcs)
 - `page.drawPolygon(points: {x,y}[], options): void` — draw a polygon; `options`: `{ fill?, stroke?, strokeWidth?, opacity?, closed? }` (`closed` defaults to `true`)
 - `page.drawLink(options): void` — add a clickable link annotation; `options` is one of:
