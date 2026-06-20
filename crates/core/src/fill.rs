@@ -980,30 +980,6 @@ mod tests {
         out
     }
 
-    /// Read a field's /V and /I directly from the saved document.
-    fn reparse_v_i(bytes: &[u8], field_name: &str) -> (Vec<String>, Vec<i64>) {
-        use lopdf::Document;
-        let doc = Document::load_mem(bytes).unwrap();
-        let (_, field) = find_field(&doc, field_name).unwrap();
-        let v_arr = field.get(b"V").unwrap().as_array().unwrap();
-        let v: Vec<String> = v_arr
-            .iter()
-            .map(|o| {
-                let bytes = o.as_str().unwrap();
-                String::from_utf8_lossy(bytes).into_owned()
-            })
-            .collect();
-        let i: Vec<i64> = field
-            .get(b"I")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|o| o.as_i64().unwrap())
-            .collect();
-        (v, i)
-    }
-
     #[test]
     fn multiselect_fill_sets_v_array_and_sorted_i() {
         use lopdf::Document;
