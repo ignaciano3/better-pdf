@@ -4,9 +4,29 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-While the version is `0.x`, the public API may change between minor releases.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-06-23
+
+First stable release. The public API is frozen and the package now follows
+Semantic Versioning — breaking changes will only land in a future major.
+
+### Changed
+
+- **Stable 1.0.0 — API frozen.** The TS surface settled in 0.20.0 (see the
+  0.19 → 0.20 migration guide) is now committed. No code behavior changes from
+  0.21.0; this release marks the stability commitment.
+
+### Docs
+
+- Fixed a stale "merged/assembled form fields are not interactive" claim that
+  survived in the README §(g) and the Generating guide — merged AcroForm fields
+  have stayed interactive since 0.15.0.
+- Added an **Examples** section to the docs site (overview indexing the
+  `examples/runtimes/` starters, plus fill-and-flatten / invoice / merge-PDFs
+  recipes) and surfaced the previously orphaned **Runtime setup** guide in the
+  sidebar.
 
 ## [0.21.0] - 2026-06-20
 
@@ -391,7 +411,8 @@ WebAssembly with a fully-typed TypeScript API.
 - Text fields are single-line; multi-line wrapping is not generated.
 - PNG alpha is dropped rather than preserved as a soft mask.
 
-[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ignaciano3/better-pdf/compare/v0.21.0...v1.0.0
 [0.6.0]: https://github.com/ignaciano3/better-pdf/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ignaciano3/better-pdf/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ignaciano3/better-pdf/compare/v0.3.0...v0.4.0

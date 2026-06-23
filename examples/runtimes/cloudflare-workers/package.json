@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@ignaciano3/better-pdf": "^0.21.0"
+    "@ignaciano3/better-pdf": "^1.0.0"
   },
   "devDependencies": {
     "wrangler": "^3.0.0"

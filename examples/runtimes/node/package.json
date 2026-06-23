@@ -4,6 +4,6 @@
   "type": "module",
   "description": "Node.js ESM example for @ignaciano3/better-pdf",
   "dependencies": {
-    "@ignaciano3/better-pdf": "^0.21.0"
+    "@ignaciano3/better-pdf": "^1.0.0"
   }
 }
