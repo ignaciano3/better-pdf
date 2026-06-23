@@ -318,9 +318,13 @@ const result = await PdfDocument.assemble(
 await Bun.write("assembled.pdf", result);
 ```
 
-> **Form fields on merged/assembled pages** keep their visual appearance but are
-> **not interactive** — no AcroForm is reconstructed. Flatten fields before
-> merging if you need interactive form output.
+> **Form fields on merged/assembled pages stay interactive (0.15.0).** A working
+> `/AcroForm` is rebuilt from the kept widgets — merged `/DR` fonts and `/DA`,
+> `/NeedAppearances true` — so fields remain fillable in the output. Names that
+> collide across source documents are renamed with a per-source prefix (`d0_`,
+> `d1_`, …). Caveat: `/XFA` data is dropped (output is a plain AcroForm), and a
+> page selected twice in `assemble` shares one field object (fields linked, not
+> renamed).
 
 ### (h) Link annotations
 

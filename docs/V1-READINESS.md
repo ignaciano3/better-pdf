@@ -21,11 +21,17 @@ fixture corpus. But "stable V1" needs more than features. Gaps ranked below.
 
 This is a stated V1 requirement, not optional. **Do first.**
 
-## 2. Documentation drift — fix before tagging
+## 2. Documentation drift ✓ DONE (0.21.0)
 
 - README previously claimed merged forms aren't interactive; 0.15.0 reconstructs
   the AcroForm. **(Fixed — README Limitations corrected.)**
-- Audit remaining README/docs Limitations vs current reality before tagging V1.
+- Full audit done: the stale "merged/assembled form fields are **not
+  interactive**" claim survived in two more spots — `README.md` §(g) and the
+  `generating.md` guide caution — both now corrected to the 0.15.0 reality
+  (AcroForm rebuilt, fields stay fillable, `d0_`/`d1_` collision prefixing,
+  `/XFA` dropped). No other Limitations claim contradicts current behavior;
+  `reference/limitations.md` and the README Limitations section verified
+  consistent with CHANGELOG.
 
 ## 3. The actual meaning of V1: freeze the API
 
