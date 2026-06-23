@@ -63,7 +63,17 @@ export default defineConfig({
 						{ label: 'Creating form fields', slug: 'guides/creating-form-fields' },
 						{ label: 'Typed forms', slug: 'guides/typed-forms' },
 						{ label: 'Browser usage', slug: 'guides/browser' },
+						{ label: 'Runtime setup', slug: 'guides/runtimes' },
 						{ label: 'For AI agents', slug: 'guides/ai-agents' },
+					],
+				},
+				{
+					label: 'Examples',
+					items: [
+						{ label: 'Overview', slug: 'examples/overview' },
+						{ label: 'Fill & flatten a form', slug: 'examples/fill-and-flatten' },
+						{ label: 'Generate an invoice', slug: 'examples/invoice' },
+						{ label: 'Merge PDFs', slug: 'examples/merge-pdfs' },
 					],
 				},
 				{
