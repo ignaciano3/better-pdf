@@ -10,6 +10,12 @@ types — `addTextField`, `addCheckBox`, `addRadioGroup`, `addDropdown`,
 position/size in PDF points. The fields are serialized into the document on
 `save()`.
 
+:::note[Coordinate system]
+`x`/`y` are PDF points with the origin at the **bottom-left** of the page and
+y increasing upward — same as pdf-lib and raw PDF. `(x, y)` is the field's
+lower-left corner.
+:::
+
 ```ts
 import { PdfDocument, PageSizes, rgb } from "@ignaciano3/better-pdf";
 
