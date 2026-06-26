@@ -4,6 +4,8 @@ dist/
 .astro/
 # TypeDoc-generated API pages (rebuilt by `bun run build`)
 src/content/docs/api-reference/
+# Changelog page mirrored from repo-root CHANGELOG.md (see astro.config.mjs)
+src/content/docs/reference/changelog.md
 
 # dependencies
 node_modules/
