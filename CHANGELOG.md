@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-26
+
+### Added
+
+- **Image and embedded-page transforms.** `drawImage` and `drawPage` accept
+  `rotate` (degrees, counter-clockwise about the placement point) and
+  `xSkew` / `ySkew` (degrees), applied via the content-stream CTM.
+- **Dashed strokes.** All stroked shapes — `drawLine`, `drawRectangle`,
+  `drawEllipse`, `drawSvgPath`, and `drawPolygon` — accept `dash` (alternating
+  on/off segment lengths in points) and `dashPhase`.
+
 ## [1.2.0] - 2026-06-26
 
 ### Added
