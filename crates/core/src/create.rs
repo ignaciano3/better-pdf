@@ -61,6 +61,12 @@ enum CreateOp {
         image_length: usize,
         #[serde(default)]
         opacity: Option<f32>,
+        #[serde(default)]
+        rotate: f32,
+        #[serde(rename = "xSkew", default)]
+        x_skew: f32,
+        #[serde(rename = "ySkew", default)]
+        y_skew: f32,
     },
     Line {
         page: usize,
@@ -71,6 +77,10 @@ enum CreateOp {
         thickness: Option<f32>,
         color: Option<[f32; 3]>,
         opacity: Option<f32>,
+        #[serde(default)]
+        dash: Vec<f32>,
+        #[serde(rename = "dashPhase", default)]
+        dash_phase: f32,
     },
     Rectangle {
         page: usize,
@@ -84,6 +94,10 @@ enum CreateOp {
         #[serde(rename = "borderWidth")]
         border_width: Option<f32>,
         opacity: Option<f32>,
+        #[serde(default)]
+        dash: Vec<f32>,
+        #[serde(rename = "dashPhase", default)]
+        dash_phase: f32,
     },
     Ellipse {
         page: usize,
@@ -99,6 +113,10 @@ enum CreateOp {
         #[serde(rename = "borderWidth")]
         border_width: Option<f32>,
         opacity: Option<f32>,
+        #[serde(default)]
+        dash: Vec<f32>,
+        #[serde(rename = "dashPhase", default)]
+        dash_phase: f32,
     },
     Page {
         page: usize,
@@ -114,6 +132,12 @@ enum CreateOp {
         src_page: usize,
         #[serde(default)]
         opacity: Option<f32>,
+        #[serde(default)]
+        rotate: f32,
+        #[serde(rename = "xSkew", default)]
+        x_skew: f32,
+        #[serde(rename = "ySkew", default)]
+        y_skew: f32,
     },
     SetRotation { page: usize, degrees: i64 },
     SetMediaBox {
@@ -142,6 +166,10 @@ enum CreateOp {
         #[serde(rename = "strokeWidth")]
         stroke_width: Option<f32>,
         opacity: Option<f32>,
+        #[serde(default)]
+        dash: Vec<f32>,
+        #[serde(rename = "dashPhase", default)]
+        dash_phase: f32,
     },
     /// Document outline (bookmarks). If multiple outline ops are present, the
     /// last one wins.
@@ -546,6 +574,7 @@ pub fn create_document_json(
                 thickness,
                 color,
                 opacity,
+                ..
             } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
@@ -581,6 +610,7 @@ pub fn create_document_json(
                 border_color,
                 border_width,
                 opacity,
+                ..
             } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
@@ -629,6 +659,7 @@ pub fn create_document_json(
                 border_color,
                 border_width,
                 opacity,
+                ..
             } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
@@ -723,6 +754,7 @@ pub fn create_document_json(
                 stroke,
                 stroke_width,
                 opacity,
+                ..
             } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
@@ -1063,6 +1095,9 @@ pub fn create_document_json(
                     image_offset,
                     image_length,
                     opacity,
+                    rotate,
+                    x_skew,
+                    y_skew,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
                         let key = format!("BPG{gs_counter}");
@@ -1082,7 +1117,10 @@ pub fn create_document_json(
                     let key = format!("BPI{img_counter}");
                     img_counter += 1;
                     xobject_res.set(key.clone(), Object::Reference(xid));
-                    emit_image_op(&mut content, &key, *x, *y, *width, *height, gs_key.as_deref());
+                    emit_image_op(
+                        &mut content, &key, *x, *y, *width, *height,
+                        gs_key.as_deref(), *rotate, *x_skew, *y_skew,
+                    );
                 }
                 CreateOp::Page {
                     page,
@@ -1094,6 +1132,9 @@ pub fn create_document_json(
                     image_length,
                     src_page,
                     opacity,
+                    rotate,
+                    x_skew,
+                    y_skew,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
                         let key = format!("BPG{gs_counter}");
@@ -1116,15 +1157,9 @@ pub fn create_document_json(
                     if let Some(k) = gs_key.as_deref() {
                         content.extend_from_slice(format!("/{k} gs\n").as_bytes());
                     }
-                    content.extend_from_slice(
-                        format!(
-                            "{} 0 0 {} {} {} cm\n",
-                            crate::draw::fmt_num(*width / bw),
-                            crate::draw::fmt_num(*height / bh),
-                            crate::draw::fmt_num(*x),
-                            crate::draw::fmt_num(*y),
-                        )
-                        .as_bytes(),
+                    crate::draw::emit_placement(
+                        &mut content, *x, *y, *width / bw, *height / bh,
+                        *rotate, *x_skew, *y_skew,
                     );
                     content.extend_from_slice(format!("/{key} Do\n").as_bytes());
                     content.extend_from_slice(b"Q\n");
@@ -1138,6 +1173,8 @@ pub fn create_document_json(
                     thickness,
                     color,
                     opacity,
+                    dash,
+                    dash_phase,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
                         let key = format!("BPG{gs_counter}");
@@ -1158,6 +1195,8 @@ pub fn create_document_json(
                         *y2,
                         thickness.unwrap_or(1.0),
                         color.unwrap_or([0.0, 0.0, 0.0]),
+                        dash,
+                        *dash_phase,
                     );
                 }
                 CreateOp::Rectangle {
@@ -1170,6 +1209,8 @@ pub fn create_document_json(
                     border_color,
                     border_width,
                     opacity,
+                    dash,
+                    dash_phase,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
                         let key = format!("BPG{gs_counter}");
@@ -1191,6 +1232,8 @@ pub fn create_document_json(
                         *color,
                         *border_color,
                         *border_width,
+                        dash,
+                        *dash_phase,
                     );
                 }
                 CreateOp::Ellipse {
@@ -1203,6 +1246,8 @@ pub fn create_document_json(
                     border_color,
                     border_width,
                     opacity,
+                    dash,
+                    dash_phase,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
                         let key = format!("BPG{gs_counter}");
@@ -1224,6 +1269,8 @@ pub fn create_document_json(
                         *color,
                         *border_color,
                         *border_width,
+                        dash,
+                        *dash_phase,
                     );
                 }
                 CreateOp::Path {
@@ -1233,6 +1280,8 @@ pub fn create_document_json(
                     stroke,
                     stroke_width,
                     opacity,
+                    dash,
+                    dash_phase,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
                         let key = format!("BPG{gs_counter}");
@@ -1251,6 +1300,8 @@ pub fn create_document_json(
                         *fill,
                         *stroke,
                         *stroke_width,
+                        dash,
+                        *dash_phase,
                     );
                 }
                 CreateOp::SetRotation { .. } => {}
@@ -2211,6 +2262,48 @@ mod tests {
             xobj_stream.dict.get(b"SMask").is_err(),
             "opaque PNG image XObject should NOT have /SMask"
         );
+    }
+
+    #[test]
+    fn image_rotate_emits_rotation_matrix() {
+        let png = tiny_rgb_png();
+        let len = png.len();
+        let json = format!(
+            r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len},"rotate":90}}]"#
+        );
+        let out = create_document_json(&json, png, &[], "[]", "[]").unwrap();
+        let s = String::from_utf8_lossy(&out);
+        // 90°: cos=0, sin=1 → "0 1 -1 0 0 0 cm"; plus the translate to (50,50).
+        assert!(s.contains("0 1 -1 0 0 0 cm"), "expected 90° rotation matrix");
+        assert!(s.contains("1 0 0 1 50 50 cm"), "expected translate to placement point");
+    }
+
+    #[test]
+    fn image_no_transform_uses_combined_matrix() {
+        let png = tiny_rgb_png();
+        let len = png.len();
+        let json = format!(
+            r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
+        );
+        let out = create_document_json(&json, png, &[], "[]", "[]").unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("100 0 0 80 50 50 cm"), "expected single combined cm when no rotate/skew");
+    }
+
+    #[test]
+    fn rectangle_dash_emits_dash_op() {
+        let json = r#"[{"op":"addPage","width":595,"height":842},{"op":"rectangle","page":0,"x":10,"y":10,"width":100,"height":50,"borderColor":[0,0,0],"borderWidth":1,"dash":[4,2]}]"#;
+        let out = create_document_json(json, &[], &[], "[]", "[]").unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("[4 2] 0 d"), "expected dash pattern op");
+    }
+
+    #[test]
+    fn line_without_dash_has_no_dash_op() {
+        let json = r#"[{"op":"addPage","width":595,"height":842},{"op":"line","page":0,"x1":0,"y1":0,"x2":50,"y2":50,"color":[0,0,0],"thickness":1}]"#;
+        let out = create_document_json(json, &[], &[], "[]", "[]").unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(!s.contains(" d\n"), "solid line should emit no dash op");
     }
 
     #[test]

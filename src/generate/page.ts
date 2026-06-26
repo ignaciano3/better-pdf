@@ -42,6 +42,13 @@ export interface DrawLineOptions {
   stroke?: Color;
   /** Opacity 0..1. Default 1 (opaque). */
   opacity?: number;
+  /**
+   * Dash pattern: alternating on/off segment lengths in points (e.g. `[4, 2]`).
+   * Omit or pass `[]` for a solid stroke.
+   */
+  dash?: number[];
+  /** Distance into the dash pattern at which to start. Default 0. */
+  dashPhase?: number;
 }
 
 /** Options for {@link PdfPage.drawRectangle}. `(x, y)` is the lower-left corner. */
@@ -58,6 +65,10 @@ export interface DrawRectangleOptions {
   strokeWidth?: number;
   /** Opacity 0..1. Default 1. */
   opacity?: number;
+  /** Border dash pattern in points (e.g. `[4, 2]`). Omit for a solid border. */
+  dash?: number[];
+  /** Distance into the dash pattern at which to start. Default 0. */
+  dashPhase?: number;
 }
 
 /** Options for {@link PdfPage.drawLink}. `(x, y)` is the lower-left corner. Coordinates use the PDF convention: origin bottom-left. */
@@ -82,6 +93,10 @@ export interface DrawSvgPathOptions {
   strokeWidth?: number;
   /** Opacity 0..1. Default 1 (opaque). */
   opacity?: number;
+  /** Stroke dash pattern in points (e.g. `[4, 2]`). Omit for a solid stroke. */
+  dash?: number[];
+  /** Distance into the dash pattern at which to start. Default 0. */
+  dashPhase?: number;
 }
 
 /** Options for {@link PdfPage.drawPolygon}. */
@@ -94,6 +109,10 @@ export interface DrawPolygonOptions {
   strokeWidth?: number;
   /** Opacity 0..1. Default 1 (opaque). */
   opacity?: number;
+  /** Stroke dash pattern in points (e.g. `[4, 2]`). Omit for a solid stroke. */
+  dash?: number[];
+  /** Distance into the dash pattern at which to start. Default 0. */
+  dashPhase?: number;
   /** Whether to close the polygon by appending a Z segment back to the first point. Default `true`. Pass `closed: false` for an open polyline. */
   closed?: boolean;
 }
@@ -114,6 +133,10 @@ export interface DrawEllipseOptions {
   strokeWidth?: number;
   /** Opacity 0..1. Default 1. */
   opacity?: number;
+  /** Border dash pattern in points (e.g. `[4, 2]`). Omit for a solid border. */
+  dash?: number[];
+  /** Distance into the dash pattern at which to start. Default 0. */
+  dashPhase?: number;
 }
 
 /** Options for {@link PdfPage.drawImage}. Coordinates use the PDF convention: origin bottom-left. */
@@ -126,6 +149,12 @@ export interface DrawImageOptions {
   height?: number;
   /** Constant opacity 0..1 applied to the whole image. Default 1 (opaque). */
   opacity?: number;
+  /** Rotation in degrees, counter-clockwise about `(x, y)`. Default 0. */
+  rotate?: number;
+  /** Horizontal skew in degrees. Default 0. */
+  xSkew?: number;
+  /** Vertical skew in degrees. Default 0. */
+  ySkew?: number;
 }
 
 /** Options for {@link PdfPage.drawPage}. Coordinates use the PDF convention: origin bottom-left. */
@@ -138,6 +167,12 @@ export interface DrawPageOptions {
   height?: number;
   /** Constant opacity 0..1 applied to the whole page. Default 1 (opaque). */
   opacity?: number;
+  /** Rotation in degrees, counter-clockwise about `(x, y)`. Default 0. */
+  rotate?: number;
+  /** Horizontal skew in degrees. Default 0. */
+  xSkew?: number;
+  /** Vertical skew in degrees. Default 0. */
+  ySkew?: number;
 }
 
 function validateOpacity(o: number | undefined): void {
@@ -150,6 +185,24 @@ function validateBorderWidth(w: number | undefined, name = "borderWidth"): void 
   if (w !== undefined && (!Number.isFinite(w) || w < 0)) {
     throw new RangeError(`${name} must be >= 0, got ${w}`);
   }
+}
+
+function validateFinite(v: number | undefined, name: string): void {
+  if (v !== undefined && !Number.isFinite(v)) {
+    throw new RangeError(`${name} must be a finite number, got ${v}`);
+  }
+}
+
+/** Validate a dash pattern: every entry finite and >= 0; phase finite. */
+function validateDash(dash: number[] | undefined, dashPhase: number | undefined): void {
+  if (dash !== undefined) {
+    for (const v of dash) {
+      if (!Number.isFinite(v) || v < 0) {
+        throw new RangeError(`dash entries must be finite and >= 0, got ${v}`);
+      }
+    }
+  }
+  validateFinite(dashPhase, "dashPhase");
 }
 
 function tuple(c: Color): [number, number, number] {
@@ -275,12 +328,18 @@ export class PdfPage {
     }
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
     validateOpacity(options.opacity);
+    validateFinite(options.rotate, "rotate");
+    validateFinite(options.xSkew, "xSkew");
+    validateFinite(options.ySkew, "ySkew");
     this.queue.pushImage(this._slot, image[kImageBytes], {
       x: options.x,
       y: options.y,
       width,
       height,
       ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
+      ...(options.rotate !== undefined ? { rotate: options.rotate } : {}),
+      ...(options.xSkew !== undefined ? { xSkew: options.xSkew } : {}),
+      ...(options.ySkew !== undefined ? { ySkew: options.ySkew } : {}),
     });
   }
 
@@ -301,6 +360,9 @@ export class PdfPage {
     }
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
     validateOpacity(options.opacity);
+    validateFinite(options.rotate, "rotate");
+    validateFinite(options.xSkew, "xSkew");
+    validateFinite(options.ySkew, "ySkew");
     this.queue.pushPage(this._slot, embedded[kEmbeddedBytes], {
       x: options.x,
       y: options.y,
@@ -308,6 +370,9 @@ export class PdfPage {
       height,
       srcPage: embedded.srcPage,
       ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
+      ...(options.rotate !== undefined ? { rotate: options.rotate } : {}),
+      ...(options.xSkew !== undefined ? { xSkew: options.xSkew } : {}),
+      ...(options.ySkew !== undefined ? { ySkew: options.ySkew } : {}),
     });
   }
 
@@ -316,7 +381,7 @@ export class PdfPage {
    * convention: origin bottom-left.
    */
   drawLine(options: DrawLineOptions): void {
-    const { start, end, strokeWidth, stroke, opacity } = options;
+    const { start, end, strokeWidth, stroke, opacity, dash, dashPhase } = options;
     for (const [v, name] of [
       [start.x, "start.x"],
       [start.y, "start.y"],
@@ -327,6 +392,7 @@ export class PdfPage {
     }
     validateBorderWidth(strokeWidth, "strokeWidth");
     validateOpacity(opacity);
+    validateDash(dash, dashPhase);
     const op: LineOp = {
       op: "line",
       page: this._slot,
@@ -337,6 +403,8 @@ export class PdfPage {
       ...(strokeWidth !== undefined ? { thickness: strokeWidth } : {}),
       ...(stroke !== undefined ? { color: tuple(stroke) } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
+      ...(dash !== undefined ? { dash } : {}),
+      ...(dashPhase !== undefined ? { dashPhase } : {}),
     };
     this.queue.pushLine(op);
   }
@@ -346,7 +414,7 @@ export class PdfPage {
    * corner. Coordinates use the PDF convention: origin bottom-left.
    */
   drawRectangle(options: DrawRectangleOptions): void {
-    const { x, y, width, height, fill, stroke, strokeWidth, opacity } = options;
+    const { x, y, width, height, fill, stroke, strokeWidth, opacity, dash, dashPhase } = options;
     for (const [v, name] of [
       [x, "x"],
       [y, "y"],
@@ -359,6 +427,7 @@ export class PdfPage {
     if (height <= 0) throw new RangeError(`height must be > 0, got ${height}`);
     validateBorderWidth(strokeWidth, "strokeWidth");
     validateOpacity(opacity);
+    validateDash(dash, dashPhase);
     const op: RectangleOp = {
       op: "rectangle",
       page: this._slot,
@@ -370,6 +439,8 @@ export class PdfPage {
       ...(stroke !== undefined ? { borderColor: tuple(stroke) } : {}),
       ...(strokeWidth !== undefined ? { borderWidth: strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
+      ...(dash !== undefined ? { dash } : {}),
+      ...(dashPhase !== undefined ? { dashPhase } : {}),
     };
     this.queue.pushRectangle(op);
   }
@@ -423,7 +494,7 @@ export class PdfPage {
    * bottom-left.
    */
   drawEllipse(options: DrawEllipseOptions): void {
-    const { x, y, radiusX, radiusY, fill, stroke, strokeWidth, opacity } = options;
+    const { x, y, radiusX, radiusY, fill, stroke, strokeWidth, opacity, dash, dashPhase } = options;
     for (const [v, name] of [
       [x, "x"],
       [y, "y"],
@@ -436,6 +507,7 @@ export class PdfPage {
     if (radiusY <= 0) throw new RangeError(`radiusY must be > 0, got ${radiusY}`);
     validateBorderWidth(strokeWidth, "strokeWidth");
     validateOpacity(opacity);
+    validateDash(dash, dashPhase);
     const op: EllipseOp = {
       op: "ellipse",
       page: this._slot,
@@ -447,6 +519,8 @@ export class PdfPage {
       ...(stroke !== undefined ? { borderColor: tuple(stroke) } : {}),
       ...(strokeWidth !== undefined ? { borderWidth: strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
+      ...(dash !== undefined ? { dash } : {}),
+      ...(dashPhase !== undefined ? { dashPhase } : {}),
     };
     this.queue.pushEllipse(op);
   }
@@ -460,9 +534,10 @@ export class PdfPage {
    * @param opts - Optional fill, stroke, strokeWidth, and opacity.
    */
   drawSvgPath(d: string, opts: DrawSvgPathOptions = {}): void {
-    const { fill, stroke, strokeWidth, opacity } = opts;
+    const { fill, stroke, strokeWidth, opacity, dash, dashPhase } = opts;
     validateOpacity(opacity);
     validateBorderWidth(strokeWidth, "strokeWidth");
+    validateDash(dash, dashPhase);
     const segments = parseSvgPath(d);
     const op: PathOp = {
       op: "path",
@@ -472,6 +547,8 @@ export class PdfPage {
       ...(stroke !== undefined ? { stroke: tuple(stroke) } : {}),
       ...(strokeWidth !== undefined ? { strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
+      ...(dash !== undefined ? { dash } : {}),
+      ...(dashPhase !== undefined ? { dashPhase } : {}),
     };
     this.queue.pushPath(op);
   }
@@ -493,10 +570,11 @@ export class PdfPage {
         throw new RangeError(`points[${i}] coordinates must be finite numbers`);
       }
     }
-    const { fill, stroke, strokeWidth, opacity } = opts;
+    const { fill, stroke, strokeWidth, opacity, dash, dashPhase } = opts;
     const closed = opts.closed ?? true;
     validateOpacity(opacity);
     validateBorderWidth(strokeWidth, "strokeWidth");
+    validateDash(dash, dashPhase);
     const segments: Segment[] = [
       { t: "m", x: points[0]!.x, y: points[0]!.y },
       ...points.slice(1).map((p) => ({ t: "l" as const, x: p.x, y: p.y })),
@@ -510,6 +588,8 @@ export class PdfPage {
       ...(stroke !== undefined ? { stroke: tuple(stroke) } : {}),
       ...(strokeWidth !== undefined ? { strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
+      ...(dash !== undefined ? { dash } : {}),
+      ...(dashPhase !== undefined ? { dashPhase } : {}),
     };
     this.queue.pushPath(op);
   }

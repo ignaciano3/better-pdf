@@ -131,4 +131,33 @@ describe("PdfImage", () => {
     expect(() => doc.getPage(0).drawImage(img, { x: 0, y: 0, width: 10, height: 10, opacity: 1.5 }))
       .toThrow(RangeError);
   });
+
+  it("drawImage rotate emits a rotation matrix", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 50, y: 50, width: 100, height: 80, rotate: 90 });
+    const out = await doc.save();
+    const str = Array.from(out).map((b) => String.fromCharCode(b)).join("");
+    expect(str).toContain("0 1 -1 0 0 0 cm");
+    expect(str).toContain("1 0 0 1 50 50 cm");
+  });
+
+  it("drawImage with no transform uses a single combined cm", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 50, y: 50, width: 100, height: 80 });
+    const out = await doc.save();
+    const str = Array.from(out).map((b) => String.fromCharCode(b)).join("");
+    expect(str).toContain("100 0 0 80 50 50 cm");
+  });
+
+  it("drawImage rejects non-finite rotate", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    expect(() => doc.getPage(0).drawImage(img, { x: 0, y: 0, width: 10, height: 10, rotate: Infinity }))
+      .toThrow(RangeError);
+  });
 });

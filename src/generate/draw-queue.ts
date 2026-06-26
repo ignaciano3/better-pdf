@@ -28,6 +28,9 @@ export type ImageOp = {
   imageOffset: number;
   imageLength: number;
   opacity?: number;
+  rotate?: number;
+  xSkew?: number;
+  ySkew?: number;
 };
 
 export type PageOp = {
@@ -41,6 +44,9 @@ export type PageOp = {
   imageLength: number;
   srcPage: number;
   opacity?: number;
+  rotate?: number;
+  xSkew?: number;
+  ySkew?: number;
 };
 
 export type LineOp = {
@@ -53,6 +59,8 @@ export type LineOp = {
   thickness?: number;
   color?: [number, number, number];
   opacity?: number;
+  dash?: number[];
+  dashPhase?: number;
 };
 
 export type RectangleOp = {
@@ -66,6 +74,8 @@ export type RectangleOp = {
   borderColor?: [number, number, number];
   borderWidth?: number;
   opacity?: number;
+  dash?: number[];
+  dashPhase?: number;
 };
 
 export type EllipseOp = {
@@ -79,6 +89,8 @@ export type EllipseOp = {
   borderColor?: [number, number, number];
   borderWidth?: number;
   opacity?: number;
+  dash?: number[];
+  dashPhase?: number;
 };
 
 export type SetRotationOp = { op: "setRotation"; page: number; degrees: number };
@@ -105,6 +117,8 @@ export type PathOp = {
   stroke?: [number, number, number];
   strokeWidth?: number;
   opacity?: number;
+  dash?: number[];
+  dashPhase?: number;
 };
 
 type ImageEntry = {
@@ -186,7 +200,7 @@ export class DrawQueue {
   pushImage(
     page: number,
     bytes: Uint8Array,
-    opts: { x: number; y: number; width: number; height: number; opacity?: number },
+    opts: { x: number; y: number; width: number; height: number; opacity?: number; rotate?: number; xSkew?: number; ySkew?: number },
   ): void {
     this.drawOps.push({
       kind: "image",
@@ -194,6 +208,9 @@ export class DrawQueue {
       op: {
         op: "image", page, x: opts.x, y: opts.y, width: opts.width, height: opts.height,
         ...(opts.opacity !== undefined ? { opacity: opts.opacity } : {}),
+        ...(opts.rotate !== undefined ? { rotate: opts.rotate } : {}),
+        ...(opts.xSkew !== undefined ? { xSkew: opts.xSkew } : {}),
+        ...(opts.ySkew !== undefined ? { ySkew: opts.ySkew } : {}),
       },
     });
   }
@@ -201,7 +218,7 @@ export class DrawQueue {
   pushPage(
     page: number,
     bytes: Uint8Array,
-    opts: { x: number; y: number; width: number; height: number; srcPage: number; opacity?: number },
+    opts: { x: number; y: number; width: number; height: number; srcPage: number; opacity?: number; rotate?: number; xSkew?: number; ySkew?: number },
   ): void {
     this.drawOps.push({
       kind: "page",
@@ -209,6 +226,9 @@ export class DrawQueue {
       op: {
         op: "page", page, x: opts.x, y: opts.y, width: opts.width, height: opts.height, srcPage: opts.srcPage,
         ...(opts.opacity !== undefined ? { opacity: opts.opacity } : {}),
+        ...(opts.rotate !== undefined ? { rotate: opts.rotate } : {}),
+        ...(opts.xSkew !== undefined ? { xSkew: opts.xSkew } : {}),
+        ...(opts.ySkew !== undefined ? { ySkew: opts.ySkew } : {}),
       },
     });
   }

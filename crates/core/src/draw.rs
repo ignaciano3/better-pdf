@@ -54,6 +54,12 @@ enum DrawOp {
         image_length: usize,
         #[serde(default)]
         opacity: Option<f32>,
+        #[serde(default)]
+        rotate: f32,
+        #[serde(rename = "xSkew", default)]
+        x_skew: f32,
+        #[serde(rename = "ySkew", default)]
+        y_skew: f32,
     },
     Line {
         page: usize,
@@ -64,6 +70,10 @@ enum DrawOp {
         thickness: Option<f32>,
         color: Option<[f32; 3]>,
         opacity: Option<f32>,
+        #[serde(default)]
+        dash: Vec<f32>,
+        #[serde(rename = "dashPhase", default)]
+        dash_phase: f32,
     },
     Rectangle {
         page: usize,
@@ -77,6 +87,10 @@ enum DrawOp {
         #[serde(rename = "borderWidth")]
         border_width: Option<f32>,
         opacity: Option<f32>,
+        #[serde(default)]
+        dash: Vec<f32>,
+        #[serde(rename = "dashPhase", default)]
+        dash_phase: f32,
     },
     Ellipse {
         page: usize,
@@ -92,6 +106,10 @@ enum DrawOp {
         #[serde(rename = "borderWidth")]
         border_width: Option<f32>,
         opacity: Option<f32>,
+        #[serde(default)]
+        dash: Vec<f32>,
+        #[serde(rename = "dashPhase", default)]
+        dash_phase: f32,
     },
     #[serde(rename = "page")]
     Page {
@@ -108,6 +126,12 @@ enum DrawOp {
         src_page: usize,
         #[serde(default)]
         opacity: Option<f32>,
+        #[serde(default)]
+        rotate: f32,
+        #[serde(rename = "xSkew", default)]
+        x_skew: f32,
+        #[serde(rename = "ySkew", default)]
+        y_skew: f32,
     },
     #[serde(rename = "setRotation")]
     SetRotation { page: usize, degrees: i64 },
@@ -134,6 +158,10 @@ enum DrawOp {
         #[serde(rename = "strokeWidth")]
         stroke_width: Option<f32>,
         opacity: Option<f32>,
+        #[serde(default)]
+        dash: Vec<f32>,
+        #[serde(rename = "dashPhase", default)]
+        dash_phase: f32,
     },
 }
 
@@ -361,8 +389,66 @@ pub(crate) fn emit_text_block_cid(
     }
 }
 
+/// Append the CTM (`cm`) operators that place a unit XObject at `(x, y)` scaled
+/// by `(sx, sy)`, optionally rotated by `rotate` degrees (counter-clockwise) and
+/// skewed by `x_skew`/`y_skew` degrees. Matches pdf-lib's order:
+/// translate → rotate → scale → skew. When there is no rotation or skew this
+/// collapses to the single combined `sx 0 0 sy x y cm` form.
+pub(crate) fn emit_placement(
+    out: &mut Vec<u8>,
+    x: f32,
+    y: f32,
+    sx: f32,
+    sy: f32,
+    rotate: f32,
+    x_skew: f32,
+    y_skew: f32,
+) {
+    if rotate == 0.0 && x_skew == 0.0 && y_skew == 0.0 {
+        out.extend_from_slice(
+            format!("{} 0 0 {} {} {} cm\n", fmt_num(sx), fmt_num(sy), fmt_num(x), fmt_num(y))
+                .as_bytes(),
+        );
+        return;
+    }
+    // translate to the placement point
+    out.extend_from_slice(
+        format!("1 0 0 1 {} {} cm\n", fmt_num(x), fmt_num(y)).as_bytes(),
+    );
+    // rotate about that point
+    if rotate != 0.0 {
+        let r = rotate.to_radians();
+        out.extend_from_slice(
+            format!(
+                "{} {} {} {} 0 0 cm\n",
+                fmt_num(r.cos()),
+                fmt_num(r.sin()),
+                fmt_num(-r.sin()),
+                fmt_num(r.cos())
+            )
+            .as_bytes(),
+        );
+    }
+    // scale to the target box
+    out.extend_from_slice(
+        format!("{} 0 0 {} 0 0 cm\n", fmt_num(sx), fmt_num(sy)).as_bytes(),
+    );
+    // skew (pdf-lib: [1, tan(yskew), tan(xskew), 1])
+    if x_skew != 0.0 || y_skew != 0.0 {
+        out.extend_from_slice(
+            format!(
+                "1 {} {} 1 0 0 cm\n",
+                fmt_num(y_skew.to_radians().tan()),
+                fmt_num(x_skew.to_radians().tan())
+            )
+            .as_bytes(),
+        );
+    }
+}
+
 /// Append a `q … cm /key Do Q` image-draw block. `(x,y)` is lower-left; width/height in points.
 /// `gs_key` optionally applies an ExtGState (for opacity) before the image is painted.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_image_op(
     out: &mut Vec<u8>,
     xobj_key: &str,
@@ -371,23 +457,33 @@ pub(crate) fn emit_image_op(
     width: f32,
     height: f32,
     gs_key: Option<&str>,
+    rotate: f32,
+    x_skew: f32,
+    y_skew: f32,
 ) {
     out.extend_from_slice(b"q\n");
     if let Some(k) = gs_key {
         out.extend_from_slice(format!("/{k} gs\n").as_bytes());
     }
-    out.extend_from_slice(
-        format!(
-            "{} 0 0 {} {} {} cm\n",
-            fmt_num(width),
-            fmt_num(height),
-            fmt_num(x),
-            fmt_num(y)
-        )
-        .as_bytes(),
-    );
+    emit_placement(out, x, y, width, height, rotate, x_skew, y_skew);
     out.extend_from_slice(format!("/{xobj_key} Do\n").as_bytes());
     out.extend_from_slice(b"Q\n");
+}
+
+/// Append a dash-pattern operator (`[a b ...] phase d`) when `dash` is
+/// non-empty. An empty `dash` leaves the stroke solid (no operator emitted).
+fn emit_dash(out: &mut Vec<u8>, dash: &[f32], phase: f32) {
+    if dash.is_empty() {
+        return;
+    }
+    out.extend_from_slice(b"[");
+    for (i, v) in dash.iter().enumerate() {
+        if i > 0 {
+            out.extend_from_slice(b" ");
+        }
+        out.extend_from_slice(fmt_num(*v).as_bytes());
+    }
+    out.extend_from_slice(format!("] {} d\n", fmt_num(phase)).as_bytes());
 }
 
 fn paint_op(has_fill: bool, has_stroke: bool) -> &'static str {
@@ -409,6 +505,8 @@ pub(crate) fn emit_line(
     y2: f32,
     thickness: f32,
     color: [f32; 3],
+    dash: &[f32],
+    dash_phase: f32,
 ) {
     let [r, g, b] = color;
     out.extend_from_slice(b"q\n");
@@ -416,6 +514,7 @@ pub(crate) fn emit_line(
         out.extend_from_slice(format!("/{k} gs\n").as_bytes());
     }
     out.extend_from_slice(format!("{} w\n", fmt_num(thickness)).as_bytes());
+    emit_dash(out, dash, dash_phase);
     out.extend_from_slice(
         format!("{} {} {} RG\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
     );
@@ -435,6 +534,8 @@ pub(crate) fn emit_rectangle(
     fill: Option<[f32; 3]>,
     border: Option<[f32; 3]>,
     border_width: Option<f32>,
+    dash: &[f32],
+    dash_phase: f32,
 ) {
     out.extend_from_slice(b"q\n");
     if let Some(k) = gs_key {
@@ -452,6 +553,7 @@ pub(crate) fn emit_rectangle(
         out.extend_from_slice(
             format!("{} w\n", fmt_num(border_width.unwrap_or(1.0))).as_bytes(),
         );
+        emit_dash(out, dash, dash_phase);
     }
     out.extend_from_slice(
         format!("{} {} {} {} re\n", fmt_num(x), fmt_num(y), fmt_num(w), fmt_num(h)).as_bytes(),
@@ -471,6 +573,8 @@ pub(crate) fn emit_ellipse(
     fill: Option<[f32; 3]>,
     border: Option<[f32; 3]>,
     border_width: Option<f32>,
+    dash: &[f32],
+    dash_phase: f32,
 ) {
     // 4-segment cubic Bézier approximation. k = 4/3*(sqrt(2)-1) ≈ 0.5523.
     let k = 0.552_284_8_f32;
@@ -491,6 +595,7 @@ pub(crate) fn emit_ellipse(
         out.extend_from_slice(
             format!("{} w\n", fmt_num(border_width.unwrap_or(1.0))).as_bytes(),
         );
+        emit_dash(out, dash, dash_phase);
     }
     // Start at right vertex, go counter-clockwise.
     out.extend_from_slice(format!("{} {} m\n", fmt_num(cx + rx), fmt_num(cy)).as_bytes());
@@ -547,6 +652,7 @@ pub(crate) fn emit_ellipse(
     out.extend_from_slice(b"\nQ\n");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_path(
     out: &mut Vec<u8>,
     gs_key: Option<&str>,
@@ -554,6 +660,8 @@ pub(crate) fn emit_path(
     fill: Option<[f32; 3]>,
     stroke: Option<[f32; 3]>,
     stroke_width: Option<f32>,
+    dash: &[f32],
+    dash_phase: f32,
 ) {
     out.extend_from_slice(b"q\n");
     if let Some(k) = gs_key {
@@ -571,6 +679,7 @@ pub(crate) fn emit_path(
         out.extend_from_slice(
             format!("{} w\n", fmt_num(stroke_width.unwrap_or(1.0))).as_bytes(),
         );
+        emit_dash(out, dash, dash_phase);
     }
     for seg in segments {
         match seg {
@@ -886,6 +995,7 @@ pub fn apply_draw_ops_json(
                 color,
                 opacity,
                 x1, y1, x2, y2,
+                ..
             } => {
                 if *page >= page_count {
                     return Err(format!("page {page} out of range ({page_count} pages)"));
@@ -918,6 +1028,7 @@ pub fn apply_draw_ops_json(
                 border_width,
                 opacity,
                 x, y, width, height,
+                ..
             } => {
                 if *page >= page_count {
                     return Err(format!("page {page} out of range ({page_count} pages)"));
@@ -963,6 +1074,7 @@ pub fn apply_draw_ops_json(
                 border_width,
                 opacity,
                 x, y, x_scale, y_scale,
+                ..
             } => {
                 if *page >= page_count {
                     return Err(format!("page {page} out of range ({page_count} pages)"));
@@ -1055,6 +1167,7 @@ pub fn apply_draw_ops_json(
                 stroke,
                 stroke_width,
                 opacity,
+                ..
             } => {
                 if *page >= page_count {
                     return Err(format!("page {page} out of range ({page_count} pages)"));
@@ -1281,6 +1394,9 @@ pub fn apply_draw_ops_json(
                     image_offset,
                     image_length,
                     opacity,
+                    rotate,
+                    x_skew,
+                    y_skew,
                     page: _,
                 } => {
                     let gs_key = if let Some(o) = opacity {
@@ -1303,7 +1419,10 @@ pub fn apply_draw_ops_json(
                     );
                     let key = format!("BPI{img_counter}");
                     img_counter += 1;
-                    emit_image_op(&mut stream_content, &key, *x, *y, *width, *height, gs_key.as_deref());
+                    emit_image_op(
+                        &mut stream_content, &key, *x, *y, *width, *height,
+                        gs_key.as_deref(), *rotate, *x_skew, *y_skew,
+                    );
                     xobjects_on_page.push((key, xid));
                 }
                 DrawOp::Page {
@@ -1315,6 +1434,9 @@ pub fn apply_draw_ops_json(
                     image_length,
                     src_page,
                     opacity,
+                    rotate,
+                    x_skew,
+                    y_skew,
                     page: _,
                 } => {
                     let gs_key = if let Some(o) = opacity {
@@ -1341,15 +1463,9 @@ pub fn apply_draw_ops_json(
                     if let Some(k) = gs_key.as_deref() {
                         stream_content.extend_from_slice(format!("/{k} gs\n").as_bytes());
                     }
-                    stream_content.extend_from_slice(
-                        format!(
-                            "{} 0 0 {} {} {} cm\n",
-                            fmt_num(*width / bw),
-                            fmt_num(*height / bh),
-                            fmt_num(*x),
-                            fmt_num(*y),
-                        )
-                        .as_bytes(),
+                    emit_placement(
+                        &mut stream_content, *x, *y, *width / bw, *height / bh,
+                        *rotate, *x_skew, *y_skew,
                     );
                     stream_content.extend_from_slice(format!("/{key} Do\n").as_bytes());
                     stream_content.extend_from_slice(b"Q\n");
@@ -1360,6 +1476,8 @@ pub fn apply_draw_ops_json(
                     thickness,
                     color,
                     opacity,
+                    dash,
+                    dash_phase,
                     page: _,
                 } => {
                     let gs_key = if let Some(o) = opacity {
@@ -1379,6 +1497,8 @@ pub fn apply_draw_ops_json(
                         *x1, *y1, *x2, *y2,
                         thickness.unwrap_or(1.0),
                         color.unwrap_or([0.0, 0.0, 0.0]),
+                        dash,
+                        *dash_phase,
                     );
                 }
                 DrawOp::Rectangle {
@@ -1387,6 +1507,8 @@ pub fn apply_draw_ops_json(
                     border_color,
                     border_width,
                     opacity,
+                    dash,
+                    dash_phase,
                     page: _,
                 } => {
                     let gs_key = if let Some(o) = opacity {
@@ -1407,6 +1529,8 @@ pub fn apply_draw_ops_json(
                         *color,
                         *border_color,
                         *border_width,
+                        dash,
+                        *dash_phase,
                     );
                 }
                 DrawOp::Ellipse {
@@ -1415,6 +1539,8 @@ pub fn apply_draw_ops_json(
                     border_color,
                     border_width,
                     opacity,
+                    dash,
+                    dash_phase,
                     page: _,
                 } => {
                     let gs_key = if let Some(o) = opacity {
@@ -1435,6 +1561,8 @@ pub fn apply_draw_ops_json(
                         *color,
                         *border_color,
                         *border_width,
+                        dash,
+                        *dash_phase,
                     );
                 }
                 DrawOp::Path {
@@ -1443,6 +1571,8 @@ pub fn apply_draw_ops_json(
                     stroke,
                     stroke_width,
                     opacity,
+                    dash,
+                    dash_phase,
                     page: _,
                 } => {
                     let gs_key = if let Some(o) = opacity {
@@ -1463,6 +1593,8 @@ pub fn apply_draw_ops_json(
                         *fill,
                         *stroke,
                         *stroke_width,
+                        dash,
+                        *dash_phase,
                     );
                 }
                 // Mutation/annotation ops produce no content; applied to the

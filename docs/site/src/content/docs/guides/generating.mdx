@@ -76,6 +76,14 @@ page.drawImage(img, { x: 40, y: 700, width: scaled.width, height: scaled.height,
 This is a constant alpha applied over the entire image and composes with any
 per-pixel PNG transparency (the soft mask below) — the two are independent.
 
+`drawImage` and `drawPage` also accept `rotate` (degrees, counter-clockwise
+about `(x, y)`) and `xSkew` / `ySkew` (degrees) to place the image or stamp at
+an angle:
+
+```ts
+page.drawImage(logo, { x: 40, y: 700, width: 120, height: 80, rotate: 15 });
+```
+
 :::note[PNG transparency]
 The alpha channel of RGBA and gray+alpha PNGs is preserved automatically. When
 you call `embedPng` with a transparent PNG, better-pdf extracts the alpha data
@@ -185,7 +193,12 @@ are optional; passing neither draws nothing visible.
 | `stroke` | `Color` | none | Stroke (outline) color |
 | `strokeWidth` | `number` | `1` | Stroke width in PDF points |
 | `opacity` | `number` | `1` | Opacity 0–1 applied to fill and stroke |
+| `dash` | `number[]` | solid | Dash pattern: alternating on/off lengths in points, e.g. `[4, 2]` |
+| `dashPhase` | `number` | `0` | Distance into the dash pattern at which to start |
 | `closed` | `boolean` | `true` | (`drawPolygon` only) Close the path back to the first point |
+
+`dash` applies to any stroked shape — `drawLine`, `drawRectangle`,
+`drawEllipse`, `drawSvgPath`, and `drawPolygon`.
 
 ## Text layout with `widthOfTextAtSize`
 

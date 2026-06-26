@@ -130,3 +130,55 @@ describe("shapes compose with text", () => {
     expect(s).toContain(" re");
   });
 });
+
+describe("dashed strokes", () => {
+  test("rectangle border dash emits a dash op", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    doc.getPage(0).drawRectangle({
+      x: 20, y: 20, width: 100, height: 50,
+      stroke: rgb(0, 0, 0), strokeWidth: 1, dash: [4, 2],
+    });
+    const s = new TextDecoder("latin1").decode(await doc.save());
+    expect(s).toContain("[4 2] 0 d");
+  });
+
+  test("line dash with phase", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    doc.getPage(0).drawLine({
+      start: { x: 0, y: 0 }, end: { x: 100, y: 0 },
+      stroke: rgb(0, 0, 0), dash: [6, 3], dashPhase: 1.5,
+    });
+    const s = new TextDecoder("latin1").decode(await doc.save());
+    expect(s).toContain("[6 3] 1.5 d");
+  });
+
+  test("solid line emits no dash op", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    doc.getPage(0).drawLine({ start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, stroke: rgb(0, 0, 0) });
+    const s = new TextDecoder("latin1").decode(await doc.save());
+    expect(s).not.toContain(" d\n");
+  });
+
+  test("negative dash entry throws", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    expect(() => doc.getPage(0).drawLine({
+      start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, stroke: rgb(0, 0, 0), dash: [4, -1],
+    })).toThrow(RangeError);
+  });
+
+  test("dash on loaded page round-trips", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const src = await readFile(FICHA);
+    const doc = await PdfDocument.load(new Uint8Array(src));
+    doc.getPage(0).drawRectangle({
+      x: 50, y: 50, width: 100, height: 50,
+      stroke: rgb(0, 0, 0), strokeWidth: 1, dash: [5, 5],
+    });
+    const s = new TextDecoder("latin1").decode(await doc.save());
+    expect(s).toContain("[5 5] 0 d");
+  });
+});
