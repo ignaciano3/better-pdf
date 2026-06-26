@@ -29,6 +29,20 @@ deliberately unsupported and not planned. The two are listed separately below.
 - Appearance metrics cover the standard 14 text fonts (with Arial / Times New
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
+- **Form-field text appearance:** field values always render in **Helvetica** —
+  the font family is fixed and not configurable. Size (`fontSize`), color
+  (`textColor`), and horizontal alignment (`align`) of text and choice fields,
+  and the selected-mark style (`checkStyle`) of checkboxes and radios, **are**
+  configurable.
+- **Form-field format / calculation actions (AcroForm JavaScript)** are not
+  supported — there is no API for `/AA` additional-action scripts such as date
+  pickers, number/currency masks, validation, or calculated fields. These rely
+  on viewer-side JavaScript (Acrobat) that most viewers (Chrome, Preview, etc.)
+  do not run, so no equivalent appearance is generated.
+- **Comb fields** (fixed-pitch text split into equal per-character cells, e.g.
+  SSN or date boxes — the `/Ff` Comb flag with `/MaxLen`) are not yet supported.
+  Text-field values render as a single run with the configured alignment;
+  per-cell layout is planned.
 - Color: RGB and grayscale only; CMYK is not supported.
 - **Document metadata (Info dictionary):** Title, Author, Subject, Keywords, Creator,
   Producer, CreationDate, and ModDate are **supported** via `doc.setTitle()` /
@@ -51,6 +65,10 @@ deliberately unsupported and not planned. The two are listed separately below.
   - **Page rotation and resize are now supported** via `page.setRotation(degrees)`,
     `page.setSize(width, height)`, and `page.setMediaBox(x0, y0, x1, y1)` on both
     loaded and created pages (added in 0.7.0).
+    - **Caveat — page rotation must be a multiple of 90°** (`/Rotate` is a
+      quarter-turn value per the PDF spec); other angles throw
+      `UnsupportedRotationError`. Free-angle rotation is only available for
+      `drawText({ rotate })`, which rotates the drawn glyphs, not the page.
   - **Page insertion/removal/move are now supported** via `doc.addPage(size?)` (appends; drawable in the same save), `doc.insertPage(index, size?)`, `doc.removePage(index)`, and `doc.movePage(from, to)` on loaded documents (added in 0.13.0). Incremental — forms and content are preserved.
     - **Caveat — nested page trees:** `insertPage`/`removePage`/`movePage` require a flat (single-level) page tree. PDFs with nested `Pages` nodes are rejected; use `PdfDocument.merge` or `PdfDocument.assemble` instead.
     - **Handles track their page (0.13.1):** a `PdfPage` handle follows its page across later `insertPage`/`removePage`/`movePage`; draws land on the right page regardless of call order. Drawing on a page you later remove throws at `save()`.
@@ -92,6 +110,10 @@ deliberately unsupported and not planned. The two are listed separately below.
   0.8.0). Opaque RGB / grayscale PNGs are also supported.
   - **Palette (indexed-color) PNGs with `tRNS` transparency are now supported** (added in 0.13.0) — the palette index is resolved and transparency is stored as a soft mask (`/SMask`).
   - **Still unsupported:** interlaced and 16-bit-per-channel PNGs.
+- **Image formats are limited to PNG and JPEG** (`embedPng` / `embedJpg`). GIF,
+  WebP, TIFF, and BMP are not supported.
+  - **CMYK JPEGs are rejected** — JPEGs with 4 color components throw on embed;
+    convert to RGB first.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3
   forms, plus generated xref-stream/object-stream variants).
 - Browser support expects a modern bundler/runtime that can serve the packaged
