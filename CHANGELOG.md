@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-26
+
+### Added
+
+- **Field text alignment and size.** Text and choice fields accept `align`
+  (`"left"` | `"center"` | `"right"`, mapped to the widget `/Q` quadding) and
+  `fontSize` (points, default 12, applied to the `/DA` string and appearance).
+- **Checkbox and radio mark styles.** `addCheckBox` and `addRadioGroup` accept
+  `checkStyle` — `"check"`, `"cross"`, `"circle"`, `"square"`, `"diamond"`, or
+  `"star"` — drawn as vector paths in the selected appearance. Defaults are
+  unchanged (checkbox = check, radio = filled circle).
+- **Comb text fields.** `addTextField` accepts `comb: true` to render a single
+  line split into `maxLength` equal cells, one character per cell (e.g. SSN or
+  date boxes). Sets the `/Ff` Comb flag; requires `maxLength` and is
+  incompatible with `multiline`.
+- **Image and embedded-page opacity.** `drawImage` and `drawPage` accept
+  `opacity` (0–1), applied as an ExtGState (`/ca`, `/CA`). Composes with
+  per-pixel PNG soft masks.
+
 ## [1.1.0] - 2026-06-25
 
 ### Added
