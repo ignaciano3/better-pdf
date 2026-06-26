@@ -103,3 +103,39 @@ Some options are specific to a field type:
 Field values render in Helvetica at 12 pt. Only the color is configurable (via
 `textColor`) — the font family and size are fixed.
 :::
+
+## Field names
+
+Each name is the field's literal, fully-qualified name — it is **not** split
+into a parent/child hierarchy on dots. `"applicant.name"` is one field called
+`applicant.name`, not a `name` field nested under an `applicant` parent. Names
+must be unique within the form; a duplicate throws.
+
+## Validation
+
+The builder validates as you add fields and throws synchronously (before
+`save()`):
+
+- **Duplicate or empty name** → `Error`.
+- **`width`/`height` ≤ 0**, or a non-finite coordinate → `RangeError`.
+- **`maxLength` < 0** (text) → `RangeError`.
+- **Empty `options`** (dropdown, list box, or radio group) → `RangeError`.
+- **`selected` not in `options`** (choice or radio) → `RangeError`.
+- **Duplicate radio option `value`** → `Error`.
+
+## Reading the fields back
+
+After reloading the saved PDF, each builder method pairs with a typed getter on
+`getForm()`:
+
+| Declared with        | Read back with    |
+| -------------------- | ----------------- |
+| `addTextField`       | `getTextField`    |
+| `addCheckBox`        | `getCheckBox`     |
+| `addRadioGroup`      | `getRadioGroup`   |
+| `addDropdown`        | `getDropdown`     |
+| `addListBox`         | `getListBox`      |
+| `addSignatureField`  | `getSignature`    |
+
+See the [Typed forms](/better-pdf/guides/typed-forms/) guide for how the
+declared schema flows into these getters' types.
