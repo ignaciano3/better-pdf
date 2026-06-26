@@ -152,6 +152,15 @@ struct Border {
     width: f32,
 }
 
+/// Build a PDF color operator for a field's text (`/DA` color and appearance
+/// content). RGB -> `"r g b rg"`; `None` -> black `"0 g"`.
+fn color_op(c: Option<[f32; 3]>) -> String {
+    match c {
+        Some([r, g, b]) => format!("{r} {g} {b} rg"),
+        None => "0 g".to_string(),
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum FieldDef {
@@ -173,6 +182,8 @@ enum FieldDef {
         tooltip: Option<String>,
         border: Option<Border>,
         background: Option<[f32; 3]>,
+        #[serde(rename = "textColor")]
+        text_color: Option<[f32; 3]>,
     },
     CheckBox {
         name: String,
@@ -212,6 +223,8 @@ enum FieldDef {
         height: f32,
         #[serde(default)]
         combo: bool,
+        #[serde(default)]
+        editable: bool,
         options: Vec<String>,
         selected: Option<String>,
         #[serde(default)]
@@ -221,6 +234,8 @@ enum FieldDef {
         tooltip: Option<String>,
         border: Option<Border>,
         background: Option<[f32; 3]>,
+        #[serde(rename = "textColor")]
+        text_color: Option<[f32; 3]>,
     },
     #[serde(rename = "signature")]
     Signature {
@@ -1202,9 +1217,11 @@ pub fn create_document_json(
                     tooltip,
                     border,
                     background,
+                    text_color,
                 } => {
                     let val_str = value.clone().unwrap_or_default();
                     let val_bytes = crate::appearance::encode_winansi(&val_str);
+                    let op = color_op(*text_color);
 
                     let content = crate::appearance::text_appearance_content(
                         &val_bytes,
@@ -1212,7 +1229,7 @@ pub fn create_document_json(
                         *width,
                         *height,
                         0,
-                        "0 g",
+                        &op,
                         "Helv",
                         &widths,
                     );
@@ -1238,7 +1255,7 @@ pub fn create_document_json(
                     field_dict.set("FT", Object::Name(b"Tx".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
-                    field_dict.set("DA", Object::string_literal("/Helv 12 Tf 0 g"));
+                    field_dict.set("DA", Object::string_literal(format!("/Helv 12 Tf {op}")));
                     field_dict.set("V", Object::string_literal(val_bytes));
                     field_dict.set("Ff", Object::Integer(flags));
                     field_dict.set(
@@ -1488,6 +1505,7 @@ pub fn create_document_json(
                     width,
                     height,
                     combo,
+                    editable,
                     options,
                     selected,
                     required,
@@ -1495,9 +1513,11 @@ pub fn create_document_json(
                     tooltip,
                     border,
                     background,
+                    text_color,
                 } => {
                     let value = selected.clone().unwrap_or_default();
                     let val_bytes = crate::appearance::encode_winansi(&value);
+                    let op = color_op(*text_color);
 
                     let content = crate::appearance::text_appearance_content(
                         &val_bytes,
@@ -1505,7 +1525,7 @@ pub fn create_document_json(
                         *width,
                         *height,
                         0,
-                        "0 g",
+                        &op,
                         "Helv",
                         &widths,
                     );
@@ -1514,9 +1534,11 @@ pub fn create_document_json(
                     );
                     let ap_id = doc.add_object(Object::Stream(ap_stream));
 
+                    // Edit flag (bit 18) only meaningful for combo boxes.
                     let flags: i64 = (*read_only as i64)
                         | ((*required as i64) << 1)
-                        | ((*combo as i64) << 17);
+                        | ((*combo as i64) << 17)
+                        | (((*combo && *editable) as i64) << 18);
 
                     let rect = Object::Array(vec![
                         Object::Real(*x),
@@ -1536,7 +1558,7 @@ pub fn create_document_json(
                     field_dict.set("FT", Object::Name(b"Ch".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
-                    field_dict.set("DA", Object::string_literal("/Helv 12 Tf 0 g"));
+                    field_dict.set("DA", Object::string_literal(format!("/Helv 12 Tf {op}")));
                     field_dict.set("Ff", Object::Integer(flags));
                     field_dict.set("Opt", Object::Array(opt_array));
                     field_dict.set("V", Object::string_literal(val_bytes));
@@ -2299,6 +2321,57 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         let w = get_first_field_dict(&doc);
         assert!(w.has(b"TU"), "field dict missing TU (tooltip)");
+    }
+
+    #[test]
+    fn text_field_text_color_in_da() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":50,"height":20,"textColor":[1,0,0]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("1 0 0 rg"), "DA should contain red text color, got: {da}");
+    }
+
+    #[test]
+    fn choice_field_text_color_in_da() {
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":50,"height":20,"combo":true,"options":["a"],"textColor":[0,0,1]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("0 0 1 rg"), "DA should contain blue text color, got: {da}");
+    }
+
+    #[test]
+    fn text_field_default_color_is_black() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":50,"height":20}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("0 g"), "default DA should be black '0 g', got: {da}");
+    }
+
+    #[test]
+    fn editable_combo_sets_edit_flag() {
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":50,"height":20,"combo":true,"editable":true,"options":["a","b"]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let ff = w.get(b"Ff").unwrap().as_i64().unwrap();
+        assert!(ff & (1 << 17) != 0, "Combo bit (17) not set; Ff = {ff}");
+        assert!(ff & (1 << 18) != 0, "Edit bit (18) not set; Ff = {ff}");
+    }
+
+    #[test]
+    fn non_editable_combo_has_no_edit_flag() {
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":50,"height":20,"combo":true,"options":["a","b"]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let ff = w.get(b"Ff").unwrap().as_i64().unwrap();
+        assert!(ff & (1 << 18) == 0, "Edit bit (18) must not be set without editable; Ff = {ff}");
     }
 
     #[test]

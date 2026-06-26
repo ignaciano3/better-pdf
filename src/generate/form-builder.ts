@@ -19,6 +19,8 @@ interface BaseFieldOptions {
   tooltip?: string;
   border?: FieldBorder;
   background?: Color;
+  /** Color of the field's text/value. Defaults to black. */
+  textColor?: Color;
 }
 
 export interface TextFieldOptions extends BaseFieldOptions {
@@ -56,6 +58,12 @@ export interface ChoiceOptions<O extends string> extends BaseFieldOptions {
   height: number;
   options: readonly O[];
   selected?: NoInfer<O>;
+  /**
+   * For dropdowns ({@link FormBuilder.addDropdown}): allow the user to type a
+   * custom value not in `options` (sets the combo box Edit flag). Ignored by
+   * {@link FormBuilder.addListBox}, since list boxes are never combo boxes.
+   */
+  editable?: boolean;
 }
 
 export interface SignatureFieldOptions extends BaseFieldOptions {
@@ -84,6 +92,7 @@ interface WireBase {
   tooltip?: string;
   border?: WireBorder;
   background?: [number, number, number];
+  textColor?: [number, number, number];
 }
 
 /** @internal */
@@ -121,6 +130,7 @@ interface WireChoice extends WireBase {
   width: number;
   height: number;
   combo: boolean;
+  editable?: boolean;
   options: string[];
   selected?: string;
 }
@@ -183,6 +193,7 @@ function buildBase(name: string, opts: BaseFieldOptions, names: Set<string>): Wi
   if (opts.tooltip !== undefined) base.tooltip = opts.tooltip;
   if (opts.border !== undefined) base.border = borderToWire(opts.border, name);
   if (opts.background !== undefined) base.background = colorToRgb(opts.background);
+  if (opts.textColor !== undefined) base.textColor = colorToRgb(opts.textColor);
   return base;
 }
 
@@ -310,7 +321,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
   ): FormBuilder<
     S & Record<N, { type: "dropdown"; readOnly: boolean; value: string | null; states: readonly []; options: readonly O[] }>
   > {
-    return this._addChoice(name, opts, true) as unknown as FormBuilder<
+    return this._addChoice(name, opts, true, opts.editable ?? false) as unknown as FormBuilder<
       S & Record<N, { type: "dropdown"; readOnly: boolean; value: string | null; states: readonly []; options: readonly O[] }>
     >;
   }
@@ -325,7 +336,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
   ): FormBuilder<
     S & Record<N, { type: "listbox"; readOnly: boolean; value: string | null; states: readonly []; options: readonly O[] }>
   > {
-    return this._addChoice(name, opts, false) as unknown as FormBuilder<
+    return this._addChoice(name, opts, false, false) as unknown as FormBuilder<
       S & Record<N, { type: "listbox"; readOnly: boolean; value: string | null; states: readonly []; options: readonly O[] }>
     >;
   }
@@ -334,6 +345,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     name: string,
     opts: ChoiceOptions<O>,
     combo: boolean,
+    editable: boolean,
   ): this {
     const base = buildBase(name, opts, this.names);
     assertPositive(opts.width, `${name}.width`);
@@ -350,6 +362,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
       combo,
       options: [...opts.options],
     };
+    if (editable && combo) def.editable = true;
     if (opts.selected !== undefined) def.selected = opts.selected;
     this.defs.push(def);
     this.names.add(name);

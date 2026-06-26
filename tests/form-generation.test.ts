@@ -228,6 +228,83 @@ describe("form-generation: validation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// textColor wire mapping
+// ---------------------------------------------------------------------------
+
+describe("form-generation: textColor", () => {
+  test("addTextField textColor maps to wire [r,g,b]", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const { rgb } = await import("../src/generate/color.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addTextField("t", { page: 0, x: 0, y: 0, width: 10, height: 10, textColor: rgb(1, 0, 0) });
+    expect((defs[0] as { textColor?: number[] }).textColor).toEqual([1, 0, 0]);
+  });
+
+  test("addDropdown textColor maps to wire [r,g,b]", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const { rgb } = await import("../src/generate/color.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addDropdown("d", {
+      page: 0, x: 0, y: 0, width: 10, height: 10,
+      options: ["a"] as const, textColor: rgb(0, 0, 1),
+    });
+    expect((defs[0] as { textColor?: number[] }).textColor).toEqual([0, 0, 1]);
+  });
+
+  test("omitting textColor leaves wire def without it", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addTextField("t", { page: 0, x: 0, y: 0, width: 10, height: 10 });
+    expect((defs[0] as { textColor?: number[] }).textColor).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// editable combo box wire mapping
+// ---------------------------------------------------------------------------
+
+describe("form-generation: editable combo", () => {
+  test("addDropdown editable:true sets wire editable + combo", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addDropdown("d", {
+      page: 0, x: 0, y: 0, width: 10, height: 10,
+      options: ["a"] as const, editable: true,
+    });
+    const def = defs[0] as { combo: boolean; editable?: boolean };
+    expect(def.combo).toBe(true);
+    expect(def.editable).toBe(true);
+  });
+
+  test("addDropdown without editable is not editable", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addDropdown("d", {
+      page: 0, x: 0, y: 0, width: 10, height: 10, options: ["a"] as const,
+    });
+    expect((defs[0] as { editable?: boolean }).editable).toBeFalsy();
+  });
+
+  test("addListBox ignores editable (listbox cannot be combo)", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addListBox("l", {
+      page: 0, x: 0, y: 0, width: 10, height: 10,
+      options: ["a"] as const, editable: true,
+    });
+    const def = defs[0] as { combo: boolean; editable?: boolean };
+    expect(def.combo).toBe(false);
+    expect(def.editable).toBeFalsy();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // getFieldNames returns declared names
 // ---------------------------------------------------------------------------
 

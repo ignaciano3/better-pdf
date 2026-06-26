@@ -41,6 +41,8 @@ const form = doc
   .addDropdown("applicant.status", {
     page: 0, x: 56, y: 550, width: 160, height: 22,
     options: ["single", "married"], selected: "married",
+    editable: true, // user may also type a value not in `options`
+    textColor: rgb(0.1, 0.1, 0.4),
   })
   .addListBox("applicant.plan", {
     page: 0, x: 56, y: 500, width: 160, height: 48,
@@ -73,5 +75,10 @@ appearance:
 
 - `border` — `{ color, width? }`
 - `background` — a `Color`
+- `textColor` — a `Color` for the field's text/value (defaults to black);
+  applies to text fields and choice fields
 
 Colors come from `rgb(r, g, b)` and `grayscale(v)` (each 0–1).
+
+Dropdowns also accept `editable: true`, which lets the user type a value that
+isn't in `options` (the combo box Edit flag). List boxes ignore it.
