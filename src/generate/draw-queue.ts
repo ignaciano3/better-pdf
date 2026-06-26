@@ -27,6 +27,7 @@ export type ImageOp = {
   height: number;
   imageOffset: number;
   imageLength: number;
+  opacity?: number;
 };
 
 export type PageOp = {
@@ -39,6 +40,7 @@ export type PageOp = {
   imageOffset: number;
   imageLength: number;
   srcPage: number;
+  opacity?: number;
 };
 
 export type LineOp = {
@@ -184,24 +186,30 @@ export class DrawQueue {
   pushImage(
     page: number,
     bytes: Uint8Array,
-    opts: { x: number; y: number; width: number; height: number },
+    opts: { x: number; y: number; width: number; height: number; opacity?: number },
   ): void {
     this.drawOps.push({
       kind: "image",
       bytes,
-      op: { op: "image", page, x: opts.x, y: opts.y, width: opts.width, height: opts.height },
+      op: {
+        op: "image", page, x: opts.x, y: opts.y, width: opts.width, height: opts.height,
+        ...(opts.opacity !== undefined ? { opacity: opts.opacity } : {}),
+      },
     });
   }
 
   pushPage(
     page: number,
     bytes: Uint8Array,
-    opts: { x: number; y: number; width: number; height: number; srcPage: number },
+    opts: { x: number; y: number; width: number; height: number; srcPage: number; opacity?: number },
   ): void {
     this.drawOps.push({
       kind: "page",
       bytes,
-      op: { op: "page", page, x: opts.x, y: opts.y, width: opts.width, height: opts.height, srcPage: opts.srcPage },
+      op: {
+        op: "page", page, x: opts.x, y: opts.y, width: opts.width, height: opts.height, srcPage: opts.srcPage,
+        ...(opts.opacity !== undefined ? { opacity: opts.opacity } : {}),
+      },
     });
   }
 

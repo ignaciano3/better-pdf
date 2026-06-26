@@ -124,6 +124,8 @@ export interface DrawImageOptions {
   width?: number;
   /** Height in PDF points. Defaults to the image's intrinsic pixel height. */
   height?: number;
+  /** Constant opacity 0..1 applied to the whole image. Default 1 (opaque). */
+  opacity?: number;
 }
 
 /** Options for {@link PdfPage.drawPage}. Coordinates use the PDF convention: origin bottom-left. */
@@ -134,6 +136,8 @@ export interface DrawPageOptions {
   width?: number;
   /** Height in PDF points. Defaults to the embedded page's intrinsic height. */
   height?: number;
+  /** Constant opacity 0..1 applied to the whole page. Default 1 (opaque). */
+  opacity?: number;
 }
 
 function validateOpacity(o: number | undefined): void {
@@ -270,11 +274,13 @@ export class PdfPage {
       if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
     }
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
+    validateOpacity(options.opacity);
     this.queue.pushImage(this._slot, image[kImageBytes], {
       x: options.x,
       y: options.y,
       width,
       height,
+      ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
     });
   }
 
@@ -294,12 +300,14 @@ export class PdfPage {
       if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
     }
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
+    validateOpacity(options.opacity);
     this.queue.pushPage(this._slot, embedded[kEmbeddedBytes], {
       x: options.x,
       y: options.y,
       width,
       height,
       srcPage: embedded.srcPage,
+      ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
     });
   }
 

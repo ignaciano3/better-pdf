@@ -263,6 +263,87 @@ describe("form-generation: textColor", () => {
 });
 
 // ---------------------------------------------------------------------------
+// align + fontSize wire mapping
+// ---------------------------------------------------------------------------
+
+describe("form-generation: align + fontSize", () => {
+  test("addTextField maps align + fontSize to wire", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addTextField("t", { page: 0, x: 0, y: 0, width: 10, height: 10, align: "center", fontSize: 18 });
+    const def = defs[0] as { align?: string; fontSize?: number };
+    expect(def.align).toBe("center");
+    expect(def.fontSize).toBe(18);
+  });
+
+  test("addDropdown maps align + fontSize to wire", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addDropdown("d", {
+      page: 0, x: 0, y: 0, width: 10, height: 10,
+      options: ["a"] as const, align: "right", fontSize: 14,
+    });
+    const def = defs[0] as { align?: string; fontSize?: number };
+    expect(def.align).toBe("right");
+    expect(def.fontSize).toBe(14);
+  });
+
+  test("omitting align + fontSize leaves wire def without them", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addTextField("t", { page: 0, x: 0, y: 0, width: 10, height: 10 });
+    const def = defs[0] as { align?: string; fontSize?: number };
+    expect(def.align).toBeUndefined();
+    expect(def.fontSize).toBeUndefined();
+  });
+
+  test("non-positive fontSize throws", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    expect(() =>
+      fb.addTextField("t", { page: 0, x: 0, y: 0, width: 10, height: 10, fontSize: 0 }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkStyle wire mapping
+// ---------------------------------------------------------------------------
+
+describe("form-generation: checkStyle", () => {
+  test("addCheckBox maps checkStyle to wire", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addCheckBox("c", { page: 0, x: 0, y: 0, size: 12, checkStyle: "cross" });
+    expect((defs[0] as { checkStyle?: string }).checkStyle).toBe("cross");
+  });
+
+  test("addRadioGroup maps checkStyle to wire", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addRadioGroup("r", {
+      options: [{ value: "a", page: 0, x: 0, y: 0, size: 12 }] as const,
+      checkStyle: "square",
+    });
+    expect((defs[0] as { checkStyle?: string }).checkStyle).toBe("square");
+  });
+
+  test("omitting checkStyle leaves wire def without it", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addCheckBox("c", { page: 0, x: 0, y: 0, size: 12 });
+    expect((defs[0] as { checkStyle?: string }).checkStyle).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // editable combo box wire mapping
 // ---------------------------------------------------------------------------
 

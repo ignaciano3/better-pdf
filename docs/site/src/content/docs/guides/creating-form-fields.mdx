@@ -81,8 +81,13 @@ appearance:
 
 - `border` — `{ color, width? }`
 - `background` — a `Color`
-- `textColor` — a `Color` for the field's text/value (defaults to black);
-  applies to text fields and choice fields
+- `textColor` — a `Color` for the field's text/value (defaults to black)
+- `align` — `"left"` (default), `"center"`, or `"right"`; horizontal
+  alignment of the value
+- `fontSize` — the value's font size in points (defaults to `12`)
+
+`textColor`, `align`, and `fontSize` apply to text fields and choice fields
+(dropdowns and list boxes).
 
 Colors come from `rgb(r, g, b)` and `grayscale(v)` (each 0–1).
 
@@ -94,14 +99,19 @@ Some options are specific to a field type:
   `multiline: true` makes the field wrap text across lines (otherwise it's a
   single line).
 - **Checkbox** — `onValue` is the field's export value when checked (default
-  `"Yes"`); `checked: true` ticks it initially.
+  `"Yes"`); `checked: true` ticks it initially. `checkStyle` chooses the mark
+  drawn when ticked: `"check"` (default), `"cross"`, `"circle"`, `"square"`,
+  `"diamond"`, or `"star"`.
+- **Radio group** — `checkStyle` chooses the selected mark, same values as
+  checkbox but defaulting to `"circle"`. The style applies to every option in
+  the group.
 - **Dropdown** — `editable: true` lets the user type a value that isn't in
   `options` (the combo box Edit flag). `addListBox` ignores it, since list boxes
   are never combo boxes.
 
-:::note[Field text is Helvetica 12 pt]
-Field values render in Helvetica at 12 pt. Only the color is configurable (via
-`textColor`) — the font family and size are fixed.
+:::note[Field text is always Helvetica]
+Field values render in Helvetica. The size (`fontSize`), color (`textColor`),
+and alignment (`align`) are configurable — the font family is fixed.
 :::
 
 ## Field names
@@ -119,6 +129,7 @@ The builder validates as you add fields and throws synchronously (before
 - **Duplicate or empty name** → `Error`.
 - **`width`/`height` ≤ 0**, or a non-finite coordinate → `RangeError`.
 - **`maxLength` < 0** (text) → `RangeError`.
+- **`fontSize` ≤ 0** (text or choice) → `RangeError`.
 - **Empty `options`** (dropdown, list box, or radio group) → `RangeError`.
 - **`selected` not in `options`** (choice or radio) → `RangeError`.
 - **Duplicate radio option `value`** → `Error`.

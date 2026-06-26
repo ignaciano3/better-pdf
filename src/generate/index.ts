@@ -12,4 +12,4 @@ export { PageOutOfRangeError } from "../core/errors.js";
 export { PageSizes } from "./page-sizes.js";
 export type { PageSize } from "./page-sizes.js";
 export { FormBuilder } from "./form-builder.js";
-export type { TextFieldOptions, CheckBoxOptions, RadioGroupOptions, RadioOption, ChoiceOptions, SignatureFieldOptions, FieldBorder } from "./form-builder.js";
+export type { TextFieldOptions, CheckBoxOptions, RadioGroupOptions, RadioOption, ChoiceOptions, SignatureFieldOptions, FieldBorder, FieldAlign, CheckStyle } from "./form-builder.js";

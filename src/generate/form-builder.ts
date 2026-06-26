@@ -23,18 +23,33 @@ interface BaseFieldOptions {
   textColor?: Color;
 }
 
+/** Horizontal alignment of a field's text/value. Defaults to `"left"`. */
+export type FieldAlign = "left" | "center" | "right";
+
 export interface TextFieldOptions extends BaseFieldOptions {
   width: number;
   height: number;
   value?: string;
   maxLength?: number;
   multiline?: boolean;
+  /** Horizontal alignment of the field's text. Defaults to `"left"`. */
+  align?: FieldAlign;
+  /** Font size in points for the field's value. Defaults to 12. */
+  fontSize?: number;
 }
+
+/**
+ * The mark drawn when a checkbox or radio button is selected. Defaults to
+ * `"check"` for checkboxes and `"circle"` for radio buttons.
+ */
+export type CheckStyle = "check" | "cross" | "circle" | "square" | "diamond" | "star";
 
 export interface CheckBoxOptions extends BaseFieldOptions {
   size: number;
   checked?: boolean;
   onValue?: string;
+  /** The mark drawn when ticked. Defaults to `"check"`. */
+  checkStyle?: CheckStyle;
 }
 
 export interface RadioOption {
@@ -51,6 +66,8 @@ export interface RadioGroupOptions {
   readOnly?: boolean;
   tooltip?: string;
   options: readonly RadioOption[];
+  /** The mark drawn when a button is selected. Defaults to `"circle"`. */
+  checkStyle?: CheckStyle;
 }
 
 export interface ChoiceOptions<O extends string> extends BaseFieldOptions {
@@ -64,6 +81,10 @@ export interface ChoiceOptions<O extends string> extends BaseFieldOptions {
    * {@link FormBuilder.addListBox}, since list boxes are never combo boxes.
    */
   editable?: boolean;
+  /** Horizontal alignment of the field's value. Defaults to `"left"`. */
+  align?: FieldAlign;
+  /** Font size in points for the field's value. Defaults to 12. */
+  fontSize?: number;
 }
 
 export interface SignatureFieldOptions extends BaseFieldOptions {
@@ -103,6 +124,8 @@ interface WireTextField extends WireBase {
   value?: string;
   maxLength?: number;
   multiline?: boolean;
+  align?: FieldAlign;
+  fontSize?: number;
 }
 
 /** @internal */
@@ -111,6 +134,7 @@ interface WireCheckBox extends WireBase {
   size: number;
   checked?: boolean;
   onValue?: string;
+  checkStyle?: CheckStyle;
 }
 
 /** @internal */
@@ -122,6 +146,7 @@ interface WireRadioGroup {
   readOnly?: boolean;
   tooltip?: string;
   options: Array<{ value: string; page: number; x: number; y: number; size: number }>;
+  checkStyle?: CheckStyle;
 }
 
 /** @internal */
@@ -133,6 +158,8 @@ interface WireChoice extends WireBase {
   editable?: boolean;
   options: string[];
   selected?: string;
+  align?: FieldAlign;
+  fontSize?: number;
 }
 
 /** @internal */
@@ -180,6 +207,22 @@ function assertPositive(v: number, name: string): void {
 function assertGeometry(opts: { x: number; y: number }, label: string): void {
   assertFinite(opts.x, `${label}.x`);
   assertFinite(opts.y, `${label}.y`);
+}
+
+/**
+ * Copy validated `align`/`fontSize` from a text/choice options object onto its
+ * wire def. `fontSize` must be a finite number > 0.
+ */
+function applyTextStyle(
+  def: { align?: FieldAlign; fontSize?: number },
+  opts: { align?: FieldAlign; fontSize?: number },
+  label: string,
+): void {
+  if (opts.align !== undefined) def.align = opts.align;
+  if (opts.fontSize !== undefined) {
+    assertPositive(opts.fontSize, `${label}.fontSize`);
+    def.fontSize = opts.fontSize;
+  }
 }
 
 function buildBase(name: string, opts: BaseFieldOptions, names: Set<string>): WireBase {
@@ -237,6 +280,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     if (opts.value !== undefined) def.value = opts.value;
     if (opts.maxLength !== undefined) def.maxLength = opts.maxLength;
     if (opts.multiline !== undefined) def.multiline = opts.multiline;
+    applyTextStyle(def, opts, name);
     this.defs.push(def);
     this.names.add(name);
     return this as unknown as FormBuilder<
@@ -259,6 +303,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     const def: WireCheckBox = { ...base, type: "checkBox", size: opts.size };
     if (opts.checked !== undefined) def.checked = opts.checked;
     if (opts.onValue !== undefined) def.onValue = opts.onValue;
+    if (opts.checkStyle !== undefined) def.checkStyle = opts.checkStyle;
     this.defs.push(def);
     this.names.add(name);
     return this as unknown as FormBuilder<
@@ -304,6 +349,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     if (opts.required !== undefined) def.required = opts.required;
     if (opts.readOnly !== undefined) def.readOnly = opts.readOnly;
     if (opts.tooltip !== undefined) def.tooltip = opts.tooltip;
+    if (opts.checkStyle !== undefined) def.checkStyle = opts.checkStyle;
     this.defs.push(def);
     this.names.add(name);
     return this as unknown as FormBuilder<
@@ -364,6 +410,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     };
     if (editable && combo) def.editable = true;
     if (opts.selected !== undefined) def.selected = opts.selected;
+    applyTextStyle(def, opts, name);
     this.defs.push(def);
     this.names.add(name);
     return this;

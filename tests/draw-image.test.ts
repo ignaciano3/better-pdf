@@ -90,4 +90,45 @@ describe("PdfImage", () => {
     expect(str).toContain("hello");
     expect(str).toContain(" Do");
   });
+
+  it("drawImage opacity emits an ExtGState gs op on a created page", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 10, y: 10, width: 50, height: 50, opacity: 0.5 });
+    const out = await doc.save();
+    const str = Array.from(out).map(b => String.fromCharCode(b)).join("");
+    expect(str).toContain(" gs");
+    expect(str).toContain("/ca 0.5");
+  });
+
+  it("drawImage opacity round-trips on a loaded page", async () => {
+    const { readFile } = await import("fs/promises");
+    const src = await readFile(FICHA);
+    const doc = await PdfDocument.load(new Uint8Array(src));
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 50, y: 50, width: 100, height: 80, opacity: 0.3 });
+    const out = await doc.save();
+    const str = Array.from(out).map(b => String.fromCharCode(b)).join("");
+    expect(str).toContain(" gs");
+    expect(str).toContain("/ca 0.3");
+  });
+
+  it("drawImage without opacity emits no gs op", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 10, y: 10, width: 50, height: 50 });
+    const out = await doc.save();
+    const str = Array.from(out).map(b => String.fromCharCode(b)).join("");
+    expect(str).not.toContain(" gs");
+  });
+
+  it("drawImage rejects opacity out of range", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    expect(() => doc.getPage(0).drawImage(img, { x: 0, y: 0, width: 10, height: 10, opacity: 1.5 }))
+      .toThrow(RangeError);
+  });
 });

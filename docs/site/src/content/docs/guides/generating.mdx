@@ -67,6 +67,15 @@ const output = await doc.save();
 `embedJpg` works the same way for JPEG files. Both methods are available on
 loaded and created documents.
 
+Pass `opacity` (0–1) to `drawImage` to draw the whole image semi-transparently:
+
+```ts
+page.drawImage(img, { x: 40, y: 700, width: scaled.width, height: scaled.height, opacity: 0.3 });
+```
+
+This is a constant alpha applied over the entire image and composes with any
+per-pixel PNG transparency (the soft mask below) — the two are independent.
+
 :::note[PNG transparency]
 The alpha channel of RGBA and gray+alpha PNGs is preserved automatically. When
 you call `embedPng` with a transparent PNG, better-pdf extracts the alpha data
@@ -753,7 +762,7 @@ await Bun.write("4up.pdf", output);
 | Method | Signature | Notes |
 |--------|-----------|-------|
 | `doc.embedPdfPage(src, pageIndex)` | `(src: Uint8Array, pageIndex: number) => Promise<EmbeddedPdfPage>` | Import a page from `src` as a Form XObject; 0-based index |
-| `page.drawPage(embedded, opts)` | `(embedded: EmbeddedPdfPage, opts: { x: number; y: number; width?: number; height?: number }) => void` | Stamp the Form XObject at `(x, y)`; `width`/`height` default to intrinsic source size |
+| `page.drawPage(embedded, opts)` | `(embedded: EmbeddedPdfPage, opts: { x: number; y: number; width?: number; height?: number; opacity?: number }) => void` | Stamp the Form XObject at `(x, y)`; `width`/`height` default to intrinsic source size; `opacity` (0–1) draws it semi-transparently |
 
 Both methods are available on loaded and created documents/pages and take
 effect on the next `doc.save()`.

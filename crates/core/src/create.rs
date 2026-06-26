@@ -59,6 +59,8 @@ enum CreateOp {
         image_offset: usize,
         #[serde(rename = "imageLength")]
         image_length: usize,
+        #[serde(default)]
+        opacity: Option<f32>,
     },
     Line {
         page: usize,
@@ -110,6 +112,8 @@ enum CreateOp {
         image_length: usize,
         #[serde(rename = "srcPage")]
         src_page: usize,
+        #[serde(default)]
+        opacity: Option<f32>,
     },
     SetRotation { page: usize, degrees: i64 },
     SetMediaBox {
@@ -161,6 +165,16 @@ fn color_op(c: Option<[f32; 3]>) -> String {
     }
 }
 
+/// Map a field's `align` string to a PDF quadding value (`/Q`):
+/// `"center"` -> 1, `"right"` -> 2, anything else (incl. `None`) -> 0 (left).
+fn quadding(align: &Option<String>) -> i64 {
+    match align.as_deref() {
+        Some("center") => 1,
+        Some("right") => 2,
+        _ => 0,
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum FieldDef {
@@ -184,6 +198,9 @@ enum FieldDef {
         background: Option<[f32; 3]>,
         #[serde(rename = "textColor")]
         text_color: Option<[f32; 3]>,
+        #[serde(rename = "fontSize")]
+        font_size: Option<f32>,
+        align: Option<String>,
     },
     CheckBox {
         name: String,
@@ -202,6 +219,8 @@ enum FieldDef {
         tooltip: Option<String>,
         border: Option<Border>,
         background: Option<[f32; 3]>,
+        #[serde(rename = "checkStyle")]
+        check_style: Option<String>,
     },
     RadioGroup {
         name: String,
@@ -212,6 +231,8 @@ enum FieldDef {
         read_only: bool,
         tooltip: Option<String>,
         options: Vec<RadioOption>,
+        #[serde(rename = "checkStyle")]
+        check_style: Option<String>,
     },
     #[serde(rename = "choice")]
     Choice {
@@ -236,6 +257,9 @@ enum FieldDef {
         background: Option<[f32; 3]>,
         #[serde(rename = "textColor")]
         text_color: Option<[f32; 3]>,
+        #[serde(rename = "fontSize")]
+        font_size: Option<f32>,
+        align: Option<String>,
     },
     #[serde(rename = "signature")]
     Signature {
@@ -324,6 +348,80 @@ fn radio_on_appearance(size: f32) -> Stream {
     button_xobject(size, content)
 }
 
+/// On appearance for a button (checkbox or radio) given a mark `style`.
+/// Supported: `"check"` (tick), `"cross"` (X), `"circle"` (filled dot),
+/// `"square"`, `"diamond"`, `"star"`. Unknown styles fall back to `"check"`.
+fn mark_on_appearance(style: &str, size: f32) -> Stream {
+    use crate::draw::fmt_num;
+    let content: Vec<u8> = match style {
+        "circle" => return radio_on_appearance(size),
+        "cross" => {
+            let p = size * 0.22;
+            let t = size * 0.12;
+            format!(
+                "q {} w 0 0 0 RG {} {} m {} {} l {} {} m {} {} l S Q",
+                fmt_num(t),
+                fmt_num(p),
+                fmt_num(p),
+                fmt_num(size - p),
+                fmt_num(size - p),
+                fmt_num(p),
+                fmt_num(size - p),
+                fmt_num(size - p),
+                fmt_num(p),
+            )
+            .into_bytes()
+        }
+        "square" => {
+            let p = size * 0.28;
+            let s = size - 2.0 * p;
+            format!(
+                "q 0 0 0 rg {} {} {} {} re f Q",
+                fmt_num(p),
+                fmt_num(p),
+                fmt_num(s),
+                fmt_num(s)
+            )
+            .into_bytes()
+        }
+        "diamond" => {
+            let c = size / 2.0;
+            let r = size * 0.32;
+            format!(
+                "q 0 0 0 rg {} {} m {} {} l {} {} l {} {} l f Q",
+                fmt_num(c),
+                fmt_num(c + r),
+                fmt_num(c + r),
+                fmt_num(c),
+                fmt_num(c),
+                fmt_num(c - r),
+                fmt_num(c - r),
+                fmt_num(c),
+            )
+            .into_bytes()
+        }
+        "star" => {
+            let c = size / 2.0;
+            let outer = size * 0.45;
+            let inner = outer * 0.382;
+            let mut s = String::from("q 0 0 0 rg ");
+            for i in 0..10 {
+                let r = if i % 2 == 0 { outer } else { inner };
+                let ang =
+                    std::f32::consts::FRAC_PI_2 + (i as f32) * std::f32::consts::PI / 5.0;
+                let px = c + r * ang.cos();
+                let py = c + r * ang.sin();
+                let op = if i == 0 { "m" } else { "l" };
+                s.push_str(&format!("{} {} {} ", fmt_num(px), fmt_num(py), op));
+            }
+            s.push_str("f Q");
+            s.into_bytes()
+        }
+        _ => return checkbox_on_appearance(size),
+    };
+    button_xobject(size, content)
+}
+
 pub fn create_document_json(
     ops_json: &str,
     images: &[u8],
@@ -390,11 +488,16 @@ pub fn create_document_json(
                 page,
                 image_offset,
                 image_length,
+                opacity,
                 ..
             } => {
                 if *page >= pages.len() {
                     return Err(format!("page {page} out of range ({} pages)", pages.len()));
                 }
+                if let Some(o) = opacity
+                    && !(0.0..=1.0).contains(o) {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
                 let end = image_offset
                     .checked_add(*image_length)
                     .ok_or_else(|| "image range out of bounds".to_string())?;
@@ -409,6 +512,7 @@ pub fn create_document_json(
                 height,
                 image_offset,
                 image_length,
+                opacity,
                 ..
             } => {
                 if *page >= pages.len() {
@@ -426,6 +530,10 @@ pub fn create_document_json(
                 if !height.is_finite() || *height <= 0.0 {
                     return Err("height must be finite and > 0".to_string());
                 }
+                if let Some(o) = opacity
+                    && !(0.0..=1.0).contains(o) {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
             }
             CreateOp::Line {
                 page,
@@ -940,7 +1048,17 @@ pub fn create_document_json(
                     height,
                     image_offset,
                     image_length,
+                    opacity,
                 } if *page == page_index => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("BPG{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id = doc.add_object(Object::Dictionary(extgstate_dict(*o)));
+                        extgstate_res.set(key.clone(), Object::Reference(gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
                     let end = image_offset + image_length;
                     let img = crate::appearance::signature_image(&images[*image_offset..end])?;
                     let xid = crate::appearance::build_image_xobjects(
@@ -950,7 +1068,7 @@ pub fn create_document_json(
                     let key = format!("BPI{img_counter}");
                     img_counter += 1;
                     xobject_res.set(key.clone(), Object::Reference(xid));
-                    emit_image_op(&mut content, &key, *x, *y, *width, *height);
+                    emit_image_op(&mut content, &key, *x, *y, *width, *height, gs_key.as_deref());
                 }
                 CreateOp::Page {
                     page,
@@ -961,7 +1079,17 @@ pub fn create_document_json(
                     image_offset,
                     image_length,
                     src_page,
+                    opacity,
                 } if *page == page_index => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("BPG{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id = doc.add_object(Object::Dictionary(extgstate_dict(*o)));
+                        extgstate_res.set(key.clone(), Object::Reference(gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
                     let end = image_offset + image_length;
                     let src = &images[*image_offset..end];
                     let (xid, bw, bh) =
@@ -971,6 +1099,9 @@ pub fn create_document_json(
                     xobject_res.set(key.clone(), Object::Reference(xid));
                     // Form BBox is [0 0 bw bh], so scale by width/bw, height/bh.
                     content.extend_from_slice(b"q\n");
+                    if let Some(k) = gs_key.as_deref() {
+                        content.extend_from_slice(format!("/{k} gs\n").as_bytes());
+                    }
                     content.extend_from_slice(
                         format!(
                             "{} 0 0 {} {} {} cm\n",
@@ -1218,17 +1349,21 @@ pub fn create_document_json(
                     border,
                     background,
                     text_color,
+                    font_size,
+                    align,
                 } => {
                     let val_str = value.clone().unwrap_or_default();
                     let val_bytes = crate::appearance::encode_winansi(&val_str);
                     let op = color_op(*text_color);
+                    let size = font_size.unwrap_or(12.0);
+                    let q = quadding(align);
 
                     let content = crate::appearance::text_appearance_content(
                         &val_bytes,
-                        12.0,
+                        size,
                         *width,
                         *height,
-                        0,
+                        q,
                         &op,
                         "Helv",
                         &widths,
@@ -1255,7 +1390,10 @@ pub fn create_document_json(
                     field_dict.set("FT", Object::Name(b"Tx".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
-                    field_dict.set("DA", Object::string_literal(format!("/Helv 12 Tf {op}")));
+                    field_dict.set("DA", Object::string_literal(format!("/Helv {size} Tf {op}")));
+                    if align.is_some() {
+                        field_dict.set("Q", Object::Integer(q));
+                    }
                     field_dict.set("V", Object::string_literal(val_bytes));
                     field_dict.set("Ff", Object::Integer(flags));
                     field_dict.set(
@@ -1327,11 +1465,14 @@ pub fn create_document_json(
                     tooltip,
                     border,
                     background,
+                    check_style,
                 } => {
                     let on = on_value.clone().unwrap_or_else(|| "Yes".to_string());
 
                     let off_id = doc.add_object(Object::Stream(button_off_appearance(*size)));
-                    let on_id = doc.add_object(Object::Stream(checkbox_on_appearance(*size)));
+                    let style = check_style.as_deref().unwrap_or("check");
+                    let on_id =
+                        doc.add_object(Object::Stream(mark_on_appearance(style, *size)));
 
                     let mut ap_n = Dictionary::new();
                     ap_n.set(on.as_bytes().to_vec(), Object::Reference(on_id));
@@ -1420,8 +1561,10 @@ pub fn create_document_json(
                     read_only,
                     tooltip,
                     options,
+                    check_style,
                 } => {
                     let parent_id = doc.new_object_id();
+                    let style = check_style.as_deref().unwrap_or("circle");
 
                     let v_val = if let Some(sel) = selected {
                         Object::Name(sel.as_bytes().to_vec())
@@ -1439,7 +1582,7 @@ pub fn create_document_json(
                         let off_id =
                             doc.add_object(Object::Stream(button_off_appearance(opt.size)));
                         let on_id =
-                            doc.add_object(Object::Stream(radio_on_appearance(opt.size)));
+                            doc.add_object(Object::Stream(mark_on_appearance(style, opt.size)));
 
                         let mut ap_n = Dictionary::new();
                         ap_n.set(opt.value.as_bytes().to_vec(), Object::Reference(on_id));
@@ -1514,17 +1657,21 @@ pub fn create_document_json(
                     border,
                     background,
                     text_color,
+                    font_size,
+                    align,
                 } => {
                     let value = selected.clone().unwrap_or_default();
                     let val_bytes = crate::appearance::encode_winansi(&value);
                     let op = color_op(*text_color);
+                    let size = font_size.unwrap_or(12.0);
+                    let q = quadding(align);
 
                     let content = crate::appearance::text_appearance_content(
                         &val_bytes,
-                        12.0,
+                        size,
                         *width,
                         *height,
-                        0,
+                        q,
                         &op,
                         "Helv",
                         &widths,
@@ -1558,7 +1705,10 @@ pub fn create_document_json(
                     field_dict.set("FT", Object::Name(b"Ch".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
-                    field_dict.set("DA", Object::string_literal(format!("/Helv 12 Tf {op}")));
+                    field_dict.set("DA", Object::string_literal(format!("/Helv {size} Tf {op}")));
+                    if align.is_some() {
+                        field_dict.set("Q", Object::Integer(q));
+                    }
                     field_dict.set("Ff", Object::Integer(flags));
                     field_dict.set("Opt", Object::Array(opt_array));
                     field_dict.set("V", Object::string_literal(val_bytes));
@@ -2035,6 +2185,59 @@ mod tests {
     }
 
     #[test]
+    fn created_image_opacity_registers_extgstate() {
+        let png = tiny_rgb_png();
+        let len = png.len();
+        let json = format!(
+            r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len},"opacity":0.5}}]"#
+        );
+        let out = create_document_json(&json, png, &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let res = page.get(b"Resources").unwrap().as_dict().unwrap();
+        // ExtGState resource exists with a /ca entry.
+        let egs = res.get(b"ExtGState").unwrap().as_dict().unwrap();
+        let (_, gs_ref) = egs.iter().next().expect("expected an ExtGState entry");
+        let gs = doc.get_object(gs_ref.as_reference().unwrap()).unwrap().as_dict().unwrap();
+        assert!((gs.get(b"ca").unwrap().as_float().unwrap() - 0.5).abs() < 0.001);
+        // Content stream references the gs and the image.
+        let content_id = page.get(b"Contents").unwrap().as_reference().unwrap();
+        let content = doc.get_object(content_id).unwrap().as_stream().unwrap();
+        let s = String::from_utf8_lossy(&content.content);
+        assert!(s.contains(" gs"), "image content should apply an ExtGState, got: {s}");
+    }
+
+    #[test]
+    fn created_image_without_opacity_has_no_extgstate() {
+        let png = tiny_rgb_png();
+        let len = png.len();
+        let json = format!(
+            r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
+        );
+        let out = create_document_json(&json, png, &[], "[]", "[]").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, pid) = doc.get_pages().into_iter().next().unwrap();
+        let page = doc.get_dictionary(pid).unwrap();
+        let res = page.get(b"Resources").unwrap().as_dict().unwrap();
+        // No ExtGState resource (or empty) when opacity omitted.
+        if let Ok(egs) = res.get(b"ExtGState").and_then(|o| o.as_dict()) {
+            assert!(egs.iter().next().is_none(), "expected no ExtGState entries");
+        }
+    }
+
+    #[test]
+    fn created_image_opacity_out_of_range_errors() {
+        let png = tiny_rgb_png();
+        let len = png.len();
+        let json = format!(
+            r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{len},"opacity":1.5}}]"#
+        );
+        let r = create_document_json(&json, png, &[], "[]", "[]");
+        assert!(r.unwrap_err().contains("opacity"));
+    }
+
+    #[test]
     fn image_page_out_of_range_errors() {
         let png = tiny_png();
         let len = png.len();
@@ -2341,6 +2544,81 @@ mod tests {
         let w = get_first_field_dict(&doc);
         let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
         assert!(da.contains("0 0 1 rg"), "DA should contain blue text color, got: {da}");
+    }
+
+    #[test]
+    fn text_field_align_and_font_size() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":50,"height":20,"align":"center","fontSize":18}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        assert_eq!(w.get(b"Q").unwrap().as_i64().unwrap(), 1, "align center -> Q=1");
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("/Helv 18 Tf"), "DA should use font size 18, got: {da}");
+    }
+
+    #[test]
+    fn text_field_align_right_sets_q2() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":50,"height":20,"align":"right"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        assert_eq!(w.get(b"Q").unwrap().as_i64().unwrap(), 2, "align right -> Q=2");
+    }
+
+    #[test]
+    fn text_field_default_no_q_and_size_12() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":50,"height":20}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        assert!(!w.has(b"Q"), "no align -> Q should be absent");
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("/Helv 12 Tf"), "default DA should use size 12, got: {da}");
+    }
+
+    #[test]
+    fn choice_field_align_and_font_size() {
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":50,"height":20,"combo":true,"options":["a"],"align":"right","fontSize":14}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        assert_eq!(w.get(b"Q").unwrap().as_i64().unwrap(), 2, "align right -> Q=2");
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("/Helv 14 Tf"), "DA should use font size 14, got: {da}");
+    }
+
+    #[test]
+    fn checkbox_square_style_draws_filled_rect() {
+        let f = r#"[{"type":"checkBox","name":"c","page":0,"x":0,"y":0,"size":14,"checked":true,"checkStyle":"square"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("re f"), "square style should emit a filled rectangle");
+    }
+
+    #[test]
+    fn checkbox_default_style_is_not_a_rect() {
+        let f = r#"[{"type":"checkBox","name":"c","page":0,"x":0,"y":0,"size":14,"checked":true}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(!s.contains("re f"), "default checkbox should be a tick, not a filled rect");
+    }
+
+    #[test]
+    fn radio_check_style_square_draws_filled_rect() {
+        let f = r#"[{"type":"radioGroup","name":"r","options":[{"value":"a","page":0,"x":0,"y":0,"size":12}],"checkStyle":"square"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("re f"), "square radio style should emit a filled rectangle");
+    }
+
+    #[test]
+    fn radio_default_style_is_filled_circle() {
+        // Filled circle uses bezier `c` ops ending in `f`, never a `re` rectangle.
+        let f = r#"[{"type":"radioGroup","name":"r","options":[{"value":"a","page":0,"x":0,"y":0,"size":12}]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(!s.contains("re f"), "default radio should be a filled circle, not a rect");
     }
 
     #[test]

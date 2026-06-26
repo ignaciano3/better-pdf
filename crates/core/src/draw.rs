@@ -52,6 +52,8 @@ enum DrawOp {
         image_offset: usize,
         #[serde(rename = "imageLength")]
         image_length: usize,
+        #[serde(default)]
+        opacity: Option<f32>,
     },
     Line {
         page: usize,
@@ -104,6 +106,8 @@ enum DrawOp {
         image_length: usize,
         #[serde(rename = "srcPage")]
         src_page: usize,
+        #[serde(default)]
+        opacity: Option<f32>,
     },
     #[serde(rename = "setRotation")]
     SetRotation { page: usize, degrees: i64 },
@@ -358,6 +362,7 @@ pub(crate) fn emit_text_block_cid(
 }
 
 /// Append a `q … cm /key Do Q` image-draw block. `(x,y)` is lower-left; width/height in points.
+/// `gs_key` optionally applies an ExtGState (for opacity) before the image is painted.
 pub(crate) fn emit_image_op(
     out: &mut Vec<u8>,
     xobj_key: &str,
@@ -365,8 +370,12 @@ pub(crate) fn emit_image_op(
     y: f32,
     width: f32,
     height: f32,
+    gs_key: Option<&str>,
 ) {
     out.extend_from_slice(b"q\n");
+    if let Some(k) = gs_key {
+        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+    }
     out.extend_from_slice(
         format!(
             "{} 0 0 {} {} {} cm\n",
@@ -819,6 +828,7 @@ pub fn apply_draw_ops_json(
                 page,
                 image_offset,
                 image_length,
+                opacity,
                 ..
             } => {
                 if *page >= page_count {
@@ -826,6 +836,10 @@ pub fn apply_draw_ops_json(
                         "page {page} out of range ({page_count} pages)"
                     ));
                 }
+                if let Some(o) = opacity
+                    && !(0.0..=1.0).contains(o) {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
                 let end = image_offset
                     .checked_add(*image_length)
                     .ok_or_else(|| "image range out of bounds".to_string())?;
@@ -841,6 +855,7 @@ pub fn apply_draw_ops_json(
                 height,
                 image_offset,
                 image_length,
+                opacity,
                 ..
             } => {
                 if *page >= page_count {
@@ -860,6 +875,10 @@ pub fn apply_draw_ops_json(
                 if !height.is_finite() || *height <= 0.0 {
                     return Err("height must be finite and > 0".to_string());
                 }
+                if let Some(o) = opacity
+                    && !(0.0..=1.0).contains(o) {
+                        return Err("opacity must be in 0..1".to_string());
+                    }
             }
             DrawOp::Line {
                 page,
@@ -1261,8 +1280,20 @@ pub fn apply_draw_ops_json(
                     height,
                     image_offset,
                     image_length,
+                    opacity,
                     page: _,
                 } => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("BPG{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id = inc.new_document.add_object(
+                            Object::Dictionary(extgstate_dict(*o))
+                        );
+                        extgstates_on_page.push((key.clone(), gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
                     let end = image_offset + image_length;
                     let bytes = &images[*image_offset..end];
                     let img = crate::appearance::signature_image(bytes)?;
@@ -1272,7 +1303,7 @@ pub fn apply_draw_ops_json(
                     );
                     let key = format!("BPI{img_counter}");
                     img_counter += 1;
-                    emit_image_op(&mut stream_content, &key, *x, *y, *width, *height);
+                    emit_image_op(&mut stream_content, &key, *x, *y, *width, *height, gs_key.as_deref());
                     xobjects_on_page.push((key, xid));
                 }
                 DrawOp::Page {
@@ -1283,8 +1314,20 @@ pub fn apply_draw_ops_json(
                     image_offset,
                     image_length,
                     src_page,
+                    opacity,
                     page: _,
                 } => {
+                    let gs_key = if let Some(o) = opacity {
+                        let key = format!("BPG{gs_counter}");
+                        gs_counter += 1;
+                        let gs_id = inc.new_document.add_object(
+                            Object::Dictionary(extgstate_dict(*o))
+                        );
+                        extgstates_on_page.push((key.clone(), gs_id));
+                        Some(key)
+                    } else {
+                        None
+                    };
                     let end = image_offset + image_length;
                     let src = &images[*image_offset..end];
                     // embed_page_as_xobject borrows new_document mutably; the draw
@@ -1295,6 +1338,9 @@ pub fn apply_draw_ops_json(
                     page_embed_counter += 1;
                     // Form BBox is [0 0 bw bh], so scale by width/bw, height/bh.
                     stream_content.extend_from_slice(b"q\n");
+                    if let Some(k) = gs_key.as_deref() {
+                        stream_content.extend_from_slice(format!("/{k} gs\n").as_bytes());
+                    }
                     stream_content.extend_from_slice(
                         format!(
                             "{} 0 0 {} {} {} cm\n",
