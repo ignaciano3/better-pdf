@@ -1,0 +1,14 @@
+---
+// Reusable "Coordinate system" aside shared across guides that place content by
+// x/y. Pass extra page-specific text as children (rendered after the base note).
+import { Aside } from '@astrojs/starlight/components';
+---
+
+<Aside type="note" title="Coordinate system">
+	<p>
+		<code>x</code>/<code>y</code> are PDF points with the origin at the
+		<strong>bottom-left</strong> of the page and y increasing upward — same as
+		pdf-lib and raw PDF.
+	</p>
+	<slot />
+</Aside>

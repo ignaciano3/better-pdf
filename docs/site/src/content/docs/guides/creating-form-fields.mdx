@@ -3,6 +3,8 @@ title: Creating form fields
 description: Declare fillable AcroForm fields on a generated document with a typed builder.
 ---
 
+import CoordinateNote from '../../../components/CoordinateNote.astro';
+
 On a document created with `PdfDocument.create()`, call `doc.createForm()` to get
 a chainable `FormBuilder` and declare AcroForm fields. There are six field
 types — `addTextField`, `addCheckBox`, `addRadioGroup`, `addDropdown`,
@@ -10,11 +12,9 @@ types — `addTextField`, `addCheckBox`, `addRadioGroup`, `addDropdown`,
 position/size in PDF points. The fields are serialized into the document on
 `save()`.
 
-:::note[Coordinate system]
-`x`/`y` are PDF points with the origin at the **bottom-left** of the page and
-y increasing upward — same as pdf-lib and raw PDF. `(x, y)` is the field's
-lower-left corner.
-:::
+<CoordinateNote>
+`(x, y)` is the field's lower-left corner.
+</CoordinateNote>
 
 ```ts
 import { PdfDocument, PageSizes, rgb } from "@ignaciano3/better-pdf";

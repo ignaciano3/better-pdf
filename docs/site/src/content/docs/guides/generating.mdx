@@ -3,6 +3,8 @@ title: Generating & drawing
 description: Create PDFs from scratch or stamp text, images, and vector graphics onto pages.
 ---
 
+import CoordinateNote from '../../../components/CoordinateNote.astro';
+
 Import from the package root or the `./generate` subpath — both export the same
 classes:
 
@@ -10,9 +12,7 @@ classes:
 import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf";
 ```
 
-:::note[Coordinate system]
-Origin is bottom-left, y increases upward — same as pdf-lib and raw PDF.
-:::
+<CoordinateNote />
 
 ## Create a document, draw text
 
