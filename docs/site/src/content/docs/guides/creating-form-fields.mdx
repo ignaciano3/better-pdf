@@ -86,5 +86,20 @@ appearance:
 
 Colors come from `rgb(r, g, b)` and `grayscale(v)` (each 0–1).
 
-Dropdowns also accept `editable: true`, which lets the user type a value that
-isn't in `options` (the combo box Edit flag). List boxes ignore it.
+## Per-field options
+
+Some options are specific to a field type:
+
+- **Text** — `maxLength` caps the number of characters the viewer accepts;
+  `multiline: true` makes the field wrap text across lines (otherwise it's a
+  single line).
+- **Checkbox** — `onValue` is the field's export value when checked (default
+  `"Yes"`); `checked: true` ticks it initially.
+- **Dropdown** — `editable: true` lets the user type a value that isn't in
+  `options` (the combo box Edit flag). `addListBox` ignores it, since list boxes
+  are never combo boxes.
+
+:::note[Field text is Helvetica 12 pt]
+Field values render in Helvetica at 12 pt. Only the color is configurable (via
+`textColor`) — the font family and size are fixed.
+:::
