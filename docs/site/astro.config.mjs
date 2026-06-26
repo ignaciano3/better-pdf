@@ -1,9 +1,48 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import { fileURLToPath } from 'node:url';
+import { readFileSync, writeFileSync } from 'node:fs';
 import starlight from '@astrojs/starlight';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
 
 const [starlightTypeDoc, typeDocSidebarGroup] = createStarlightTypeDocPlugin();
+
+/**
+ * Mirror the repo-root CHANGELOG.md into a Starlight reference page so the
+ * published docs always match the released changelog. Runs on every `dev` and
+ * `build`, so there's nothing to remember to update — edit CHANGELOG.md only.
+ * The generated page is gitignored.
+ * @returns {import('astro').AstroIntegration}
+ */
+function syncChangelog() {
+	return {
+		name: 'sync-changelog',
+		hooks: {
+			'astro:config:setup'({ logger }) {
+				const source = new URL('../../CHANGELOG.md', import.meta.url);
+				const dest = new URL(
+					'./src/content/docs/reference/changelog.md',
+					import.meta.url,
+				);
+				const raw = readFileSync(fileURLToPath(source), 'utf8');
+				// Drop the leading `# Changelog` H1 — Starlight renders the title
+				// from frontmatter instead.
+				const body = raw.replace(/^#\s+Changelog\s*\n+/, '');
+				const page = `---
+title: Changelog
+description: Release history for better-pdf. Generated from CHANGELOG.md — do not edit.
+editUrl: false
+---
+
+<!-- This page is generated from the repo-root CHANGELOG.md by astro.config.mjs. -->
+
+${body}`;
+				writeFileSync(fileURLToPath(dest), page);
+				logger.info('Synced CHANGELOG.md → reference/changelog.md');
+			},
+		},
+	};
+}
 
 // https://astro.build/config
 export default defineConfig({
@@ -11,6 +50,7 @@ export default defineConfig({
 	site: 'https://ignaciano3.github.io',
 	base: '/better-pdf',
 	integrations: [
+		syncChangelog(),
 		starlight({
 			title: 'better-pdf',
 			description:
@@ -83,6 +123,7 @@ export default defineConfig({
 						{ label: 'Errors', slug: 'reference/errors' },
 						{ label: 'Limitations', slug: 'reference/limitations' },
 						{ label: 'Benchmarks', slug: 'reference/benchmarks' },
+						{ label: 'Changelog', slug: 'reference/changelog' },
 					],
 				},
 				typeDocSidebarGroup,

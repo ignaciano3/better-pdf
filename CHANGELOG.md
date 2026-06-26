@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-25
+
+### Added
+
+- **Field text color.** All generated form fields accept an optional `textColor`
+  (a `Color`) on their options, controlling the color of the field's
+  text/value via the widget `/DA` string. Defaults to black. Applies to text
+  fields and choice fields (dropdowns/list boxes).
+- **Editable combo boxes.** `addDropdown` accepts `editable: true` to set the
+  combo box Edit flag, letting users type a custom value not in `options`.
+  `addListBox` ignores `editable` (list boxes are never combo boxes).
+
 ## [1.0.0] - 2026-06-23
 
 First stable release. The public API is frozen and the package now follows
@@ -411,7 +423,8 @@ WebAssembly with a fully-typed TypeScript API.
 - Text fields are single-line; multi-line wrapping is not generated.
 - PNG alpha is dropped rather than preserved as a soft mask.
 
-[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ignaciano3/better-pdf/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ignaciano3/better-pdf/compare/v0.21.0...v1.0.0
 [0.6.0]: https://github.com/ignaciano3/better-pdf/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ignaciano3/better-pdf/compare/v0.4.0...v0.5.0
