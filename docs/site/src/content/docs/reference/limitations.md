@@ -39,10 +39,6 @@ deliberately unsupported and not planned. The two are listed separately below.
   pickers, number/currency masks, validation, or calculated fields. These rely
   on viewer-side JavaScript (Acrobat) that most viewers (Chrome, Preview, etc.)
   do not run, so no equivalent appearance is generated.
-- **Comb fields** (fixed-pitch text split into equal per-character cells, e.g.
-  SSN or date boxes — the `/Ff` Comb flag with `/MaxLen`) are not yet supported.
-  Text-field values render as a single run with the configured alignment;
-  per-cell layout is planned.
 - Color: RGB and grayscale only; CMYK is not supported.
 - **Document metadata (Info dictionary):** Title, Author, Subject, Keywords, Creator,
   Producer, CreationDate, and ModDate are **supported** via `doc.setTitle()` /

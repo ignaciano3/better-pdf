@@ -280,6 +280,42 @@ pub fn text_appearance_content_multiline(
     out
 }
 
+/// Build the content stream for a comb text field: a single line split into
+/// `max_len` equal cells, with character `i` centered in cell `i`. Mirrors the
+/// PDF Comb flag layout (fixed pitch regardless of the value). `text` is a
+/// pre-encoded WinAnsi byte string; only the first `max_len` bytes are placed.
+#[allow(clippy::too_many_arguments)]
+pub fn text_appearance_content_comb(
+    text: &[u8],
+    size: f32,
+    box_w: f32,
+    box_h: f32,
+    max_len: i64,
+    color: &str,
+    font: &str,
+    widths: &FontWidths,
+) -> Vec<u8> {
+    let cells = max_len.max(1) as f32;
+    let cell_w = box_w / cells;
+    let ty = ((box_h - size) / 2.0 + size * 0.2).max(PAD);
+    let mut out = Vec::new();
+    out.extend_from_slice(b"/Tx BMC q BT ");
+    out.extend_from_slice(format!("/{font} {size:.2} Tf {color} ").as_bytes());
+    for (i, &b) in text.iter().take(max_len.max(0) as usize).enumerate() {
+        let cw = string_width(&[b], size, widths);
+        let cx = cell_w * (i as f32 + 0.5);
+        let tx = (cx - cw / 2.0).max(0.0);
+        let escaped = escape_pdf_literal(&[b]);
+        // Absolute text matrix per glyph centers it in its cell, independent of
+        // the running text position.
+        out.extend_from_slice(format!("1 0 0 1 {tx:.2} {ty:.2} Tm (").as_bytes());
+        out.extend_from_slice(&escaped);
+        out.extend_from_slice(b") Tj ");
+    }
+    out.extend_from_slice(b"ET Q EMC");
+    out
+}
+
 /// Build a Form XObject appearance stream of size `box_w`x`box_h` whose
 /// Resources reference the font named `font` at indirect object `font_ref`.
 pub fn build_appearance_xobject(

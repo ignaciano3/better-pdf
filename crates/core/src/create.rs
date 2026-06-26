@@ -190,6 +190,8 @@ enum FieldDef {
         max_length: Option<i64>,
         multiline: Option<bool>,
         #[serde(default)]
+        comb: bool,
+        #[serde(default)]
         required: bool,
         #[serde(rename = "readOnly", default)]
         read_only: bool,
@@ -771,7 +773,7 @@ pub fn create_document_json(
         let mut seen_names: HashSet<&str> = HashSet::new();
         for field in &fields {
             match field {
-                FieldDef::Text { name, page, x, y, width, height, max_length, .. } => {
+                FieldDef::Text { name, page, x, y, width, height, max_length, comb, multiline, .. } => {
                     if name.is_empty() {
                         return Err("field name must not be empty".to_string());
                     }
@@ -794,6 +796,18 @@ pub fn create_document_json(
                         && *ml < 0 {
                             return Err("field maxLength must be >= 0".to_string());
                         }
+                    if *comb {
+                        match max_length {
+                            None => return Err("comb field requires maxLength".to_string()),
+                            Some(ml) if *ml <= 0 => {
+                                return Err("comb field maxLength must be > 0".to_string());
+                            }
+                            _ => {}
+                        }
+                        if multiline.unwrap_or(false) {
+                            return Err("comb field cannot be multiline".to_string());
+                        }
+                    }
                 }
                 FieldDef::CheckBox { name, page, x, y, size, on_value, .. } => {
                     if name.is_empty() {
@@ -1343,6 +1357,7 @@ pub fn create_document_json(
                     value,
                     max_length,
                     multiline,
+                    comb,
                     required,
                     read_only,
                     tooltip,
@@ -1358,16 +1373,29 @@ pub fn create_document_json(
                     let size = font_size.unwrap_or(12.0);
                     let q = quadding(align);
 
-                    let content = crate::appearance::text_appearance_content(
-                        &val_bytes,
-                        size,
-                        *width,
-                        *height,
-                        q,
-                        &op,
-                        "Helv",
-                        &widths,
-                    );
+                    let content = if *comb {
+                        crate::appearance::text_appearance_content_comb(
+                            &val_bytes,
+                            size,
+                            *width,
+                            *height,
+                            max_length.unwrap_or(0),
+                            &op,
+                            "Helv",
+                            &widths,
+                        )
+                    } else {
+                        crate::appearance::text_appearance_content(
+                            &val_bytes,
+                            size,
+                            *width,
+                            *height,
+                            q,
+                            &op,
+                            "Helv",
+                            &widths,
+                        )
+                    };
                     let ap_stream = crate::appearance::build_appearance_xobject(
                         content, *width, *height, "Helv", helv,
                     );
@@ -1375,7 +1403,8 @@ pub fn create_document_json(
 
                     let flags: i64 = (*read_only as i64)
                         | ((*required as i64) << 1)
-                        | ((multiline.unwrap_or(false) as i64) << 12);
+                        | ((multiline.unwrap_or(false) as i64) << 12)
+                        | ((*comb as i64) << 24);
 
                     let rect = Object::Array(vec![
                         Object::Real(*x),
@@ -2586,6 +2615,41 @@ mod tests {
         assert_eq!(w.get(b"Q").unwrap().as_i64().unwrap(), 2, "align right -> Q=2");
         let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
         assert!(da.contains("/Helv 14 Tf"), "DA should use font size 14, got: {da}");
+    }
+
+    #[test]
+    fn comb_text_field_sets_flag_and_maxlen() {
+        let f = r#"[{"type":"text","name":"ssn","page":0,"x":0,"y":0,"width":180,"height":24,"maxLength":9,"comb":true,"value":"12345"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let ff = w.get(b"Ff").unwrap().as_i64().unwrap();
+        assert!(ff & (1 << 24) != 0, "Comb bit (24) not set; Ff = {ff}");
+        assert_eq!(w.get(b"MaxLen").unwrap().as_i64().unwrap(), 9);
+    }
+
+    #[test]
+    fn comb_field_without_maxlength_errors() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":180,"height":24,"comb":true}]"#;
+        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f);
+        assert!(r.unwrap_err().contains("comb field requires maxLength"));
+    }
+
+    #[test]
+    fn comb_field_multiline_errors() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":180,"height":24,"maxLength":9,"comb":true,"multiline":true}]"#;
+        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f);
+        assert!(r.unwrap_err().contains("comb field cannot be multiline"));
+    }
+
+    #[test]
+    fn comb_appearance_places_each_char() {
+        // "AB" in a 5-cell comb should emit one absolute Tm per character.
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":100,"height":20,"maxLength":5,"comb":true,"value":"AB"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        let tm_count = s.matches(" Tm ").count();
+        assert!(tm_count >= 2, "expected >=2 Tm ops (one per char), got {tm_count}");
     }
 
     #[test]

@@ -311,6 +311,50 @@ describe("form-generation: align + fontSize", () => {
 });
 
 // ---------------------------------------------------------------------------
+// comb field wire mapping + validation
+// ---------------------------------------------------------------------------
+
+describe("form-generation: comb", () => {
+  test("addTextField comb sets wire comb + maxLength", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const defs: ConstructorParameters<typeof FormBuilder>[0] = [];
+    const fb = new FormBuilder(defs, new Set<string>());
+    fb.addTextField("ssn", { page: 0, x: 0, y: 0, width: 180, height: 24, maxLength: 9, comb: true });
+    const def = defs[0] as { comb?: boolean; maxLength?: number };
+    expect(def.comb).toBe(true);
+    expect(def.maxLength).toBe(9);
+  });
+
+  test("comb without maxLength throws", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const fb = new FormBuilder([], new Set<string>());
+    expect(() =>
+      fb.addTextField("t", { page: 0, x: 0, y: 0, width: 180, height: 24, comb: true }),
+    ).toThrow();
+  });
+
+  test("comb + multiline throws", async () => {
+    const { FormBuilder } = await import("../src/generate/form-builder.ts");
+    const fb = new FormBuilder([], new Set<string>());
+    expect(() =>
+      fb.addTextField("t", { page: 0, x: 0, y: 0, width: 180, height: 24, maxLength: 9, comb: true, multiline: true }),
+    ).toThrow();
+  });
+
+  test("comb field round-trips and sets the Comb flag", async () => {
+    const { PdfDocument } = await import("../src/index.ts");
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    doc.createForm().addTextField("ssn", {
+      page: 0, x: 40, y: 700, width: 180, height: 24, maxLength: 9, comb: true, value: "123456789",
+    });
+    const out = await doc.save();
+    const str = Array.from(out).map((b) => String.fromCharCode(b)).join("");
+    expect(str).toContain("/MaxLen 9");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // checkStyle wire mapping
 // ---------------------------------------------------------------------------
 

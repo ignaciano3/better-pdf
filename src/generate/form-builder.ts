@@ -32,6 +32,12 @@ export interface TextFieldOptions extends BaseFieldOptions {
   value?: string;
   maxLength?: number;
   multiline?: boolean;
+  /**
+   * Render as a comb field: a single line split into `maxLength` equal cells,
+   * one character per cell (e.g. SSN or date boxes). Requires `maxLength` and is
+   * incompatible with `multiline`.
+   */
+  comb?: boolean;
   /** Horizontal alignment of the field's text. Defaults to `"left"`. */
   align?: FieldAlign;
   /** Font size in points for the field's value. Defaults to 12. */
@@ -124,6 +130,7 @@ interface WireTextField extends WireBase {
   value?: string;
   maxLength?: number;
   multiline?: boolean;
+  comb?: boolean;
   align?: FieldAlign;
   fontSize?: number;
 }
@@ -276,10 +283,19 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
         throw new RangeError(`${name}.maxLength must be >= 0, got ${opts.maxLength}`);
       }
     }
+    if (opts.comb) {
+      if (opts.maxLength === undefined || opts.maxLength <= 0) {
+        throw new RangeError(`${name}: comb field requires maxLength > 0`);
+      }
+      if (opts.multiline) {
+        throw new RangeError(`${name}: comb field cannot be multiline`);
+      }
+    }
     const def: WireTextField = { ...base, type: "text", width: opts.width, height: opts.height };
     if (opts.value !== undefined) def.value = opts.value;
     if (opts.maxLength !== undefined) def.maxLength = opts.maxLength;
     if (opts.multiline !== undefined) def.multiline = opts.multiline;
+    if (opts.comb) def.comb = true;
     applyTextStyle(def, opts, name);
     this.defs.push(def);
     this.names.add(name);

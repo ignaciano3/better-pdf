@@ -97,7 +97,9 @@ Some options are specific to a field type:
 
 - **Text** — `maxLength` caps the number of characters the viewer accepts;
   `multiline: true` makes the field wrap text across lines (otherwise it's a
-  single line).
+  single line). `comb: true` renders a **comb field** — a single line split into
+  `maxLength` equal cells with one character per cell (e.g. SSN or date boxes).
+  Comb requires `maxLength` and is incompatible with `multiline`.
 - **Checkbox** — `onValue` is the field's export value when checked (default
   `"Yes"`); `checked: true` ticks it initially. `checkStyle` chooses the mark
   drawn when ticked: `"check"` (default), `"cross"`, `"circle"`, `"square"`,
@@ -129,6 +131,7 @@ The builder validates as you add fields and throws synchronously (before
 - **Duplicate or empty name** → `Error`.
 - **`width`/`height` ≤ 0**, or a non-finite coordinate → `RangeError`.
 - **`maxLength` < 0** (text) → `RangeError`.
+- **`comb` without `maxLength > 0`, or `comb` with `multiline`** (text) → `RangeError`.
 - **`fontSize` ≤ 0** (text or choice) → `RangeError`.
 - **Empty `options`** (dropdown, list box, or radio group) → `RangeError`.
 - **`selected` not in `options`** (choice or radio) → `RangeError`.
