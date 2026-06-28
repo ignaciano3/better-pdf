@@ -1483,6 +1483,8 @@ pub fn create_document_json(
                     let mut field_dict = Dictionary::new();
                     field_dict.set("Type", Object::Name(b"Annot".to_vec()));
                     field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                    // Print flag (/F bit 3) so the field shows in printed output.
+                    field_dict.set("F", Object::Integer(4));
                     field_dict.set("FT", Object::Name(b"Tx".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
@@ -1600,6 +1602,8 @@ pub fn create_document_json(
                     let mut field_dict = Dictionary::new();
                     field_dict.set("Type", Object::Name(b"Annot".to_vec()));
                     field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                    // Print flag (/F bit 3) so the field shows in printed output.
+                    field_dict.set("F", Object::Integer(4));
                     field_dict.set("FT", Object::Name(b"Btn".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
@@ -1716,6 +1720,8 @@ pub fn create_document_json(
                         let mut kid_dict = Dictionary::new();
                         kid_dict.set("Type", Object::Name(b"Annot".to_vec()));
                         kid_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                        // Print flag (/F bit 3) so the button shows in printed output.
+                        kid_dict.set("F", Object::Integer(4));
                         kid_dict.set("Rect", rect);
                         kid_dict.set("Parent", Object::Reference(parent_id));
                         kid_dict.set("P", Object::Reference(page_ids[opt.page]));
@@ -1814,6 +1820,8 @@ pub fn create_document_json(
                     let mut field_dict = Dictionary::new();
                     field_dict.set("Type", Object::Name(b"Annot".to_vec()));
                     field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                    // Print flag (/F bit 3) so the field shows in printed output.
+                    field_dict.set("F", Object::Integer(4));
                     field_dict.set("FT", Object::Name(b"Ch".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
@@ -1911,6 +1919,8 @@ pub fn create_document_json(
                     let mut field_dict = Dictionary::new();
                     field_dict.set("Type", Object::Name(b"Annot".to_vec()));
                     field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                    // Print flag (/F bit 3) so the field shows in printed output.
+                    field_dict.set("F", Object::Integer(4));
                     field_dict.set("FT", Object::Name(b"Sig".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
@@ -2188,6 +2198,28 @@ mod tests {
         // Non-text fields report null.
         assert_eq!(by("agree")["fontName"], serde_json::Value::Null);
         assert_eq!(by("agree")["fontSize"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn builder_sets_print_flag_on_widgets() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842}]"#;
+        let fields = r#"[
+            {"type":"text","name":"t","page":0,"x":10,"y":10,"width":100,"height":20},
+            {"type":"radioGroup","name":"r","options":[
+                {"value":"A","page":0,"x":10,"y":40,"size":12},
+                {"value":"B","page":0,"x":40,"y":40,"size":12}
+            ]}
+        ]"#;
+        let out = create_document_json(ops, &[], &[], "[]", fields).unwrap();
+        let json = crate::forms::read_fields_json(&out).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let by = |name: &str| {
+            v.as_array().unwrap().iter().find(|f| f["name"] == name).unwrap().clone()
+        };
+        assert_eq!(by("t")["widgets"][0]["print"], true);
+        for w in by("r")["widgets"].as_array().unwrap() {
+            assert_eq!(w["print"], true);
+        }
     }
 
     #[test]

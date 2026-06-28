@@ -536,14 +536,29 @@ describe("form-generation: FieldInfo flags round-trip", () => {
     expect(field.fontSize).toBeNull();
   });
 
-  test("each widget exposes visibility flags", async () => {
+  test("each widget exposes visibility flags; created fields are printable", async () => {
     const reloaded = await buildAndReload((doc) => {
       doc.createForm().addTextField("w", { page: 0, x: 50, y: 100, width: 120, height: 20 });
     });
     const widget = reloaded.getForm().getField("w")!.widgets[0]!;
-    expect(typeof widget.hidden).toBe("boolean");
-    expect(typeof widget.print).toBe("boolean");
-    expect(typeof widget.noView).toBe("boolean");
+    // Created widgets carry the /F Print flag so they appear in printed output.
+    expect(widget.print).toBe(true);
+    expect(widget.hidden).toBe(false);
+    expect(widget.noView).toBe(false);
+  });
+
+  test("created radio buttons are printable", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addRadioGroup("r", {
+        options: [
+          { value: "A", page: 0, x: 50, y: 80, size: 14 },
+          { value: "B", page: 0, x: 80, y: 80, size: 14 },
+        ] as const,
+      });
+    });
+    for (const w of reloaded.getForm().getField("r")!.widgets) {
+      expect(w.print).toBe(true);
+    }
   });
 });
 

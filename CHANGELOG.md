@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set the `/Ff` Password flag, so viewers mask the displayed value. This changes
   display only (not encryption) and is independent of the field's value.
 
+### Fixed
+
+- **Generated form fields now print.** Created field widgets set the annotation
+  `/F` Print flag (bit 3), so fields added via the builder appear in printed
+  output instead of being omitted by viewers.
+
 ## [1.3.0] - 2026-06-26
 
 ### Added
