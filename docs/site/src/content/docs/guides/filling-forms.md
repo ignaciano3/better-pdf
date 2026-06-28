@@ -16,9 +16,10 @@ for (const field of form.getFields()) {
 }
 ```
 
-Each `FieldInfo` carries `name`, `type`, `value`, `states`, `options`,
-`readOnly`, `required`, `exported` (false when the field has the `NoExport`
-flag), `maxLength` (a text field's `/MaxLen`, or `null`), `multiline` (text-area
+Each `FieldInfo` carries `name`, `type`, `value`, `defaultValue` (the `/DV`
+reset value, or `null`), `states`, `options`, `readOnly`, `required`, `exported`
+(false when the field has the `NoExport` flag), `maxLength` (a text field's
+`/MaxLen`, or `null`), `multiline` (text-area fields), `password` (masked text
 fields), `comb` (fixed-pitch per-character text fields), `editable` (combo boxes
 that accept custom values), `align` (`"left"`/`"center"`/`"right"`, from `/Q`),
 `tooltip` (the `/TU` descriptive name, or `null`), `multiSelect` (multi-select

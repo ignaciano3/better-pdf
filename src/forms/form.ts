@@ -27,6 +27,8 @@ export interface FieldInfo {
   type: FieldType;
   /** Current value as a string, or null if unset. */
   value: string | null;
+  /** The field's default/reset value (`/DV`), or null if it has none. */
+  defaultValue: string | null;
   /** On-state export values for checkbox/radio; empty otherwise. */
   states: string[];
   /** Option export values for dropdown/listbox; empty otherwise. */
@@ -40,6 +42,9 @@ export interface FieldInfo {
   maxLength: number | null;
   /** True only for multi-select list boxes (the PDF Multiselect choice flag). */
   multiSelect: boolean;
+  /** True only for password text fields (the PDF Password text flag): the value
+   * should be masked rather than displayed. */
+  password: boolean;
   /** True only for multi-line text fields (the PDF Multiline text flag). */
   multiline: boolean;
   /** True only for comb text fields (the PDF Comb text flag): a single line

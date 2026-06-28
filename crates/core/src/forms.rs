@@ -9,6 +9,9 @@ pub struct FieldInfo {
     #[serde(rename = "type")]
     pub field_type: String,
     pub value: Option<String>,
+    /// The field's default/reset value (`/DV`), or `null` when it has none.
+    #[serde(rename = "defaultValue")]
+    pub default_value: Option<String>,
     pub states: Vec<String>,
     pub options: Vec<String>,
     #[serde(rename = "readOnly")]
@@ -22,6 +25,9 @@ pub struct FieldInfo {
     /// True only for multi-select list boxes (the PDF Multiselect choice flag).
     #[serde(rename = "multiSelect")]
     pub multi_select: bool,
+    /// True only for password text fields (the PDF Password text flag): the
+    /// value should be masked rather than displayed.
+    pub password: bool,
     /// True only for multi-line text fields (the PDF Multiline text flag).
     pub multiline: bool,
     /// True only for comb text fields (the PDF Comb text flag): a single line
@@ -94,13 +100,8 @@ fn describe_field(
     let ft = inherited_name(doc, d, b"FT").unwrap_or_default();
     let ff = inherited_int(doc, d, b"Ff").unwrap_or(0);
     let field_type = classify(&ft, ff).to_string();
-    let value = d.get(b"V").ok().and_then(|o| match o {
-        Object::Array(a) => {
-            let parts: Vec<String> = a.iter().filter_map(value_to_string).collect();
-            if parts.is_empty() { None } else { Some(parts.join(", ")) }
-        }
-        other => value_to_string(other),
-    });
+    let value = field_value(d, b"V");
+    let default_value = field_value(d, b"DV");
 
     let mut states = Vec::new();
     collect_on_states(doc, d, &mut states);
@@ -144,6 +145,7 @@ fn describe_field(
         name,
         field_type: field_type.clone(),
         value,
+        default_value,
         states,
         options,
         read_only: ff & 1 != 0,
@@ -151,6 +153,7 @@ fn describe_field(
         exported: ff & 4 == 0,
         max_length,
         multi_select: field_type == "listbox" && is_multiselect(ff),
+        password: field_type == "text" && is_password(ff),
         multiline: field_type == "text" && is_multiline(ff),
         comb: field_type == "text" && is_comb(ff),
         editable: field_type == "dropdown" && is_combo_edit(ff),
@@ -188,6 +191,12 @@ pub(crate) fn classify(ft: &str, ff: i64) -> &'static str {
 /// i.e. it is a text-area field that should render wrapped, multi-line text.
 pub(crate) fn is_multiline(ff: i64) -> bool {
     ff & (1 << 12) != 0
+}
+
+/// True when a text field carries the Password flag (Ff bit 14, `1 << 13`):
+/// the value should be masked rather than shown.
+pub(crate) fn is_password(ff: i64) -> bool {
+    ff & (1 << 13) != 0
 }
 
 /// True when a text field carries the Comb flag (Ff bit 25, `1 << 24`): the
@@ -296,6 +305,19 @@ fn inherited<'a>(doc: &'a Document, d: &'a Dictionary, key: &[u8]) -> Option<&'a
         cur = parent;
     }
     None
+}
+
+/// Read a field's value-bearing entry (`/V` or `/DV`) as a string. Array
+/// values (multi-select choices) are joined with ", "; an empty array or a
+/// non-textual value yields `None`.
+fn field_value(d: &Dictionary, key: &[u8]) -> Option<String> {
+    d.get(key).ok().and_then(|o| match o {
+        Object::Array(a) => {
+            let parts: Vec<String> = a.iter().filter_map(value_to_string).collect();
+            if parts.is_empty() { None } else { Some(parts.join(", ")) }
+        }
+        other => value_to_string(other),
+    })
 }
 
 fn value_to_string(o: &Object) -> Option<String> {
@@ -522,6 +544,13 @@ mod tests {
     }
 
     #[test]
+    fn is_password_reads_bit_14() {
+        assert!(super::is_password(1 << 13));
+        assert!(!super::is_password(0));
+        assert!(!super::is_password(1 << 12));
+    }
+
+    #[test]
     fn is_comb_reads_bit_25() {
         assert!(super::is_comb(1 << 24));
         assert!(!super::is_comb(0));
@@ -629,6 +658,40 @@ mod tests {
         assert_eq!(name["tooltip"], serde_json::Value::Null);
         // editable is a dropdown-only flag; text fields are always false.
         assert_eq!(name["editable"], false);
+    }
+
+    #[test]
+    fn reports_password_flag_and_default_value() {
+        use lopdf::{Object, dictionary};
+        // A password field carrying a default value.
+        let pin = dictionary! {
+            "FT" => Object::Name(b"Tx".to_vec()),
+            "T" => Object::string_literal("pin"),
+            "Ff" => Object::Integer(1 << 13), // Password
+            "DV" => Object::string_literal("0000"),
+        };
+        // A plain field: not a password, no default value.
+        let plain = dictionary! {
+            "FT" => Object::Name(b"Tx".to_vec()),
+            "T" => Object::string_literal("name"),
+        };
+        let f = fields(&pdf_with_fields(vec![pin, plain]));
+        let by = |n: &str| {
+            f.as_array()
+                .unwrap()
+                .iter()
+                .find(|x| x["name"] == n)
+                .unwrap()
+                .clone()
+        };
+
+        let pin = by("pin");
+        assert_eq!(pin["password"], true);
+        assert_eq!(pin["defaultValue"], "0000");
+
+        let name = by("name");
+        assert_eq!(name["password"], false);
+        assert_eq!(name["defaultValue"], serde_json::Value::Null);
     }
 
     #[test]
