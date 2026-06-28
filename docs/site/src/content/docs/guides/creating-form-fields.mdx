@@ -113,6 +113,12 @@ Some options are specific to a field type:
 - **Dropdown** — `editable: true` lets the user type a value that isn't in
   `options` (the combo box Edit flag). `addListBox` ignores it, since list boxes
   are never combo boxes.
+- **List box** — `multiSelect: true` lets more than one option be selected at
+  once (the choice Multiselect flag). The field then reports
+  `FieldInfo.multiSelect === true` and is filled with
+  `listBox.selectMultiple(values)` (see
+  [Filling forms](/better-pdf/guides/filling-forms/)). `addDropdown` rejects
+  `multiSelect`, since combo boxes are never multi-select.
 
 Every value-bearing field also accepts a **default value** (`/DV`) — what a
 viewer's "reset form" restores, independent of the field's initial value:
@@ -144,6 +150,7 @@ The builder validates as you add fields and throws synchronously (before
 - **`comb` without `maxLength > 0`, or `comb` with `multiline`** (text) → `RangeError`.
 - **`fontSize` ≤ 0** (text or choice) → `RangeError`.
 - **Empty `options`** (dropdown, list box, or radio group) → `RangeError`.
+- **`multiSelect` on a dropdown** (valid only on list boxes) → `RangeError`.
 - **`selected` or `defaultSelected` not in `options`** (choice or radio) → `RangeError`.
 - **`defaultValue` longer than `maxLength`** (text) → `RangeError`.
 - **Duplicate radio option `value`** → `Error`.

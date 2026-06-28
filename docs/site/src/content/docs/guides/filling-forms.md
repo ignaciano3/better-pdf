@@ -75,6 +75,35 @@ form.resetField("status");  // reset one field
 form.reset();               // reset every value-bearing field
 ```
 
+### Flags and visibility
+
+Beyond their value, fields expose setters that change their **flags** on a
+loaded document. They apply to every field type and take effect on `save()`:
+
+```ts
+const field = form.getTextField("name");
+
+field.setReadOnly(true);   // /Ff ReadOnly — displayed but not editable
+field.setRequired(true);   // /Ff Required — viewers may block submit while empty
+field.setExported(false);  // /Ff NoExport — exclude from form submission
+
+field.hide();              // /F Hidden  — hide on screen and in print
+field.show();              // clear Hidden
+field.setPrintable(true);  // /F Print   — include in printed output
+field.setNoView(true);     // /F NoView  — hide on screen but still printable
+```
+
+`setReadOnly` / `setRequired` / `setExported` flip the field-level `/Ff` flags,
+while `hide` / `show` / `setPrintable` / `setNoView` flip the `/F` flags on each
+of the field's widget annotations. The change is reflected on the field's
+`FieldInfo` (and `FieldInfo.widgets`) immediately and written to the PDF on
+`save()`.
+
+The appearance-affecting flags `multiline`, `comb`, and `password` are **not**
+toggleable on a loaded field — set them when [creating the
+field](/better-pdf/guides/creating-form-fields/), since changing them requires
+regenerating the field's appearance.
+
 ## Flatten
 
 ```ts

@@ -596,6 +596,8 @@ import { rgb, grayscale } from "@ignaciano3/better-pdf";
 - `form.getListBox(name).options`
 - `form.getListBox(name).select(value)` / `.setDefaultSelected(value)`
 - `form.getSignature(name).setImage(bytes)`
+- `field.setReadOnly(bool)` / `.setRequired(bool)` / `.setExported(bool)` — change a loaded field's `/Ff` flags
+- `field.hide()` / `.show()` / `.setPrintable(bool)` / `.setNoView(bool)` — change a field's widget `/F` visibility flags
 - `form.flattenField(name)` / `form.flatten()`
 - `form.resetField(name)` / `form.reset()`
 
@@ -781,7 +783,9 @@ we will deliberately never add, see [Non-Goals](#non-goals).)
 
 - No encrypted PDF support — encrypted PDFs are detected on load and rejected with a typed `EncryptedPdfError` (decrypt the file first).
 - No cryptographic signing (the API leaves room to add PAdES later).
-- Multi-select list boxes are supported via `listBox.selectMultiple(values)` (requires the Multiselect flag to be set on the field).
+- Appearance-affecting form-field flags (`multiline`, `comb`, `password`) are set
+  at field creation only — they cannot be toggled on a loaded field (the
+  ReadOnly / Required / NoExport and widget Hidden / Print / NoView flags can).
 - Form text fields with the Multiline flag are filled with wrapped, top-aligned
   multi-line appearances (honoring `\n` hard breaks and per-line quadding);
   single-line fields are filled single-line. Mid-word breaking is not performed
