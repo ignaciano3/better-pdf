@@ -204,7 +204,7 @@ fn quadding(align: &Option<String>) -> i64 {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum FieldDef {
     Text {
         name: String,
@@ -214,23 +214,19 @@ enum FieldDef {
         width: f32,
         height: f32,
         value: Option<String>,
-        #[serde(rename = "defaultValue")]
         default_value: Option<String>,
-        #[serde(rename = "maxLength")]
         max_length: Option<i64>,
         multiline: Option<bool>,
         #[serde(default)]
         comb: bool,
         #[serde(default)]
         required: bool,
-        #[serde(rename = "readOnly", default)]
+        #[serde(default)]
         read_only: bool,
         tooltip: Option<String>,
         border: Option<Border>,
         background: Option<[f32; 3]>,
-        #[serde(rename = "textColor")]
         text_color: Option<[f32; 3]>,
-        #[serde(rename = "fontSize")]
         font_size: Option<f32>,
         align: Option<String>,
     },
@@ -242,32 +238,27 @@ enum FieldDef {
         size: f32,
         #[serde(default)]
         checked: bool,
-        #[serde(rename = "defaultChecked")]
         default_checked: Option<bool>,
-        #[serde(rename = "onValue")]
         on_value: Option<String>,
         #[serde(default)]
         required: bool,
-        #[serde(rename = "readOnly", default)]
+        #[serde(default)]
         read_only: bool,
         tooltip: Option<String>,
         border: Option<Border>,
         background: Option<[f32; 3]>,
-        #[serde(rename = "checkStyle")]
         check_style: Option<String>,
     },
     RadioGroup {
         name: String,
         selected: Option<String>,
-        #[serde(rename = "defaultSelected")]
         default_selected: Option<String>,
         #[serde(default)]
         required: bool,
-        #[serde(rename = "readOnly", default)]
+        #[serde(default)]
         read_only: bool,
         tooltip: Option<String>,
         options: Vec<RadioOption>,
-        #[serde(rename = "checkStyle")]
         check_style: Option<String>,
     },
     #[serde(rename = "choice")]
@@ -284,18 +275,15 @@ enum FieldDef {
         editable: bool,
         options: Vec<String>,
         selected: Option<String>,
-        #[serde(rename = "defaultSelected")]
         default_selected: Option<String>,
         #[serde(default)]
         required: bool,
-        #[serde(rename = "readOnly", default)]
+        #[serde(default)]
         read_only: bool,
         tooltip: Option<String>,
         border: Option<Border>,
         background: Option<[f32; 3]>,
-        #[serde(rename = "textColor")]
         text_color: Option<[f32; 3]>,
-        #[serde(rename = "fontSize")]
         font_size: Option<f32>,
         align: Option<String>,
     },
@@ -309,7 +297,7 @@ enum FieldDef {
         height: f32,
         #[serde(default)]
         required: bool,
-        #[serde(rename = "readOnly", default)]
+        #[serde(default)]
         read_only: bool,
         tooltip: Option<String>,
         border: Option<Border>,
