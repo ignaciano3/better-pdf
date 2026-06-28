@@ -35,6 +35,9 @@ export interface TextFieldOptions extends BaseFieldOptions {
   defaultValue?: string;
   maxLength?: number;
   multiline?: boolean;
+  /** Mask the field's display (the PDF Password flag): viewers render the value
+   * as dots/asterisks instead of the characters. Defaults to `false`. */
+  password?: boolean;
   /**
    * Render as a comb field: a single line split into `maxLength` equal cells,
    * one character per cell (e.g. SSN or date boxes). Requires `maxLength` and is
@@ -143,6 +146,7 @@ interface WireTextField extends WireBase {
   defaultValue?: string;
   maxLength?: number;
   multiline?: boolean;
+  password?: boolean;
   comb?: boolean;
   align?: FieldAlign;
   fontSize?: number;
@@ -322,6 +326,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     if (opts.defaultValue !== undefined) def.defaultValue = opts.defaultValue;
     if (opts.maxLength !== undefined) def.maxLength = opts.maxLength;
     if (opts.multiline !== undefined) def.multiline = opts.multiline;
+    if (opts.password) def.password = true;
     if (opts.comb) def.comb = true;
     applyTextStyle(def, opts, name);
     this.defs.push(def);

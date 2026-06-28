@@ -42,6 +42,16 @@ pub struct FieldInfo {
     /// The field's tooltip / alternate descriptive name (`/TU`), or `null` when
     /// the field has none.
     pub tooltip: Option<String>,
+    /// For variable-text fields (text/dropdown/listbox), the font resource name
+    /// from the effective `/DA` (e.g. `"Helv"`), or `null` for other field types
+    /// or when no `/DA` applies.
+    #[serde(rename = "fontName")]
+    pub font_name: Option<String>,
+    /// For variable-text fields, the font size in points from the effective
+    /// `/DA`. `0` means auto-size (the PDF `0 Tf` convention); `null` for other
+    /// field types or when no `/DA` applies.
+    #[serde(rename = "fontSize")]
+    pub font_size: Option<f32>,
     /// One entry per widget annotation: its page index (0-based) and `/Rect`
     /// `[x0, y0, x1, y1]` in PDF points (origin bottom-left). Most fields have
     /// one; radio groups and fields repeated across pages have several.
@@ -52,6 +62,13 @@ pub struct FieldInfo {
 pub struct Widget {
     pub page: usize,
     pub rect: [f32; 4],
+    /// Annotation `/F` Hidden flag (bit 2): not displayed and not printed.
+    pub hidden: bool,
+    /// Annotation `/F` Print flag (bit 3): included when the page is printed.
+    pub print: bool,
+    /// Annotation `/F` NoView flag (bit 6): hidden on screen but may still print.
+    #[serde(rename = "noView")]
+    pub no_view: bool,
 }
 
 /// Parse `data` and return its AcroForm fields as a JSON array string.
@@ -128,14 +145,40 @@ fn describe_field(
         None
     };
 
+    // Font/size come from the effective /DA; only meaningful for variable-text
+    // fields (text and choice). Other field types report null.
+    let (font_name, font_size) = if matches!(field_type.as_str(), "text" | "dropdown" | "listbox") {
+        match effective_da(doc, d) {
+            Some(s) => {
+                let da = crate::appearance::parse_da(&s);
+                (Some(da.font), Some(da.size))
+            }
+            None => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+
     let widgets = field_id
         .map(|id| {
             field_widgets(doc, id, d)
                 .into_iter()
                 .filter_map(|w| {
-                    pages
-                        .get(&w.page_id)
-                        .map(|&page| Widget { page, rect: w.rect })
+                    pages.get(&w.page_id).map(|&page| {
+                        let f = doc
+                            .get_dictionary(w.id)
+                            .ok()
+                            .and_then(|wd| wd.get(b"F").ok())
+                            .and_then(|o| o.as_i64().ok())
+                            .unwrap_or(0);
+                        Widget {
+                            page,
+                            rect: w.rect,
+                            hidden: f & 2 != 0,
+                            print: f & 4 != 0,
+                            no_view: f & 32 != 0,
+                        }
+                    })
                 })
                 .collect()
         })
@@ -159,6 +202,8 @@ fn describe_field(
         editable: field_type == "dropdown" && is_combo_edit(ff),
         align: quadding_to_align(inherited_int(doc, d, b"Q").unwrap_or(0)),
         tooltip: d.get(b"TU").ok().and_then(value_to_string),
+        font_name,
+        font_size,
         widgets,
     }
 }
@@ -224,6 +269,22 @@ pub(crate) fn quadding_to_align(q: i64) -> &'static str {
         2 => "right",
         _ => "left",
     }
+}
+
+/// The effective default appearance (`/DA`) string for a field: its own or
+/// inherited `/DA`, falling back to the AcroForm's default `/DA`. `None` when
+/// none is declared anywhere.
+fn effective_da(doc: &Document, d: &Dictionary) -> Option<String> {
+    if let Some(s) = inherited(doc, d, b"DA").and_then(da_string) {
+        return Some(s);
+    }
+    acroform(doc).and_then(|a| a.get(b"DA").ok()).and_then(da_string)
+}
+
+fn da_string(o: &Object) -> Option<String> {
+    o.as_str()
+        .ok()
+        .map(|b| String::from_utf8_lossy(b).into_owned())
 }
 
 /// The document's AcroForm dictionary (inline in the catalog or via reference).
@@ -413,6 +474,59 @@ mod tests {
         assert!(!widgets.is_empty());
         assert_eq!(widgets[0]["page"], 0);
         assert_eq!(widgets[0]["rect"].as_array().unwrap().len(), 4);
+        // Visibility flags are present as booleans on each widget.
+        assert!(widgets[0]["hidden"].is_boolean());
+        assert!(widgets[0]["print"].is_boolean());
+        assert!(widgets[0]["noView"].is_boolean());
+    }
+
+    #[test]
+    fn widget_visibility_flags_decode_from_annotation_f() {
+        use lopdf::{Document, Object, dictionary};
+        // A widget with /F = Hidden(2) | Print(4) = 6.
+        let field = dictionary! {
+            "FT" => Object::Name(b"Tx".to_vec()),
+            "T" => Object::string_literal("hidden_field"),
+            "Rect" => Object::Array(vec![
+                Object::Real(0.0), Object::Real(0.0), Object::Real(100.0), Object::Real(20.0),
+            ]),
+            "F" => Object::Integer(6),
+        };
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.new_object_id();
+        doc.set_object(page_id, Object::Dictionary(dictionary! {
+            "Type" => Object::Name(b"Page".to_vec()),
+            "Parent" => Object::Reference(pages_id),
+            "MediaBox" => vec![0i64.into(), 0i64.into(), 612i64.into(), 792i64.into()],
+        }));
+        let field_id = doc.add_object(Object::Dictionary(field));
+        // Put the widget on the page so it resolves to a page index.
+        if let Ok(p) = doc.get_object_mut(page_id).and_then(|o| o.as_dict_mut()) {
+            p.set("Annots", Object::Array(vec![Object::Reference(field_id)]));
+        }
+        doc.set_object(pages_id, Object::Dictionary(dictionary! {
+            "Type" => Object::Name(b"Pages".to_vec()),
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => Object::Integer(1),
+        }));
+        let acroform_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Fields" => Object::Array(vec![Object::Reference(field_id)]),
+        }));
+        let catalog_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+            "AcroForm" => Object::Reference(acroform_id),
+        }));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+
+        let f = fields(&bytes);
+        let w = &f[0]["widgets"][0];
+        assert_eq!(w["hidden"], true);
+        assert_eq!(w["print"], true);
+        assert_eq!(w["noView"], false);
     }
 
     #[test]

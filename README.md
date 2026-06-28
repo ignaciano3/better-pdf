@@ -596,8 +596,8 @@ import { rgb, grayscale } from "@ignaciano3/better-pdf";
 - `form.getListBox(name).options`
 - `form.getListBox(name).select(value)` / `.setDefaultSelected(value)`
 - `form.getSignature(name).setImage(bytes)`
-- `form.flattenField(name)`
-- `form.flatten()`
+- `form.flattenField(name)` / `form.flatten()`
+- `form.resetField(name)` / `form.reset()`
 
 Each `FieldInfo` carries `name`, `type`, `value`, `defaultValue` (the `/DV` reset
 value, or `null`), `states`, `options`, `readOnly`, `required`, `exported` (false
@@ -605,10 +605,12 @@ when the field has the `NoExport` flag), `maxLength` (a text field's `/MaxLen`, 
 `null`), `multiline` (text-area fields), `password` (masked text fields), `comb`
 (fixed-pitch per-character text fields), `editable` (combo boxes that accept
 custom values), `align` (`"left"`/`"center"`/`"right"`, from `/Q`), `tooltip`
-(the `/TU` descriptive name, or `null`), `multiSelect` (multi-select list boxes),
-and `widgets` — one entry per widget annotation giving its 0-based `page` index
-and `rect` (`[x0, y0, x1, y1]` in PDF points, origin bottom-left). `setText()`
-throws if its value exceeds `maxLength`.
+(the `/TU` descriptive name, or `null`), `fontName` / `fontSize` (the effective
+`/DA` font resource name and size for variable-text fields, else `null`),
+`multiSelect` (multi-select list boxes), and `widgets` — one entry per widget
+annotation giving its 0-based `page` index, `rect` (`[x0, y0, x1, y1]` in PDF
+points, origin bottom-left), and the annotation visibility flags `hidden` /
+`print` / `noView` (from `/F`). `setText()` throws if its value exceeds `maxLength`.
 
 Use `listBox.selectMultiple(values)` for multi-select list boxes (those with
 `FieldInfo.multiSelect === true`); `listBox.select(value)` for single-select ones.
@@ -618,6 +620,9 @@ independent of the current value and writable two ways: on new fields via the
 builder options `defaultValue` (text), `defaultChecked` (checkbox), and
 `defaultSelected` (radio/dropdown/listbox); and on existing fields via the
 setters `setDefaultText` / `setDefaultChecked` / `setDefaultSelected`.
+`form.resetField(name)` and `form.reset()` restore fields to their default
+value (or clear them when there is none) — the equivalent of a viewer's
+"reset form".
 
 ### Errors
 

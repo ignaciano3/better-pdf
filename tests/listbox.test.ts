@@ -23,6 +23,8 @@ function listboxInfo(multiSelect = false): FieldInfo {
     editable: false,
     align: "left",
     tooltip: null,
+    fontName: null,
+    fontSize: null,
     widgets: [],
   };
 }

@@ -99,7 +99,10 @@ Some options are specific to a field type:
   `multiline: true` makes the field wrap text across lines (otherwise it's a
   single line). `comb: true` renders a **comb field** — a single line split into
   `maxLength` equal cells with one character per cell (e.g. SSN or date boxes).
-  Comb requires `maxLength` and is incompatible with `multiline`.
+  Comb requires `maxLength` and is incompatible with `multiline`. `password: true`
+  sets the Password flag so viewers **mask** the displayed value (dots/asterisks).
+  This only changes how the value is *displayed* — it is not encryption, and it is
+  independent of the value itself: `setText(...)` still stores normal text.
 - **Checkbox** — `onValue` is the field's export value when checked (default
   `"Yes"`); `checked: true` ticks it initially. `checkStyle` chooses the mark
   drawn when ticked: `"check"` (default), `"cross"`, `"circle"`, `"square"`,

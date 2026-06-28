@@ -19,6 +19,12 @@ export interface FieldWidget {
   page: number;
   /** `/Rect` `[x0, y0, x1, y1]` in PDF points (origin bottom-left). */
   rect: [number, number, number, number];
+  /** Annotation `/F` Hidden flag (bit 2): not displayed and not printed. */
+  hidden: boolean;
+  /** Annotation `/F` Print flag (bit 3): included when the page is printed. */
+  print: boolean;
+  /** Annotation `/F` NoView flag (bit 6): hidden on screen but may still print. */
+  noView: boolean;
 }
 
 export interface FieldInfo {
@@ -59,6 +65,14 @@ export interface FieldInfo {
   /** The field's tooltip / alternate descriptive name (`/TU`), or null when the
    * field has none. */
   tooltip: string | null;
+  /** For variable-text fields (text/dropdown/listbox), the font resource name
+   * from the effective `/DA` (e.g. `"Helv"`); null for other field types or when
+   * no `/DA` applies. */
+  fontName: string | null;
+  /** For variable-text fields, the font size in points from the effective
+   * `/DA`. `0` means auto-size (the PDF `0 Tf` convention); null for other field
+   * types or when no `/DA` applies. */
+  fontSize: number | null;
   /** One entry per widget annotation (page + position). Usually one; radio
    * groups and fields repeated across pages have several. */
   widgets: FieldWidget[];
@@ -305,6 +319,61 @@ export class PdfForm {
       if (!this[kFlattenQueue].includes(f.name)) this[kFlattenQueue].push(f.name);
     }
   }
+
+  /**
+   * Queue one field to be reset to its default value when the document is saved.
+   *
+   * Resetting sets the field's value to its default value (`/DV`), or clears it
+   * when the field has none — the same effect as a PDF viewer's "reset form" for
+   * that field. The change is written when you call `doc.save()`.
+   *
+   * @param name - The fully-qualified field name to reset.
+   * @throws `UnknownFieldError` when no field has the given name.
+   *
+   * @example
+   * ```ts
+   * form.resetField("applicant.country");
+   * const pdfBytes = await doc.save();
+   * ```
+   */
+  resetField(name: string): void {
+    const f = this.getField(name);
+    if (!f) throw new UnknownFieldError(name);
+    this[kFormQueue].push({ name, reset: true });
+    f.value = f.defaultValue;
+  }
+
+  /**
+   * Queue every value-bearing field to be reset to its default value when the
+   * document is saved.
+   *
+   * This is the equivalent of a PDF viewer's "reset form": each text, checkbox,
+   * radio, dropdown, and list-box field is set to its default value (`/DV`), or
+   * cleared when it has none. Signature and push-button fields are skipped.
+   *
+   * @example
+   * ```ts
+   * form.reset();
+   * const pdfBytes = await doc.save();
+   * ```
+   */
+  reset(): void {
+    for (const f of this.fields) {
+      if (RESETTABLE_TYPES.has(f.type)) {
+        this[kFormQueue].push({ name: f.name, reset: true });
+        f.value = f.defaultValue;
+      }
+    }
+  }
 }
+
+/** Field types that carry a value and can therefore be reset to their `/DV`. */
+const RESETTABLE_TYPES: ReadonlySet<FieldType> = new Set<FieldType>([
+  "text",
+  "checkbox",
+  "radio",
+  "dropdown",
+  "listbox",
+]);
 
 export { kFormQueue, kFlattenQueue };

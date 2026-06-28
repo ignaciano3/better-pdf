@@ -218,6 +218,8 @@ enum FieldDef {
         max_length: Option<i64>,
         multiline: Option<bool>,
         #[serde(default)]
+        password: bool,
+        #[serde(default)]
         comb: bool,
         #[serde(default)]
         required: bool,
@@ -1420,6 +1422,7 @@ pub fn create_document_json(
                     default_value,
                     max_length,
                     multiline,
+                    password,
                     comb,
                     required,
                     read_only,
@@ -1467,6 +1470,7 @@ pub fn create_document_json(
                     let flags: i64 = (*read_only as i64)
                         | ((*required as i64) << 1)
                         | ((multiline.unwrap_or(false) as i64) << 12)
+                        | ((*password as i64) << 13)
                         | ((*comb as i64) << 24);
 
                     let rect = Object::Array(vec![
@@ -2164,6 +2168,37 @@ mod tests {
         assert_eq!(dv("c"), "Yes");
         assert_eq!(dv("r"), "A");
         assert_eq!(dv("d"), "Y");
+    }
+
+    #[test]
+    fn builder_text_reports_da_font_and_size() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842}]"#;
+        let fields = r#"[
+            {"type":"text","name":"amount","page":0,"x":10,"y":10,"width":100,"height":20,"fontSize":14},
+            {"type":"checkBox","name":"agree","page":0,"x":10,"y":40,"size":12}
+        ]"#;
+        let out = create_document_json(ops, &[], &[], "[]", fields).unwrap();
+        let json = crate::forms::read_fields_json(&out).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let by = |name: &str| {
+            v.as_array().unwrap().iter().find(|f| f["name"] == name).unwrap().clone()
+        };
+        assert_eq!(by("amount")["fontName"], "Helv");
+        assert_eq!(by("amount")["fontSize"], 14.0);
+        // Non-text fields report null.
+        assert_eq!(by("agree")["fontName"], serde_json::Value::Null);
+        assert_eq!(by("agree")["fontSize"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn builder_sets_password_flag() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842}]"#;
+        let fields = r#"[{"type":"text","name":"pin","page":0,"x":10,"y":10,"width":100,"height":20,"password":true}]"#;
+        let out = create_document_json(ops, &[], &[], "[]", fields).unwrap();
+        let json = crate::forms::read_fields_json(&out).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v[0]["name"], "pin");
+        assert_eq!(v[0]["password"], true);
     }
 
     #[test]

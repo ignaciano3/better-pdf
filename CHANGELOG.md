@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **More field metadata on read.** `FieldInfo` now exposes `multiline`, `comb`,
+  `password` (text-field `/Ff` flags), `editable` (combo box Edit flag), `align`
+  (from the widget `/Q` quadding), `tooltip` (the `/TU` descriptive name, or
+  `null`), `defaultValue` (the `/DV` reset value, or `null`), and `fontName` /
+  `fontSize` (the effective `/DA` font resource name and size for variable-text
+  fields, else `null`).
+- **Widget visibility flags on read.** Each `FieldInfo.widgets` entry now carries
+  `hidden`, `print`, and `noView`, decoded from the annotation `/F` flags.
+- **Writable default value (`/DV`).** The field default/reset value — what a
+  viewer's "reset form" restores, independent of the current value — can be set
+  on all value-bearing field types. New fields take builder options
+  `defaultValue` (text), `defaultChecked` (checkbox), and `defaultSelected`
+  (radio/dropdown/listbox); existing fields take the setters `setDefaultText`,
+  `setDefaultChecked`, and `setDefaultSelected`. Choice/radio defaults validate
+  against the field's options; text defaults validate against `maxLength`.
+- **Form reset.** `form.resetField(name)` and `form.reset()` restore fields to
+  their default value (`/DV`), or clear them when there is none — the equivalent
+  of a PDF viewer's "reset form". `reset()` skips signature and push-button
+  fields.
+- **Writable password text fields.** `addTextField` accepts `password: true` to
+  set the `/Ff` Password flag, so viewers mask the displayed value. This changes
+  display only (not encryption) and is independent of the field's value.
+
 ## [1.3.0] - 2026-06-26
 
 ### Added

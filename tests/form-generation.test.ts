@@ -499,9 +499,51 @@ describe("form-generation: FieldInfo flags round-trip", () => {
     const field = reloaded.getForm().getField("name")!;
     expect(field.multiline).toBe(false);
     expect(field.comb).toBe(false);
+    expect(field.password).toBe(false);
     expect(field.editable).toBe(false);
     expect(field.align).toBe("left");
     expect(field.tooltip).toBeNull();
+  });
+
+  test("password text field round-trips", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("pin", {
+        page: 0, x: 50, y: 250, width: 120, height: 20, password: true,
+      });
+    });
+    const field = reloaded.getForm().getField("pin")!;
+    expect(field.password).toBe(true);
+    expect(field.multiline).toBe(false);
+  });
+
+  test("fontName and fontSize from /DA round-trip", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("amount", {
+        page: 0, x: 50, y: 200, width: 120, height: 20, fontSize: 14,
+      });
+    });
+    const field = reloaded.getForm().getField("amount")!;
+    expect(field.fontName).toBe("Helv");
+    expect(field.fontSize).toBe(14);
+  });
+
+  test("fontName/fontSize are null for non-text fields", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addCheckBox("agree", { page: 0, x: 50, y: 150, size: 14 });
+    });
+    const field = reloaded.getForm().getField("agree")!;
+    expect(field.fontName).toBeNull();
+    expect(field.fontSize).toBeNull();
+  });
+
+  test("each widget exposes visibility flags", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("w", { page: 0, x: 50, y: 100, width: 120, height: 20 });
+    });
+    const widget = reloaded.getForm().getField("w")!.widgets[0]!;
+    expect(typeof widget.hidden).toBe("boolean");
+    expect(typeof widget.print).toBe("boolean");
+    expect(typeof widget.noView).toBe("boolean");
   });
 });
 
@@ -646,5 +688,69 @@ describe("form-generation: default value (setters on existing fields)", () => {
   test("setDefaultSelected rejects an invalid option", async () => {
     const doc = await baseDoc();
     expect(() => doc.getForm().getDropdown("d").setDefaultSelected("Nope" as "Open" | "Closed")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reset — form.reset() / form.resetField(name)
+// ---------------------------------------------------------------------------
+
+describe("form-generation: reset", () => {
+  /** Build a doc with defaults + changed current values, then reload. */
+  async function filledDoc() {
+    const built = await buildAndReload((doc) => {
+      const fb = doc.createForm();
+      fb.addTextField("t", { page: 0, x: 50, y: 700, width: 120, height: 20, defaultValue: "DEF" });
+      fb.addCheckBox("c", { page: 0, x: 50, y: 650, size: 14, onValue: "Yes", defaultChecked: true });
+      fb.addDropdown("d", {
+        page: 0, x: 50, y: 600, width: 120, height: 20,
+        options: ["Open", "Closed"] as const, defaultSelected: "Closed",
+      });
+    });
+    // Change every current value away from its default.
+    const form = built.getForm();
+    form.getTextField("t").setText("CHANGED");
+    form.getCheckBox("c").uncheck();
+    form.getDropdown("d").select("Open");
+    return PdfDocument.load(await built.save());
+  }
+
+  test("resetField restores one field to its default", async () => {
+    const doc = await filledDoc();
+    doc.getForm().resetField("t");
+    const reloaded = await PdfDocument.load(await doc.save());
+    const f = reloaded.getForm();
+    expect(f.getField("t")!.value).toBe("DEF");
+    // Untouched fields keep their changed value.
+    expect(f.getField("d")!.value).toBe("Open");
+  });
+
+  test("reset() restores all value-bearing fields to their defaults", async () => {
+    const doc = await filledDoc();
+    doc.getForm().reset();
+    const reloaded = await PdfDocument.load(await doc.save());
+    const f = reloaded.getForm();
+    expect(f.getField("t")!.value).toBe("DEF");
+    expect(f.getField("c")!.value).toBe("Yes");
+    expect(f.getField("d")!.value).toBe("Closed");
+  });
+
+  test("reset clears a field that has no default", async () => {
+    const built = await buildAndReload((doc) => {
+      doc.createForm().addTextField("t", { page: 0, x: 50, y: 700, width: 120, height: 20 });
+    });
+    built.getForm().getTextField("t").setText("SOMETHING");
+    const mid = await PdfDocument.load(await built.save());
+    mid.getForm().resetField("t");
+    const reloaded = await PdfDocument.load(await mid.save());
+    const v = reloaded.getForm().getField("t")!.value;
+    expect(v === null || v === "").toBe(true);
+  });
+
+  test("resetField throws for an unknown field", async () => {
+    const doc = await buildAndReload((d) => {
+      d.createForm().addTextField("t", { page: 0, x: 50, y: 700, width: 120, height: 20 });
+    });
+    expect(() => doc.getForm().resetField("nope")).toThrow();
   });
 });

@@ -77,8 +77,8 @@ import { rgb, grayscale } from "@ignaciano3/better-pdf";
 - `form.getDropdown(name).options` / `.select(value)` / `.setDefaultSelected(value)`
 - `form.getListBox(name).options` / `.select(value)` / `.setDefaultSelected(value)`
 - `form.getSignature(name).setImage(bytes)`
-- `form.flattenField(name)`
-- `form.flatten()`
+- `form.flattenField(name)` / `form.flatten()`
+- `form.resetField(name)` / `form.reset()`
 
 Each `FieldInfo` carries `name`, `type`, `value`, `defaultValue` (the `/DV`
 reset value, or `null`), `states`, `options`, `readOnly`, `required`, `exported`
@@ -86,9 +86,12 @@ reset value, or `null`), `states`, `options`, `readOnly`, `required`, `exported`
 `/MaxLen`, or `null`), `multiline` (text-area fields), `password` (masked text
 fields), `comb` (fixed-pitch per-character text fields), `editable` (combo boxes
 that accept custom values), `align` (`"left"`/`"center"`/`"right"`, from `/Q`),
-`tooltip` (the `/TU` descriptive name, or `null`), `multiSelect` (multi-select
-list boxes), and `widgets` — one entry per widget annotation giving its 0-based
-`page` index and `rect` (`[x0, y0, x1, y1]` in PDF points, origin bottom-left).
+`tooltip` (the `/TU` descriptive name, or `null`), `fontName` / `fontSize` (the
+effective `/DA` font resource name and size for variable-text fields, else
+`null`), `multiSelect` (multi-select list boxes), and `widgets` — one entry per
+widget annotation giving its 0-based `page` index, `rect` (`[x0, y0, x1, y1]`
+in PDF points, origin bottom-left), and the annotation visibility flags
+`hidden` / `print` / `noView` (from `/F`).
 `setText()` throws if its value exceeds `maxLength`. Use
 `listBox.selectMultiple(values)` for multi-select list boxes
 (`FieldInfo.multiSelect === true`); `listBox.select(value)` for single-select.

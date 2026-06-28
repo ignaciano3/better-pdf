@@ -25,6 +25,8 @@ function textInfo(maxLength: number | null): FieldInfo {
     editable: false,
     align: "left",
     tooltip: null,
+    fontName: null,
+    fontSize: null,
     widgets: [],
   };
 }

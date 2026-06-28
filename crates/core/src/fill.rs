@@ -2,7 +2,7 @@
 
 use crate::appearance;
 use crate::forms::{self};
-use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, text_string};
+use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, decode_text_string, text_string};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -14,6 +14,9 @@ struct FillOp {
     /// When present, the op sets the field's default value (`/DV`) rather than
     /// its current value (`/V`). Mutually exclusive with `value`/`values`/image.
     default_value: Option<String>,
+    /// When true, reset the field: set `/V` to the field's `/DV` (or clear it if
+    /// there is none) and redraw. Mutually exclusive with the other op kinds.
+    reset: Option<bool>,
     image_offset: Option<usize>,
     image_length: Option<usize>,
 }
@@ -165,6 +168,61 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
         });
     }
 
+    // Reset: set /V to the field's own /DV (or clear it when there is none),
+    // redrawing the appearance. Trusts /DV, so option validation is skipped.
+    if op.reset == Some(true) {
+        if op.value.is_some()
+            || op.values.is_some()
+            || op.default_value.is_some()
+            || op.image_offset.is_some()
+        {
+            return Err(format!(
+                "field {} reset op cannot be combined with other mutations",
+                op.name
+            ));
+        }
+        // Multi-select list boxes reset to their /DV array (or clear).
+        if kind == "listbox" && forms::is_multiselect(ff) {
+            let dv_values: Vec<String> = dict
+                .get(b"DV")
+                .ok()
+                .and_then(|o| match o {
+                    Object::Array(a) => Some(a.iter().filter_map(read_object_string).collect()),
+                    s @ Object::String(..) => decode_text_string(s).ok().map(|v| vec![v]),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let options: Vec<String> = dict
+                .get(b"Opt")
+                .and_then(|o| o.as_array())
+                .map(|a| a.iter().map(forms::opt_export).collect())
+                .unwrap_or_default();
+            let mut pairs: Vec<(i64, String)> = Vec::new();
+            for v in &dv_values {
+                if let Some(i) = dropdown_index(dict, v) {
+                    pairs.push((i, v.clone()));
+                }
+            }
+            pairs.sort_unstable_by_key(|(i, _)| *i);
+            let (indices, values): (Vec<i64>, Vec<String>) = pairs.into_iter().unzip();
+            return Ok(Resolved {
+                field_id,
+                apply: Apply::ListBoxMulti {
+                    values,
+                    indices,
+                    options,
+                    ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
+                },
+            });
+        }
+        let value = read_dv_string(dict).unwrap_or_else(|| match kind {
+            "checkbox" | "radio" => "Off".to_string(),
+            _ => String::new(),
+        });
+        let apply = value_apply(doc, field_id, dict, kind, ff, &op.name, &value, false)?;
+        return Ok(Resolved { field_id, apply });
+    }
+
     let image_bytes = match (op.image_offset, op.image_length) {
         (Some(off), Some(len)) => Some(
             off.checked_add(len)
@@ -239,33 +297,66 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
             .value
             .as_ref()
             .ok_or_else(|| format!("missing value for field {}", op.name))?;
-        match kind {
-            "text" => Apply::Text {
-                value: value.clone(),
-                ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
-            },
-            "checkbox" | "radio" => {
-                let widgets = button_widgets(doc, field_id, dict, value)?;
-                Apply::Button {
-                    value: value.clone(),
-                    widgets,
-                }
-            }
-            "dropdown" | "listbox" => {
-                let index = dropdown_index(dict, value);
-                if value != "Off" && index.is_none() && has_opt(dict) {
-                    return Err(format!("'{}' is not a valid option for {}", value, op.name));
-                }
-                Apply::Dropdown {
-                    value: value.clone(),
-                    index,
-                    ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
-                }
-            }
-            other => return Err(format!("cannot fill field {} of type {}", op.name, other)),
-        }
+        value_apply(doc, field_id, dict, kind, ff, &op.name, value, true)?
     };
     Ok(Resolved { field_id, apply })
+}
+
+/// Build the `Apply` for setting a single string `value` on a value-bearing
+/// field. When `validate_option` is true, choice values are checked against the
+/// field's options (the normal fill path); reset passes false because the value
+/// comes from the field's own `/DV`.
+fn value_apply(
+    doc: &Document,
+    field_id: ObjectId,
+    dict: &Dictionary,
+    kind: &str,
+    ff: i64,
+    name: &str,
+    value: &str,
+    validate_option: bool,
+) -> Result<Apply, String> {
+    Ok(match kind {
+        "text" => Apply::Text {
+            value: value.to_string(),
+            ap: ap_inputs(doc, field_id, dict, name, ff)?,
+        },
+        "checkbox" | "radio" => {
+            let widgets = button_widgets(doc, field_id, dict, value)?;
+            Apply::Button {
+                value: value.to_string(),
+                widgets,
+            }
+        }
+        "dropdown" | "listbox" => {
+            let index = dropdown_index(dict, value);
+            if validate_option && value != "Off" && index.is_none() && has_opt(dict) {
+                return Err(format!("'{}' is not a valid option for {}", value, name));
+            }
+            Apply::Dropdown {
+                value: value.to_string(),
+                index,
+                ap: ap_inputs(doc, field_id, dict, name, ff)?,
+            }
+        }
+        other => return Err(format!("cannot fill field {} of type {}", name, other)),
+    })
+}
+
+/// Read a field's `/DV` (default value) as a string. Button fields store it as a
+/// Name; text/choice fields as a text string.
+fn read_dv_string(dict: &Dictionary) -> Option<String> {
+    dict.get(b"DV").ok().and_then(read_object_string)
+}
+
+/// Extract a string from a Name or text-string object (e.g. a `/DV` array
+/// element); returns `None` for other object types.
+fn read_object_string(o: &Object) -> Option<String> {
+    match o {
+        Object::Name(n) => Some(String::from_utf8_lossy(n).into_owned()),
+        s @ Object::String(..) => decode_text_string(s).ok(),
+        _ => None,
+    }
 }
 
 /// Gather everything needed to draw a text/choice field's appearance:
@@ -812,6 +903,56 @@ mod tests {
         let ops = r#"[{"name":"beneficiario.estado_civil","defaultValue":"NotAnOption"}]"#;
         let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
         assert!(err.contains("is not a valid option"), "got: {err}");
+    }
+
+    #[test]
+    fn reset_restores_text_value_to_default() {
+        let name = "beneficiario.apellidos_nombres";
+        // Give the field a /DV, then a different /V, then reset.
+        let with_dv =
+            fill_fields_json(FICHA, &format!(r#"[{{"name":"{name}","defaultValue":"DEF"}}]"#), &[])
+                .unwrap();
+        let filled =
+            fill_fields_json(&with_dv, &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#), &[])
+                .unwrap();
+        assert_eq!(reparse_value(&filled, name).as_deref(), Some("OTHER"));
+        let reset = fill_fields_json(&filled, &format!(r#"[{{"name":"{name}","reset":true}}]"#), &[])
+            .unwrap();
+        assert_eq!(reparse_value(&reset, name).as_deref(), Some("DEF"));
+        Document::load_mem(&reset).unwrap();
+    }
+
+    #[test]
+    fn reset_clears_text_value_when_no_default() {
+        let name = "beneficiario.apellidos_nombres";
+        let filled =
+            fill_fields_json(FICHA, &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#), &[])
+                .unwrap();
+        let reset = fill_fields_json(&filled, &format!(r#"[{{"name":"{name}","reset":true}}]"#), &[])
+            .unwrap();
+        let v = reparse_value(&reset, name);
+        assert!(v.is_none() || v.as_deref() == Some(""), "expected cleared, got {v:?}");
+    }
+
+    #[test]
+    fn reset_restores_radio_default_as_name() {
+        let name = "beneficiario.tipo_beneficiario";
+        let with_dv =
+            fill_fields_json(FICHA, &format!(r#"[{{"name":"{name}","defaultValue":"Titular"}}]"#), &[])
+                .unwrap();
+        let reset = fill_fields_json(&with_dv, &format!(r#"[{{"name":"{name}","reset":true}}]"#), &[])
+            .unwrap();
+        assert_eq!(reparse_value(&reset, name).as_deref(), Some("Titular"));
+        let doc = Document::load_mem(&reset).unwrap();
+        let (_, field) = find_field(&doc, name).unwrap();
+        assert!(matches!(field.get(b"V").unwrap(), Object::Name(n) if n == b"Titular"));
+    }
+
+    #[test]
+    fn rejects_reset_combined_with_value() {
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"X","reset":true}]"#;
+        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
+        assert!(err.contains("reset op cannot be combined"), "got: {err}");
     }
 
     #[test]

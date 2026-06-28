@@ -22,9 +22,12 @@ reset value, or `null`), `states`, `options`, `readOnly`, `required`, `exported`
 `/MaxLen`, or `null`), `multiline` (text-area fields), `password` (masked text
 fields), `comb` (fixed-pitch per-character text fields), `editable` (combo boxes
 that accept custom values), `align` (`"left"`/`"center"`/`"right"`, from `/Q`),
-`tooltip` (the `/TU` descriptive name, or `null`), `multiSelect` (multi-select
-list boxes), and `widgets` — one entry per widget annotation giving its 0-based
-`page` index and `rect` (`[x0, y0, x1, y1]` in PDF points, origin bottom-left).
+`tooltip` (the `/TU` descriptive name, or `null`), `fontName` / `fontSize` (the
+effective `/DA` font resource name and size for variable-text fields, else
+`null`), `multiSelect` (multi-select list boxes), and `widgets` — one entry per
+widget annotation giving its 0-based `page` index, `rect` (`[x0, y0, x1, y1]`
+in PDF points, origin bottom-left), and the annotation visibility flags
+`hidden` / `print` / `noView` (from `/F`).
 
 ## Fill
 
@@ -59,6 +62,17 @@ form.getCheckBox("agree").setDefaultChecked(false);
 form.getRadioGroup("kind").setDefaultSelected("Titular");
 form.getDropdown("status").setDefaultSelected("Casado");
 form.getListBox("plan").setDefaultSelected("basic");
+```
+
+### Reset
+
+`reset()` restores fields to their default value (`/DV`), or clears them when
+they have none — the equivalent of a viewer's "reset form". Signature and
+push-button fields are skipped by `reset()`.
+
+```ts
+form.resetField("status");  // reset one field
+form.reset();               // reset every value-bearing field
 ```
 
 ## Flatten

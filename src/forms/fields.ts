@@ -11,6 +11,7 @@ export type FillOp =
   | { name: string; value: string }
   | { name: string; values: string[] }
   | { name: string; defaultValue: string }
+  | { name: string; reset: true }
   | { name: string; image: Uint8Array };
 
 /** Shared, ordered list of pending mutations for a document. */

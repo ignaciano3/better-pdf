@@ -32,6 +32,8 @@ const fields: FieldInfo[] = [
     editable: false,
     align: "left",
     tooltip: null,
+    fontName: null,
+    fontSize: null,
     widgets: [],
   },
   {
@@ -52,6 +54,8 @@ const fields: FieldInfo[] = [
     editable: false,
     align: "left",
     tooltip: null,
+    fontName: null,
+    fontSize: null,
     widgets: [],
   },
   {
@@ -72,6 +76,8 @@ const fields: FieldInfo[] = [
     editable: false,
     align: "left",
     tooltip: null,
+    fontName: null,
+    fontSize: null,
     widgets: [],
   },
 ];
