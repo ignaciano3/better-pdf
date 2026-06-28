@@ -111,6 +111,13 @@ Some options are specific to a field type:
   `options` (the combo box Edit flag). `addListBox` ignores it, since list boxes
   are never combo boxes.
 
+Every value-bearing field also accepts a **default value** (`/DV`) — what a
+viewer's "reset form" restores, independent of the field's initial value:
+`defaultValue` (text), `defaultChecked` (checkbox), and `defaultSelected`
+(radio, dropdown, list box). Omit it and no `/DV` is written. The same defaults
+can be set on existing fields with `setDefaultText` / `setDefaultChecked` /
+`setDefaultSelected` (see [Filling forms](/better-pdf/guides/filling-forms/)).
+
 :::note[Field text is always Helvetica]
 Field values render in Helvetica. The size (`fontSize`), color (`textColor`),
 and alignment (`align`) are configurable — the font family is fixed.
@@ -134,7 +141,8 @@ The builder validates as you add fields and throws synchronously (before
 - **`comb` without `maxLength > 0`, or `comb` with `multiline`** (text) → `RangeError`.
 - **`fontSize` ≤ 0** (text or choice) → `RangeError`.
 - **Empty `options`** (dropdown, list box, or radio group) → `RangeError`.
-- **`selected` not in `options`** (choice or radio) → `RangeError`.
+- **`selected` or `defaultSelected` not in `options`** (choice or radio) → `RangeError`.
+- **`defaultValue` longer than `maxLength`** (text) → `RangeError`.
 - **Duplicate radio option `value`** → `Error`.
 
 ## Reading the fields back

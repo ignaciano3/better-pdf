@@ -504,3 +504,147 @@ describe("form-generation: FieldInfo flags round-trip", () => {
     expect(field.tooltip).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Default value (/DV) — builder + existing-field setters
+// ---------------------------------------------------------------------------
+
+describe("form-generation: default value (builder)", () => {
+  test("text defaultValue round-trips", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("currency", {
+        page: 0, x: 50, y: 700, width: 120, height: 20, value: "EUR", defaultValue: "USD",
+      });
+    });
+    const field = reloaded.getForm().getField("currency")!;
+    expect(field.value).toBe("EUR");
+    expect(field.defaultValue).toBe("USD");
+  });
+
+  test("checkbox defaultChecked round-trips as on-state name", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addCheckBox("news", {
+        page: 0, x: 50, y: 650, size: 14, checked: false, defaultChecked: true, onValue: "Yes",
+      });
+    });
+    const field = reloaded.getForm().getField("news")!;
+    expect(field.value).toBe("Off");
+    expect(field.defaultValue).toBe("Yes");
+  });
+
+  test("radio defaultSelected round-trips", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addRadioGroup("plan", {
+        defaultSelected: "A",
+        options: [
+          { value: "A", page: 0, x: 50, y: 600, size: 14 },
+          { value: "B", page: 0, x: 80, y: 600, size: 14 },
+        ] as const,
+      });
+    });
+    const field = reloaded.getForm().getField("plan")!;
+    expect(field.defaultValue).toBe("A");
+  });
+
+  test("dropdown defaultSelected round-trips", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addDropdown("status", {
+        page: 0, x: 50, y: 550, width: 120, height: 20,
+        options: ["Open", "Closed"] as const, defaultSelected: "Closed",
+      });
+    });
+    const field = reloaded.getForm().getField("status")!;
+    expect(field.defaultValue).toBe("Closed");
+  });
+
+  test("listbox defaultSelected round-trips", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addListBox("lang", {
+        page: 0, x: 50, y: 500, width: 120, height: 40,
+        options: ["ES", "EN"] as const, defaultSelected: "EN",
+      });
+    });
+    const field = reloaded.getForm().getField("lang")!;
+    expect(field.defaultValue).toBe("EN");
+  });
+
+  test("no default written when option omitted", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("plain", { page: 0, x: 50, y: 450, width: 120, height: 20 });
+    });
+    expect(reloaded.getForm().getField("plain")!.defaultValue).toBeNull();
+  });
+
+  test("text defaultValue longer than maxLength throws", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    expect(() =>
+      doc.createForm().addTextField("code", {
+        page: 0, x: 0, y: 0, width: 100, height: 20, maxLength: 3, defaultValue: "TOOLONG",
+      }),
+    ).toThrow();
+  });
+
+  test("dropdown defaultSelected not in options throws", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    expect(() =>
+      doc.createForm().addDropdown("d", {
+        page: 0, x: 0, y: 0, width: 100, height: 20,
+        options: ["X", "Y"] as const, defaultSelected: "Z" as "X" | "Y",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("form-generation: default value (setters on existing fields)", () => {
+  /** Build a base doc with one field per type, then reload it. */
+  async function baseDoc() {
+    return buildAndReload((doc) => {
+      const fb = doc.createForm();
+      fb.addTextField("t", { page: 0, x: 50, y: 700, width: 120, height: 20 });
+      fb.addCheckBox("c", { page: 0, x: 50, y: 650, size: 14, onValue: "Yes" });
+      fb.addRadioGroup("r", {
+        options: [
+          { value: "A", page: 0, x: 50, y: 600, size: 14 },
+          { value: "B", page: 0, x: 80, y: 600, size: 14 },
+        ] as const,
+      });
+      fb.addDropdown("d", { page: 0, x: 50, y: 550, width: 120, height: 20, options: ["Open", "Closed"] as const });
+      fb.addListBox("l", { page: 0, x: 50, y: 500, width: 120, height: 40, options: ["ES", "EN"] as const });
+    });
+  }
+
+  test("setDefaultText / Checked / Selected persist after save", async () => {
+    const doc = await baseDoc();
+    const form = doc.getForm();
+    form.getTextField("t").setDefaultText("HELLO");
+    form.getCheckBox("c").setDefaultChecked(true);
+    form.getRadioGroup("r").setDefaultSelected("B");
+    form.getDropdown("d").setDefaultSelected("Closed");
+    form.getListBox("l").setDefaultSelected("EN");
+    const reloaded = await PdfDocument.load(await doc.save());
+    const f = reloaded.getForm();
+    expect(f.getField("t")!.defaultValue).toBe("HELLO");
+    expect(f.getField("c")!.defaultValue).toBe("Yes");
+    expect(f.getField("r")!.defaultValue).toBe("B");
+    expect(f.getField("d")!.defaultValue).toBe("Closed");
+    expect(f.getField("l")!.defaultValue).toBe("EN");
+  });
+
+  test("setDefaultText does not change the current value", async () => {
+    const doc = await baseDoc();
+    const form = doc.getForm();
+    form.getTextField("t").setText("CURRENT");
+    form.getTextField("t").setDefaultText("DEFAULT");
+    const reloaded = await PdfDocument.load(await doc.save());
+    const field = reloaded.getForm().getField("t")!;
+    expect(field.value).toBe("CURRENT");
+    expect(field.defaultValue).toBe("DEFAULT");
+  });
+
+  test("setDefaultSelected rejects an invalid option", async () => {
+    const doc = await baseDoc();
+    expect(() => doc.getForm().getDropdown("d").setDefaultSelected("Nope" as "Open" | "Closed")).toThrow();
+  });
+});

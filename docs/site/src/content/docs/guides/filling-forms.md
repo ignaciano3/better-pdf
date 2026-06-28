@@ -47,6 +47,20 @@ never assume `Yes`/`On`. Invalid values throw (see [Errors](/better-pdf/referenc
 `setText()` throws `MaxLengthExceededError` if the value exceeds the field's
 `/MaxLen`.
 
+### Default (reset) value
+
+Each field can carry a default value (`/DV`) — what a viewer's "reset form"
+restores. It is independent of the current value and set with a parallel set of
+methods. Their arguments validate exactly like `select`/`check`/`setText`:
+
+```ts
+form.getTextField("name").setDefaultText("");        // empty by default
+form.getCheckBox("agree").setDefaultChecked(false);
+form.getRadioGroup("kind").setDefaultSelected("Titular");
+form.getDropdown("status").setDefaultSelected("Casado");
+form.getListBox("plan").setDefaultSelected("basic");
+```
+
 ## Flatten
 
 ```ts

@@ -30,6 +30,9 @@ export interface TextFieldOptions extends BaseFieldOptions {
   width: number;
   height: number;
   value?: string;
+  /** Default/reset value (`/DV`), independent of `value`. Restored by a viewer's
+   * "reset form". Must not be longer than `maxLength`. */
+  defaultValue?: string;
   maxLength?: number;
   multiline?: boolean;
   /**
@@ -53,6 +56,9 @@ export type CheckStyle = "check" | "cross" | "circle" | "square" | "diamond" | "
 export interface CheckBoxOptions extends BaseFieldOptions {
   size: number;
   checked?: boolean;
+  /** Default/reset state (`/DV`), independent of `checked`. Restored by a
+   * viewer's "reset form". */
+  defaultChecked?: boolean;
   onValue?: string;
   /** The mark drawn when ticked. Defaults to `"check"`. */
   checkStyle?: CheckStyle;
@@ -68,6 +74,9 @@ export interface RadioOption {
 
 export interface RadioGroupOptions {
   selected?: string;
+  /** Default/reset selection (`/DV`), independent of `selected`. Restored by a
+   * viewer's "reset form". Must be one of the option values. */
+  defaultSelected?: string;
   required?: boolean;
   readOnly?: boolean;
   tooltip?: string;
@@ -81,6 +90,9 @@ export interface ChoiceOptions<O extends string> extends BaseFieldOptions {
   height: number;
   options: readonly O[];
   selected?: NoInfer<O>;
+  /** Default/reset selection (`/DV`), independent of `selected`. Restored by a
+   * viewer's "reset form". Must be one of `options`. */
+  defaultSelected?: NoInfer<O>;
   /**
    * For dropdowns ({@link FormBuilder.addDropdown}): allow the user to type a
    * custom value not in `options` (sets the combo box Edit flag). Ignored by
@@ -128,6 +140,7 @@ interface WireTextField extends WireBase {
   width: number;
   height: number;
   value?: string;
+  defaultValue?: string;
   maxLength?: number;
   multiline?: boolean;
   comb?: boolean;
@@ -140,6 +153,7 @@ interface WireCheckBox extends WireBase {
   type: "checkBox";
   size: number;
   checked?: boolean;
+  defaultChecked?: boolean;
   onValue?: string;
   checkStyle?: CheckStyle;
 }
@@ -149,6 +163,7 @@ interface WireRadioGroup {
   type: "radioGroup";
   name: string;
   selected?: string;
+  defaultSelected?: string;
   required?: boolean;
   readOnly?: boolean;
   tooltip?: string;
@@ -165,6 +180,7 @@ interface WireChoice extends WireBase {
   editable?: boolean;
   options: string[];
   selected?: string;
+  defaultSelected?: string;
   align?: FieldAlign;
   fontSize?: number;
 }
@@ -291,8 +307,19 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
         throw new RangeError(`${name}: comb field cannot be multiline`);
       }
     }
+    if (
+      opts.defaultValue !== undefined &&
+      opts.maxLength !== undefined &&
+      opts.maxLength >= 0 &&
+      opts.defaultValue.length > opts.maxLength
+    ) {
+      throw new RangeError(
+        `${name}.defaultValue length ${opts.defaultValue.length} exceeds maxLength ${opts.maxLength}`,
+      );
+    }
     const def: WireTextField = { ...base, type: "text", width: opts.width, height: opts.height };
     if (opts.value !== undefined) def.value = opts.value;
+    if (opts.defaultValue !== undefined) def.defaultValue = opts.defaultValue;
     if (opts.maxLength !== undefined) def.maxLength = opts.maxLength;
     if (opts.multiline !== undefined) def.multiline = opts.multiline;
     if (opts.comb) def.comb = true;
@@ -318,6 +345,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     assertPositive(opts.size, `${name}.size`);
     const def: WireCheckBox = { ...base, type: "checkBox", size: opts.size };
     if (opts.checked !== undefined) def.checked = opts.checked;
+    if (opts.defaultChecked !== undefined) def.defaultChecked = opts.defaultChecked;
     if (opts.onValue !== undefined) def.onValue = opts.onValue;
     if (opts.checkStyle !== undefined) def.checkStyle = opts.checkStyle;
     this.defs.push(def);
@@ -333,7 +361,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
 
   addRadioGroup<N extends string, O extends string>(
     name: N,
-    opts: Omit<RadioGroupOptions, "selected"> & { options: readonly (RadioOption & { value: O })[]; selected?: NoInfer<O> },
+    opts: Omit<RadioGroupOptions, "selected" | "defaultSelected"> & { options: readonly (RadioOption & { value: O })[]; selected?: NoInfer<O>; defaultSelected?: NoInfer<O> },
   ): FormBuilder<
     S & Record<N, { type: "radio"; readOnly: boolean; value: string | null; states: readonly O[]; options: readonly [] }>
   > {
@@ -355,6 +383,9 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     if (opts.selected !== undefined && !seen.has(opts.selected)) {
       throw new RangeError(`${name}: selected "${opts.selected}" not in options`);
     }
+    if (opts.defaultSelected !== undefined && !seen.has(opts.defaultSelected)) {
+      throw new RangeError(`${name}: defaultSelected "${opts.defaultSelected}" not in options`);
+    }
 
     const def: WireRadioGroup = {
       type: "radioGroup",
@@ -362,6 +393,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
       options: opts.options.map((o) => ({ value: o.value, page: o.page, x: o.x, y: o.y, size: o.size })),
     };
     if (opts.selected !== undefined) def.selected = opts.selected;
+    if (opts.defaultSelected !== undefined) def.defaultSelected = opts.defaultSelected;
     if (opts.required !== undefined) def.required = opts.required;
     if (opts.readOnly !== undefined) def.readOnly = opts.readOnly;
     if (opts.tooltip !== undefined) def.tooltip = opts.tooltip;
@@ -416,6 +448,9 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     if (opts.selected !== undefined && !(opts.options as readonly string[]).includes(opts.selected)) {
       throw new RangeError(`${name}: selected "${opts.selected}" not in options`);
     }
+    if (opts.defaultSelected !== undefined && !(opts.options as readonly string[]).includes(opts.defaultSelected)) {
+      throw new RangeError(`${name}: defaultSelected "${opts.defaultSelected}" not in options`);
+    }
     const def: WireChoice = {
       ...base,
       type: "choice",
@@ -426,6 +461,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     };
     if (editable && combo) def.editable = true;
     if (opts.selected !== undefined) def.selected = opts.selected;
+    if (opts.defaultSelected !== undefined) def.defaultSelected = opts.defaultSelected;
     applyTextStyle(def, opts, name);
     this.defs.push(def);
     this.names.add(name);

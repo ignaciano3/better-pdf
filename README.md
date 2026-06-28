@@ -585,15 +585,16 @@ import { rgb, grayscale } from "@ignaciano3/better-pdf";
 
 - `form.getFields(): FieldInfo[]`
 - `form.getField(name: string): FieldInfo | undefined`
-- `form.getTextField(name).setText(value)`
+- `form.getTextField(name).setText(value)` / `.setDefaultText(value)`
 - `form.getCheckBox(name).check()`
 - `form.getCheckBox(name).uncheck()`
+- `form.getCheckBox(name).setDefaultChecked(checked)`
 - `form.getRadioGroup(name).options`
-- `form.getRadioGroup(name).select(value)`
+- `form.getRadioGroup(name).select(value)` / `.setDefaultSelected(value)`
 - `form.getDropdown(name).options`
-- `form.getDropdown(name).select(value)`
+- `form.getDropdown(name).select(value)` / `.setDefaultSelected(value)`
 - `form.getListBox(name).options`
-- `form.getListBox(name).select(value)`
+- `form.getListBox(name).select(value)` / `.setDefaultSelected(value)`
 - `form.getSignature(name).setImage(bytes)`
 - `form.flattenField(name)`
 - `form.flatten()`
@@ -611,6 +612,12 @@ throws if its value exceeds `maxLength`.
 
 Use `listBox.selectMultiple(values)` for multi-select list boxes (those with
 `FieldInfo.multiSelect === true`); `listBox.select(value)` for single-select ones.
+
+The default/reset value (`/DV`, restored by a viewer's "reset form") is
+independent of the current value and writable two ways: on new fields via the
+builder options `defaultValue` (text), `defaultChecked` (checkbox), and
+`defaultSelected` (radio/dropdown/listbox); and on existing fields via the
+setters `setDefaultText` / `setDefaultChecked` / `setDefaultSelected`.
 
 ### Errors
 

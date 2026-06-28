@@ -11,6 +11,9 @@ struct FillOp {
     name: String,
     value: Option<String>,
     values: Option<Vec<String>>,
+    /// When present, the op sets the field's default value (`/DV`) rather than
+    /// its current value (`/V`). Mutually exclusive with `value`/`values`/image.
+    default_value: Option<String>,
     image_offset: Option<usize>,
     image_length: Option<usize>,
 }
@@ -95,6 +98,13 @@ enum Apply {
         value: String,
         widgets: Vec<(ObjectId, bool)>,
     },
+    /// Set the field's default value /DV only. `as_name` is true for button
+    /// fields (checkbox/radio), where /DV is a Name; false for text/choice,
+    /// where it is a text string. Does not draw or change any appearance.
+    DefaultValue {
+        value: String,
+        as_name: bool,
+    },
     /// Draw a visual-only signature image appearance on each widget.
     Signature {
         image: appearance::SignatureImage,
@@ -117,6 +127,43 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
     let ft = forms::inherited_name(doc, dict, b"FT").unwrap_or_default();
     let ff = forms::inherited_int(doc, dict, b"Ff").unwrap_or(0);
     let kind = forms::classify(&ft, ff);
+
+    // Setting the default value (/DV) is mutually exclusive with setting the
+    // current value/image, and only applies to value-bearing field types.
+    if let Some(dv) = &op.default_value {
+        if op.value.is_some() || op.values.is_some() || op.image_offset.is_some() {
+            return Err(format!(
+                "field {} op cannot combine defaultValue with value/values/image",
+                op.name
+            ));
+        }
+        let as_name = match kind {
+            "text" | "dropdown" | "listbox" => {
+                if (kind == "dropdown" || kind == "listbox")
+                    && dv != "Off"
+                    && has_opt(dict)
+                    && dropdown_index(dict, dv).is_none()
+                {
+                    return Err(format!("'{}' is not a valid option for {}", dv, op.name));
+                }
+                false
+            }
+            "checkbox" | "radio" => true,
+            other => {
+                return Err(format!(
+                    "cannot set default value on field {} of type {}",
+                    op.name, other
+                ));
+            }
+        };
+        return Ok(Resolved {
+            field_id,
+            apply: Apply::DefaultValue {
+                value: dv.clone(),
+                as_name,
+            },
+        });
+    }
 
     let image_bytes = match (op.image_offset, op.image_length) {
         (Some(off), Some(len)) => Some(
@@ -492,6 +539,14 @@ fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
         Apply::Signature { image, widgets } => {
             draw_signature_appearances(inc, image, widgets)?;
         }
+        Apply::DefaultValue { value, as_name } => {
+            let dv = if *as_name {
+                Object::Name(value.as_bytes().to_vec())
+            } else {
+                text_string(value)
+            };
+            field_dict_mut(inc, r.field_id)?.set("DV", dv);
+        }
         Apply::ListBoxMulti {
             values,
             indices,
@@ -695,6 +750,68 @@ mod tests {
             .iter()
             .find(|f| f["name"] == field_name)
             .and_then(|f| f["value"].as_str().map(|s| s.to_string()))
+    }
+
+    fn reparse_default_value(bytes: &[u8], field_name: &str) -> Option<String> {
+        let json = crate::forms::read_fields_json(bytes).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == field_name)
+            .and_then(|f| f["defaultValue"].as_str().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn sets_default_value_on_text_field_without_touching_value() {
+        let ops =
+            r#"[{"name":"beneficiario.apellidos_nombres","defaultValue":"DEFAULT"}]"#;
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        assert_eq!(
+            reparse_default_value(&out, "beneficiario.apellidos_nombres").as_deref(),
+            Some("DEFAULT")
+        );
+        // /V must be untouched by a /DV-only op.
+        assert_eq!(
+            reparse_value(&out, "beneficiario.apellidos_nombres"),
+            reparse_value(FICHA, "beneficiario.apellidos_nombres")
+        );
+        Document::load_mem(&out).unwrap();
+    }
+
+    #[test]
+    fn sets_default_value_on_dropdown() {
+        let ops = r#"[{"name":"beneficiario.estado_civil","defaultValue":"Casado"}]"#;
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        assert_eq!(
+            reparse_default_value(&out, "beneficiario.estado_civil").as_deref(),
+            Some("Casado")
+        );
+    }
+
+    #[test]
+    fn sets_default_value_on_radio_as_name() {
+        let ops = r#"[{"name":"beneficiario.tipo_beneficiario","defaultValue":"Titular"}]"#;
+        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let (_, field) = find_field(&doc, "beneficiario.tipo_beneficiario").unwrap();
+        // For button fields /DV is a Name, not a string.
+        assert!(matches!(field.get(b"DV").unwrap(), Object::Name(n) if n == b"Titular"));
+    }
+
+    #[test]
+    fn rejects_value_and_default_value_in_same_op() {
+        let ops =
+            r#"[{"name":"beneficiario.apellidos_nombres","value":"X","defaultValue":"Y"}]"#;
+        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
+        assert!(err.contains("cannot combine defaultValue"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_invalid_default_option_for_dropdown() {
+        let ops = r#"[{"name":"beneficiario.estado_civil","defaultValue":"NotAnOption"}]"#;
+        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
+        assert!(err.contains("is not a valid option"), "got: {err}");
     }
 
     #[test]

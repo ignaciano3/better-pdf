@@ -10,6 +10,7 @@ import {
 export type FillOp =
   | { name: string; value: string }
   | { name: string; values: string[] }
+  | { name: string; defaultValue: string }
   | { name: string; image: Uint8Array };
 
 /** Shared, ordered list of pending mutations for a document. */
@@ -82,6 +83,30 @@ export class PdfTextField {
     this.queue.push({ name: this.info.name, value });
     this.info.value = value;
   }
+
+  /**
+   * Set this field's default/reset value (`/DV`), independent of the current
+   * value. A PDF viewer's "reset form" restores the field to this value.
+   *
+   * The change is applied to the PDF bytes when you call `doc.save()`.
+   *
+   * @param value - The default text.
+   * @throws `MaxLengthExceededError` when the value is longer than the field's
+   * declared `/MaxLen`.
+   *
+   * @example
+   * ```ts
+   * form.getTextField("invoice.currency").setDefaultText("USD");
+   * ```
+   */
+  setDefaultText(value: string): void {
+    const max = this.info.maxLength;
+    if (max !== null && value.length > max) {
+      throw new MaxLengthExceededError(this.info.name, max, value.length);
+    }
+    this.queue.push({ name: this.info.name, defaultValue: value });
+    this.info.defaultValue = value;
+  }
 }
 
 /**
@@ -129,6 +154,34 @@ export class PdfCheckBox {
   uncheck(): void {
     this.queue.push({ name: this.info.name, value: "Off" });
     this.info.value = "Off";
+  }
+
+  /**
+   * Set this checkbox's default/reset state (`/DV`), independent of the current
+   * state. A PDF viewer's "reset form" restores the checkbox to this state.
+   *
+   * The change is applied to the PDF bytes when you call `doc.save()`.
+   *
+   * @param checked - The default checked state.
+   * @throws `MissingOnStateError` when setting the default to checked but the
+   * checkbox has no declared on-state.
+   *
+   * @example
+   * ```ts
+   * form.getCheckBox("prefs.newsletter").setDefaultChecked(true);
+   * ```
+   */
+  setDefaultChecked(checked: boolean): void {
+    let value: string;
+    if (checked) {
+      const on = this.info.states[0];
+      if (!on) throw new MissingOnStateError(this.info.name);
+      value = on;
+    } else {
+      value = "Off";
+    }
+    this.queue.push({ name: this.info.name, defaultValue: value });
+    this.info.defaultValue = value;
   }
 }
 
@@ -181,6 +234,29 @@ export class PdfRadioGroup<Opt extends string = string> {
     this.queue.push({ name: this.info.name, value });
     this.info.value = value;
   }
+
+  /**
+   * Set this group's default/reset selection (`/DV`), independent of the current
+   * selection. A PDF viewer's "reset form" restores the group to this option.
+   *
+   * The change is applied to the PDF bytes when you call `doc.save()`.
+   *
+   * @param value - One of the values from `options`.
+   * @throws `InvalidOptionError` when `value` is not a valid option.
+   *
+   * @example
+   * ```ts
+   * const group = form.getRadioGroup("beneficiario.tipo_beneficiario");
+   * group.setDefaultSelected("Titular");
+   * ```
+   */
+  setDefaultSelected(value: Opt): void {
+    if (!this.info.states.includes(value)) {
+      throw new InvalidOptionError(this.info.name, "radio", value, this.info.states);
+    }
+    this.queue.push({ name: this.info.name, defaultValue: value });
+    this.info.defaultValue = value;
+  }
 }
 
 /**
@@ -231,6 +307,29 @@ export class PdfDropdown<Opt extends string = string> {
     }
     this.queue.push({ name: this.info.name, value });
     this.info.value = value;
+  }
+
+  /**
+   * Set this dropdown's default/reset value (`/DV`), independent of the current
+   * value. A PDF viewer's "reset form" restores the dropdown to this option.
+   *
+   * The change is applied to the PDF bytes when you call `doc.save()`.
+   *
+   * @param value - One of the values from `options`.
+   * @throws `InvalidOptionError` when the dropdown declares options and `value`
+   * is not one of them.
+   *
+   * @example
+   * ```ts
+   * form.getDropdown("beneficiario.estado_civil").setDefaultSelected("Soltero");
+   * ```
+   */
+  setDefaultSelected(value: Opt): void {
+    if (this.info.options.length && !this.info.options.includes(value)) {
+      throw new InvalidOptionError(this.info.name, "dropdown", value, this.info.options);
+    }
+    this.queue.push({ name: this.info.name, defaultValue: value });
+    this.info.defaultValue = value;
   }
 }
 
@@ -284,6 +383,29 @@ export class PdfListBox<Opt extends string = string> {
     }
     this.queue.push({ name: this.info.name, value });
     this.info.value = value;
+  }
+
+  /**
+   * Set this list box's default/reset value (`/DV`), independent of the current
+   * value. A PDF viewer's "reset form" restores the list box to this option.
+   *
+   * The change is applied to the PDF bytes when you call `doc.save()`.
+   *
+   * @param value - One of the values from `options`.
+   * @throws `InvalidOptionError` when the list box declares options and `value`
+   * is not one of them.
+   *
+   * @example
+   * ```ts
+   * form.getListBox("person.language").setDefaultSelected("TypeScript");
+   * ```
+   */
+  setDefaultSelected(value: Opt): void {
+    if (this.info.options.length && !this.info.options.includes(value)) {
+      throw new InvalidOptionError(this.info.name, "listbox", value, this.info.options);
+    }
+    this.queue.push({ name: this.info.name, defaultValue: value });
+    this.info.defaultValue = value;
   }
 
   /**

@@ -214,6 +214,8 @@ enum FieldDef {
         width: f32,
         height: f32,
         value: Option<String>,
+        #[serde(rename = "defaultValue")]
+        default_value: Option<String>,
         #[serde(rename = "maxLength")]
         max_length: Option<i64>,
         multiline: Option<bool>,
@@ -240,6 +242,8 @@ enum FieldDef {
         size: f32,
         #[serde(default)]
         checked: bool,
+        #[serde(rename = "defaultChecked")]
+        default_checked: Option<bool>,
         #[serde(rename = "onValue")]
         on_value: Option<String>,
         #[serde(default)]
@@ -255,6 +259,8 @@ enum FieldDef {
     RadioGroup {
         name: String,
         selected: Option<String>,
+        #[serde(rename = "defaultSelected")]
+        default_selected: Option<String>,
         #[serde(default)]
         required: bool,
         #[serde(rename = "readOnly", default)]
@@ -278,6 +284,8 @@ enum FieldDef {
         editable: bool,
         options: Vec<String>,
         selected: Option<String>,
+        #[serde(rename = "defaultSelected")]
+        default_selected: Option<String>,
         #[serde(default)]
         required: bool,
         #[serde(rename = "readOnly", default)]
@@ -805,13 +813,20 @@ pub fn create_document_json(
         let mut seen_names: HashSet<&str> = HashSet::new();
         for field in &fields {
             match field {
-                FieldDef::Text { name, page, x, y, width, height, max_length, comb, multiline, .. } => {
+                FieldDef::Text { name, page, x, y, width, height, max_length, comb, multiline, default_value, .. } => {
                     if name.is_empty() {
                         return Err("field name must not be empty".to_string());
                     }
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
                     }
+                    if let (Some(dv), Some(ml)) = (default_value, max_length)
+                        && *ml >= 0 && dv.chars().count() as i64 > *ml {
+                            return Err(format!(
+                                "text field \"{name}\" defaultValue length {} exceeds maxLength {ml}",
+                                dv.chars().count()
+                            ));
+                        }
                     if *page >= pages.len() {
                         return Err(format!("field page {page} out of range ({} pages)", pages.len()));
                     }
@@ -862,7 +877,7 @@ pub fn create_document_json(
                             return Err("checkbox onValue must not be \"Off\"".to_string());
                         }
                 }
-                FieldDef::RadioGroup { name, selected, options, .. } => {
+                FieldDef::RadioGroup { name, selected, options, default_selected, .. } => {
                     if name.is_empty() {
                         return Err("field name must not be empty".to_string());
                     }
@@ -872,6 +887,10 @@ pub fn create_document_json(
                     if options.is_empty() {
                         return Err(format!("radioGroup \"{name}\" must have at least one option"));
                     }
+                    if let Some(dv) = default_selected
+                        && !options.iter().any(|o| &o.value == dv) {
+                            return Err(format!("radioGroup \"{name}\" defaultSelected value \"{dv}\" is not in options"));
+                        }
                     let mut seen_values: HashSet<&str> = HashSet::new();
                     for opt in options {
                         if opt.value.is_empty() {
@@ -898,7 +917,7 @@ pub fn create_document_json(
                             return Err(format!("radioGroup \"{name}\" selected value \"{sel}\" is not in options"));
                         }
                 }
-                FieldDef::Choice { name, page, x, y, width, height, options, selected, .. } => {
+                FieldDef::Choice { name, page, x, y, width, height, options, selected, default_selected, .. } => {
                     if name.is_empty() {
                         return Err("field name must not be empty".to_string());
                     }
@@ -929,6 +948,10 @@ pub fn create_document_json(
                     if let Some(sel) = selected
                         && !options.iter().any(|o| o == sel) {
                             return Err(format!("choice field \"{name}\" selected value \"{sel}\" is not in options"));
+                        }
+                    if let Some(dv) = default_selected
+                        && !options.iter().any(|o| o == dv) {
+                            return Err(format!("choice field \"{name}\" defaultSelected value \"{dv}\" is not in options"));
                         }
                 }
                 FieldDef::Signature { name, page, x, y, width, height, .. } => {
@@ -1406,6 +1429,7 @@ pub fn create_document_json(
                     width,
                     height,
                     value,
+                    default_value,
                     max_length,
                     multiline,
                     comb,
@@ -1475,6 +1499,12 @@ pub fn create_document_json(
                         field_dict.set("Q", Object::Integer(q));
                     }
                     field_dict.set("V", Object::string_literal(val_bytes));
+                    if let Some(dv) = default_value {
+                        field_dict.set(
+                            "DV",
+                            Object::string_literal(crate::appearance::encode_winansi(dv)),
+                        );
+                    }
                     field_dict.set("Ff", Object::Integer(flags));
                     field_dict.set(
                         "AP",
@@ -1539,6 +1569,7 @@ pub fn create_document_json(
                     y,
                     size,
                     checked,
+                    default_checked,
                     on_value,
                     required,
                     read_only,
@@ -1582,6 +1613,10 @@ pub fn create_document_json(
                     field_dict.set("Rect", rect);
                     field_dict.set("V", v_val);
                     field_dict.set("AS", as_val);
+                    if let Some(dc) = default_checked {
+                        let dv_name = if *dc { on.as_bytes().to_vec() } else { b"Off".to_vec() };
+                        field_dict.set("DV", Object::Name(dv_name));
+                    }
                     field_dict.set("Ff", Object::Integer(flags));
                     field_dict.set(
                         "AP",
@@ -1637,6 +1672,7 @@ pub fn create_document_json(
                 FieldDef::RadioGroup {
                     name,
                     selected,
+                    default_selected,
                     required,
                     read_only,
                     tooltip,
@@ -1710,6 +1746,9 @@ pub fn create_document_json(
                     parent_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     parent_dict.set("Kids", Object::Array(kids_refs));
                     parent_dict.set("V", v_val);
+                    if let Some(dv) = default_selected {
+                        parent_dict.set("DV", Object::Name(dv.as_bytes().to_vec()));
+                    }
 
                     if let Some(tip) = tooltip
                         && !tip.is_empty() {
@@ -1731,6 +1770,7 @@ pub fn create_document_json(
                     editable,
                     options,
                     selected,
+                    default_selected,
                     required,
                     read_only,
                     tooltip,
@@ -1795,6 +1835,12 @@ pub fn create_document_json(
                     if let Some(sel) = selected {
                         let idx = options.iter().position(|o| o == sel).unwrap() as i64;
                         field_dict.set("I", Object::Array(vec![Object::Integer(idx)]));
+                    }
+                    if let Some(dv) = default_selected {
+                        field_dict.set(
+                            "DV",
+                            Object::string_literal(crate::appearance::encode_winansi(dv)),
+                        );
                     }
                     field_dict.set(
                         "AP",
@@ -2101,6 +2147,43 @@ mod tests {
             0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xc9, 0xfe, 0x92,
             0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
         ]
+    }
+
+    #[test]
+    fn builder_writes_default_values_for_all_field_types() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842}]"#;
+        let fields = r#"[
+            {"type":"text","name":"t","page":0,"x":10,"y":10,"width":100,"height":20,"defaultValue":"DEF"},
+            {"type":"checkBox","name":"c","page":0,"x":10,"y":40,"size":12,"defaultChecked":true,"onValue":"Yes"},
+            {"type":"radioGroup","name":"r","defaultSelected":"A","options":[
+                {"value":"A","page":0,"x":10,"y":70,"size":12},
+                {"value":"B","page":0,"x":40,"y":70,"size":12}
+            ]},
+            {"type":"choice","name":"d","page":0,"x":10,"y":100,"width":100,"height":20,"combo":true,"options":["X","Y"],"defaultSelected":"Y"}
+        ]"#;
+        let out = create_document_json(ops, &[], &[], "[]", fields).unwrap();
+        let json = crate::forms::read_fields_json(&out).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let dv = |name: &str| {
+            v.as_array()
+                .unwrap()
+                .iter()
+                .find(|f| f["name"] == name)
+                .unwrap()["defaultValue"]
+                .clone()
+        };
+        assert_eq!(dv("t"), "DEF");
+        assert_eq!(dv("c"), "Yes");
+        assert_eq!(dv("r"), "A");
+        assert_eq!(dv("d"), "Y");
+    }
+
+    #[test]
+    fn builder_rejects_default_selected_not_in_options() {
+        let ops = r#"[{"op":"addPage","width":595,"height":842}]"#;
+        let fields = r#"[{"type":"choice","name":"d","page":0,"x":10,"y":10,"width":100,"height":20,"combo":true,"options":["X","Y"],"defaultSelected":"Z"}]"#;
+        let err = create_document_json(ops, &[], &[], "[]", fields).unwrap_err();
+        assert!(err.contains("defaultSelected"), "got: {err}");
     }
 
     #[test]

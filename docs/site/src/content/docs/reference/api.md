@@ -71,11 +71,11 @@ import { rgb, grayscale } from "@ignaciano3/better-pdf";
 
 - `form.getFields(): FieldInfo[]`
 - `form.getField(name: string): FieldInfo | undefined`
-- `form.getTextField(name).setText(value)`
-- `form.getCheckBox(name).check()` / `.uncheck()`
-- `form.getRadioGroup(name).options` / `.select(value)`
-- `form.getDropdown(name).options` / `.select(value)`
-- `form.getListBox(name).options` / `.select(value)`
+- `form.getTextField(name).setText(value)` / `.setDefaultText(value)`
+- `form.getCheckBox(name).check()` / `.uncheck()` / `.setDefaultChecked(checked)`
+- `form.getRadioGroup(name).options` / `.select(value)` / `.setDefaultSelected(value)`
+- `form.getDropdown(name).options` / `.select(value)` / `.setDefaultSelected(value)`
+- `form.getListBox(name).options` / `.select(value)` / `.setDefaultSelected(value)`
 - `form.getSignature(name).setImage(bytes)`
 - `form.flattenField(name)`
 - `form.flatten()`
