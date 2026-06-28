@@ -10,7 +10,20 @@ deliberately unsupported and not planned. The two are listed separately below.
 
 - No encrypted PDF support — encrypted PDFs are detected on load (an `/Encrypt` trailer entry) and rejected with a typed `EncryptedPdfError`, so they fail fast with a clear, catchable error rather than breaking somewhere downstream.
 - No cryptographic signing (the API leaves room to add PAdES later).
-- Multi-select list boxes are supported via `listBox.selectMultiple(values)` (requires the Multiselect flag to be set on the field).
+- Multi-select list boxes are supported via `listBox.selectMultiple(values)` (requires the Multiselect flag to be set on the field). **The builder cannot create one** — `addListBox` does not expose an option to set the Multiselect flag, so multi-select must already exist on a loaded field.
+- **Form-field flags are set at creation only.** The builder options control a
+  field's flags when it is created (`readOnly`, `required`, `multiline`,
+  `password`, `comb`, `editable`, …), but there is **no API to change a flag on a
+  loaded field**. The field setters (`setText`, `select`, `check`,
+  `setDefault*`, …) only change a field's *value*, never its flags. The field
+  `exported` flag (PDF `NoExport`) cannot be set anywhere.
+- **Widget visibility is read-only.** `FieldInfo.widgets` reports each widget's
+  `hidden` / `print` / `noView` flags (from the annotation `/F`), but there is no
+  API to change them — fields cannot be programmatically hidden, shown, or
+  excluded from printing. Fields created by the builder are always marked
+  printable.
+- **Rich-text fields are not supported.** The PDF Rich Text flag (`/Ff` bit 26)
+  and `/RV` value are ignored; field values are read and written as plain text.
 - Drawing APIs support standard-14 fonts and custom TTF/OTF font embedding via
   `doc.embedFont(bytes)`. Embedded fonts render as Unicode-capable Type0/CIDFontType2
   composites with a ToUnicode CMap — full Unicode (including CJK and accented Latin)
