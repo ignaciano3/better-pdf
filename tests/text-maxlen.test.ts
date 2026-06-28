@@ -18,6 +18,11 @@ function textInfo(maxLength: number | null): FieldInfo {
     exported: true,
     maxLength,
     multiSelect: false,
+    multiline: false,
+    comb: false,
+    editable: false,
+    align: "left",
+    tooltip: null,
     widgets: [],
   };
 }

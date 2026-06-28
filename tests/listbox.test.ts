@@ -16,6 +16,11 @@ function listboxInfo(multiSelect = false): FieldInfo {
     exported: true,
     maxLength: null,
     multiSelect,
+    multiline: false,
+    comb: false,
+    editable: false,
+    align: "left",
+    tooltip: null,
     widgets: [],
   };
 }

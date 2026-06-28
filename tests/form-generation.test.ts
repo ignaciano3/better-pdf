@@ -447,3 +447,60 @@ describe("form-generation: getFieldNames", () => {
     expect(result).toContain("b");
   });
 });
+
+// ---------------------------------------------------------------------------
+// FieldInfo flags round-trip (multiline / comb / align / tooltip / editable)
+// ---------------------------------------------------------------------------
+
+describe("form-generation: FieldInfo flags round-trip", () => {
+  test("multiline, align and tooltip are readable after reload", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("notes", {
+        page: 0, x: 50, y: 600, width: 200, height: 80,
+        multiline: true, align: "right", tooltip: "Additional notes",
+      });
+    });
+    const field = reloaded.getForm().getField("notes")!;
+    expect(field.multiline).toBe(true);
+    expect(field.comb).toBe(false);
+    expect(field.align).toBe("right");
+    expect(field.tooltip).toBe("Additional notes");
+  });
+
+  test("comb is readable after reload", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("ssn", {
+        page: 0, x: 50, y: 500, width: 180, height: 24, maxLength: 9, comb: true,
+      });
+    });
+    const field = reloaded.getForm().getField("ssn")!;
+    expect(field.comb).toBe(true);
+    expect(field.multiline).toBe(false);
+  });
+
+  test("editable dropdown is readable after reload", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addDropdown("country", {
+        page: 0, x: 50, y: 400, width: 160, height: 22,
+        options: ["AR", "BR"] as const, editable: true,
+      });
+    });
+    const field = reloaded.getForm().getField("country")!;
+    expect(field.type).toBe("dropdown");
+    expect(field.editable).toBe(true);
+  });
+
+  test("plain text field reports flag defaults", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("name", {
+        page: 0, x: 50, y: 300, width: 200, height: 20,
+      });
+    });
+    const field = reloaded.getForm().getField("name")!;
+    expect(field.multiline).toBe(false);
+    expect(field.comb).toBe(false);
+    expect(field.editable).toBe(false);
+    expect(field.align).toBe("left");
+    expect(field.tooltip).toBeNull();
+  });
+});

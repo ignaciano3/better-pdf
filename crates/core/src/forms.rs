@@ -22,6 +22,20 @@ pub struct FieldInfo {
     /// True only for multi-select list boxes (the PDF Multiselect choice flag).
     #[serde(rename = "multiSelect")]
     pub multi_select: bool,
+    /// True only for multi-line text fields (the PDF Multiline text flag).
+    pub multiline: bool,
+    /// True only for comb text fields (the PDF Comb text flag): a single line
+    /// split into `maxLength` fixed-pitch per-character cells.
+    pub comb: bool,
+    /// True only for editable dropdowns (the PDF combo box Edit flag): the user
+    /// may type a value that is not one of `options`.
+    pub editable: bool,
+    /// Horizontal alignment of the field's text, from `/Q`. One of `"left"`,
+    /// `"center"`, or `"right"`; defaults to `"left"` when undeclared.
+    pub align: &'static str,
+    /// The field's tooltip / alternate descriptive name (`/TU`), or `null` when
+    /// the field has none.
+    pub tooltip: Option<String>,
     /// One entry per widget annotation: its page index (0-based) and `/Rect`
     /// `[x0, y0, x1, y1]` in PDF points (origin bottom-left). Most fields have
     /// one; radio groups and fields repeated across pages have several.
@@ -137,6 +151,11 @@ fn describe_field(
         exported: ff & 4 == 0,
         max_length,
         multi_select: field_type == "listbox" && is_multiselect(ff),
+        multiline: field_type == "text" && is_multiline(ff),
+        comb: field_type == "text" && is_comb(ff),
+        editable: field_type == "dropdown" && is_combo_edit(ff),
+        align: quadding_to_align(inherited_int(doc, d, b"Q").unwrap_or(0)),
+        tooltip: d.get(b"TU").ok().and_then(value_to_string),
         widgets,
     }
 }
@@ -171,9 +190,31 @@ pub(crate) fn is_multiline(ff: i64) -> bool {
     ff & (1 << 12) != 0
 }
 
+/// True when a text field carries the Comb flag (Ff bit 25, `1 << 24`): the
+/// value is laid out as fixed-pitch per-character cells.
+pub(crate) fn is_comb(ff: i64) -> bool {
+    ff & (1 << 24) != 0
+}
+
 /// True when a choice field carries the Multiselect flag (Ff bit 22).
 pub(crate) fn is_multiselect(ff: i64) -> bool {
     ff & (1 << 21) != 0
+}
+
+/// True when a choice field carries the combo box Edit flag (Ff bit 19,
+/// `1 << 18`): the user may type a value not present in the option list.
+pub(crate) fn is_combo_edit(ff: i64) -> bool {
+    ff & (1 << 18) != 0
+}
+
+/// Map a `/Q` quadding value to an alignment keyword: 1 = center, 2 = right,
+/// anything else (including the 0 default) = left.
+pub(crate) fn quadding_to_align(q: i64) -> &'static str {
+    match q {
+        1 => "center",
+        2 => "right",
+        _ => "left",
+    }
 }
 
 /// The document's AcroForm dictionary (inline in the catalog or via reference).
@@ -478,6 +519,146 @@ mod tests {
             .unwrap();
         assert_eq!(lb["type"], "listbox");
         assert_eq!(lb["multiSelect"], true);
+    }
+
+    #[test]
+    fn is_comb_reads_bit_25() {
+        assert!(super::is_comb(1 << 24));
+        assert!(!super::is_comb(0));
+        assert!(!super::is_comb(1 << 12));
+    }
+
+    #[test]
+    fn is_combo_edit_reads_bit_19() {
+        assert!(super::is_combo_edit(1 << 18));
+        assert!(!super::is_combo_edit(0));
+        assert!(!super::is_combo_edit(1 << 17));
+    }
+
+    #[test]
+    fn quadding_maps_to_alignment_keywords() {
+        assert_eq!(super::quadding_to_align(0), "left");
+        assert_eq!(super::quadding_to_align(1), "center");
+        assert_eq!(super::quadding_to_align(2), "right");
+        assert_eq!(super::quadding_to_align(99), "left");
+    }
+
+    /// Build a one-page PDF whose AcroForm holds the given field dictionaries.
+    fn pdf_with_fields(field_dicts: Vec<lopdf::Dictionary>) -> Vec<u8> {
+        use lopdf::{Document, Object, dictionary};
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.new_object_id();
+        let page = dictionary! {
+            "Type" => Object::Name(b"Page".to_vec()),
+            "Parent" => Object::Reference(pages_id),
+            "MediaBox" => vec![0i64.into(), 0i64.into(), 612i64.into(), 792i64.into()],
+        };
+        doc.set_object(page_id, Object::Dictionary(page));
+        let pages = dictionary! {
+            "Type" => Object::Name(b"Pages".to_vec()),
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => Object::Integer(1),
+        };
+        doc.set_object(pages_id, Object::Dictionary(pages));
+        let refs: Vec<Object> = field_dicts
+            .into_iter()
+            .map(|d| Object::Reference(doc.add_object(Object::Dictionary(d))))
+            .collect();
+        let acroform = dictionary! { "Fields" => Object::Array(refs) };
+        let acroform_id = doc.add_object(Object::Dictionary(acroform));
+        let catalog = dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+            "AcroForm" => Object::Reference(acroform_id),
+        };
+        let catalog_id = doc.add_object(Object::Dictionary(catalog));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn reports_multiline_comb_align_and_tooltip_for_text_fields() {
+        use lopdf::{Object, dictionary};
+        // A multiline, right-aligned text field with a tooltip.
+        let area = dictionary! {
+            "FT" => Object::Name(b"Tx".to_vec()),
+            "T" => Object::string_literal("notes"),
+            "TU" => Object::string_literal("Additional notes"),
+            "Ff" => Object::Integer(1 << 12), // Multiline
+            "Q" => Object::Integer(2),         // right
+        };
+        // A comb text field.
+        let comb = dictionary! {
+            "FT" => Object::Name(b"Tx".to_vec()),
+            "T" => Object::string_literal("ssn"),
+            "Ff" => Object::Integer(1 << 24), // Comb
+            "MaxLen" => Object::Integer(9),
+        };
+        // A plain single-line text field: every new flag at its default.
+        let plain = dictionary! {
+            "FT" => Object::Name(b"Tx".to_vec()),
+            "T" => Object::string_literal("name"),
+        };
+        let f = fields(&pdf_with_fields(vec![area, comb, plain]));
+        let by = |n: &str| {
+            f.as_array()
+                .unwrap()
+                .iter()
+                .find(|x| x["name"] == n)
+                .unwrap()
+                .clone()
+        };
+
+        let notes = by("notes");
+        assert_eq!(notes["multiline"], true);
+        assert_eq!(notes["comb"], false);
+        assert_eq!(notes["align"], "right");
+        assert_eq!(notes["tooltip"], "Additional notes");
+
+        let ssn = by("ssn");
+        assert_eq!(ssn["comb"], true);
+        assert_eq!(ssn["multiline"], false);
+
+        let name = by("name");
+        assert_eq!(name["multiline"], false);
+        assert_eq!(name["comb"], false);
+        assert_eq!(name["align"], "left");
+        assert_eq!(name["tooltip"], serde_json::Value::Null);
+        // editable is a dropdown-only flag; text fields are always false.
+        assert_eq!(name["editable"], false);
+    }
+
+    #[test]
+    fn reports_editable_flag_for_combo_boxes() {
+        use lopdf::{Object, dictionary};
+        let editable = dictionary! {
+            "FT" => Object::Name(b"Ch".to_vec()),
+            "T" => Object::string_literal("country"),
+            "Ff" => Object::Integer((1 << 17) | (1 << 18)), // Combo + Edit
+            "Opt" => Object::Array(vec![Object::string_literal("AR")]),
+        };
+        let fixed = dictionary! {
+            "FT" => Object::Name(b"Ch".to_vec()),
+            "T" => Object::string_literal("city"),
+            "Ff" => Object::Integer(1 << 17), // Combo, not editable
+            "Opt" => Object::Array(vec![Object::string_literal("BA")]),
+        };
+        let f = fields(&pdf_with_fields(vec![editable, fixed]));
+        let by = |n: &str| {
+            f.as_array()
+                .unwrap()
+                .iter()
+                .find(|x| x["name"] == n)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(by("country")["type"], "dropdown");
+        assert_eq!(by("country")["editable"], true);
+        assert_eq!(by("city")["type"], "dropdown");
+        assert_eq!(by("city")["editable"], false);
     }
 
     /// Emit `tests/fixtures/generated/ficha-multiselect-listbox.pdf` from FICHA

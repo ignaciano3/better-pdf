@@ -82,8 +82,12 @@ import { rgb, grayscale } from "@ignaciano3/better-pdf";
 
 Each `FieldInfo` carries `name`, `type`, `value`, `states`, `options`,
 `readOnly`, `required`, `exported` (false when the field has the `NoExport`
-flag), `maxLength` (a text field's `/MaxLen`, or `null`), and `widgets` — one
-entry per widget annotation giving its 0-based `page` index and `rect`
-(`[x0, y0, x1, y1]` in PDF points, origin bottom-left). `setText()` throws if its
-value exceeds `maxLength`. Use `listBox.selectMultiple(values)` for multi-select
-list boxes (`FieldInfo.multiSelect === true`); `listBox.select(value)` for single-select.
+flag), `maxLength` (a text field's `/MaxLen`, or `null`), `multiline` (text-area
+fields), `comb` (fixed-pitch per-character text fields), `editable` (combo boxes
+that accept custom values), `align` (`"left"`/`"center"`/`"right"`, from `/Q`),
+`tooltip` (the `/TU` descriptive name, or `null`), `multiSelect` (multi-select
+list boxes), and `widgets` — one entry per widget annotation giving its 0-based
+`page` index and `rect` (`[x0, y0, x1, y1]` in PDF points, origin bottom-left).
+`setText()` throws if its value exceeds `maxLength`. Use
+`listBox.selectMultiple(values)` for multi-select list boxes
+(`FieldInfo.multiSelect === true`); `listBox.select(value)` for single-select.

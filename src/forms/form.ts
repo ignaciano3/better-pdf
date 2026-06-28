@@ -40,6 +40,20 @@ export interface FieldInfo {
   maxLength: number | null;
   /** True only for multi-select list boxes (the PDF Multiselect choice flag). */
   multiSelect: boolean;
+  /** True only for multi-line text fields (the PDF Multiline text flag). */
+  multiline: boolean;
+  /** True only for comb text fields (the PDF Comb text flag): a single line
+   * split into `maxLength` fixed-pitch per-character cells. */
+  comb: boolean;
+  /** True only for editable dropdowns (the combo box Edit flag): the user may
+   * type a value that is not one of `options`. */
+  editable: boolean;
+  /** Horizontal alignment of the field's text, from `/Q`. Defaults to `"left"`
+   * when the field declares none. */
+  align: "left" | "center" | "right";
+  /** The field's tooltip / alternate descriptive name (`/TU`), or null when the
+   * field has none. */
+  tooltip: string | null;
   /** One entry per widget annotation (page + position). Usually one; radio
    * groups and fields repeated across pages have several. */
   widgets: FieldWidget[];
