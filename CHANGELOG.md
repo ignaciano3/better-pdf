@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-28
+
+### Added
+
+- **Create multi-select list boxes.** `addListBox(name, { multiSelect: true, … })`
+  sets the choice Multiselect flag, so the generated field reports
+  `FieldInfo.multiSelect === true` and accepts `listBox.selectMultiple(values)`.
+  `addDropdown` rejects `multiSelect`, since combo boxes are never multi-select.
+- **Mutate field flags and widget visibility on loaded fields.** Every field
+  wrapper gains setters that change a field's flags rather than its value:
+  `setReadOnly`, `setRequired`, and `setExported` toggle the field `/Ff`
+  ReadOnly / Required / NoExport bits; `hide`, `show`, `setPrintable`, and
+  `setNoView` toggle the `/F` Hidden / Print / NoView bits on each of the
+  field's widgets. Changes are applied to the in-memory `FieldInfo` immediately
+  and written on `doc.save()`. The shared logic lives on a new exported
+  `PdfField` base class; the change carries through as a `FieldFlagChanges`
+  payload. The appearance-affecting flags `multiline` / `comb` / `password`
+  remain creation-only.
+
 ## [1.4.0] - 2026-06-28
 
 ### Added
