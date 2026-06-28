@@ -184,6 +184,54 @@ struct Border {
     width: f32,
 }
 
+/// Set a widget's tooltip (`/TU`) when a non-empty tooltip is provided.
+fn apply_tooltip(widget: &mut Dictionary, tooltip: &Option<String>) {
+    if let Some(tip) = tooltip
+        && !tip.is_empty()
+    {
+        widget.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
+    }
+}
+
+/// Apply a field's background/border options to a widget: the appearance
+/// characteristics dict `/MK` (background `BG`, border color `BC`) and, when the
+/// border width differs from the default, the border style dict `/BS`.
+fn apply_mk_and_border(
+    widget: &mut Dictionary,
+    background: &Option<[f32; 3]>,
+    border: &Option<Border>,
+) {
+    let mut mk = Dictionary::new();
+    if let Some(bg) = background {
+        mk.set(
+            "BG",
+            Object::Array(vec![Object::Real(bg[0]), Object::Real(bg[1]), Object::Real(bg[2])]),
+        );
+    }
+    if let Some(b) = border {
+        mk.set(
+            "BC",
+            Object::Array(vec![
+                Object::Real(b.color[0]),
+                Object::Real(b.color[1]),
+                Object::Real(b.color[2]),
+            ]),
+        );
+        if (b.width - 1.0).abs() > 0.001 {
+            widget.set(
+                "BS",
+                Object::Dictionary(dictionary! {
+                    "W" => Object::Real(b.width),
+                    "S" => Object::Name(b"S".to_vec())
+                }),
+            );
+        }
+    }
+    if !mk.is_empty() {
+        widget.set("MK", Object::Dictionary(mk));
+    }
+}
+
 /// Build a PDF color operator for a field's text (`/DA` color and appearance
 /// content). RGB -> `"r g b rg"`; `None` -> black `"0 g"`.
 fn color_op(c: Option<[f32; 3]>) -> String {
@@ -1511,46 +1559,9 @@ pub fn create_document_json(
                     if let Some(ml) = max_length {
                         field_dict.set("MaxLen", Object::Integer(*ml));
                     }
-                    if let Some(tip) = tooltip
-                        && !tip.is_empty() {
-                            field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
-                        }
+                    apply_tooltip(&mut field_dict, tooltip);
 
-                    // MK dict: BG (background), BC (border color), BS (border style)
-                    let mut mk = Dictionary::new();
-                    if let Some(bg) = background {
-                        mk.set(
-                            "BG",
-                            Object::Array(vec![
-                                Object::Real(bg[0]),
-                                Object::Real(bg[1]),
-                                Object::Real(bg[2]),
-                            ]),
-                        );
-                    }
-                    if let Some(b) = border {
-                        mk.set(
-                            "BC",
-                            Object::Array(vec![
-                                Object::Real(b.color[0]),
-                                Object::Real(b.color[1]),
-                                Object::Real(b.color[2]),
-                            ]),
-                        );
-                        // Add border style if width != 1
-                        if (b.width - 1.0).abs() > 0.001 {
-                            field_dict.set(
-                                "BS",
-                                Object::Dictionary(dictionary! {
-                                    "W" => Object::Real(b.width),
-                                    "S" => Object::Name(b"S".to_vec())
-                                }),
-                            );
-                        }
-                    }
-                    if !mk.is_empty() {
-                        field_dict.set("MK", Object::Dictionary(mk));
-                    }
+                    apply_mk_and_border(&mut field_dict, background, border);
 
                     let field_id = doc.add_object(Object::Dictionary(field_dict));
                     acro_fields.push(Object::Reference(field_id));
@@ -1622,44 +1633,9 @@ pub fn create_document_json(
                     );
                     field_dict.set("P", Object::Reference(page_ids[*page]));
 
-                    if let Some(tip) = tooltip
-                        && !tip.is_empty() {
-                            field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
-                        }
+                    apply_tooltip(&mut field_dict, tooltip);
 
-                    let mut mk = Dictionary::new();
-                    if let Some(bg) = background {
-                        mk.set(
-                            "BG",
-                            Object::Array(vec![
-                                Object::Real(bg[0]),
-                                Object::Real(bg[1]),
-                                Object::Real(bg[2]),
-                            ]),
-                        );
-                    }
-                    if let Some(b) = border {
-                        mk.set(
-                            "BC",
-                            Object::Array(vec![
-                                Object::Real(b.color[0]),
-                                Object::Real(b.color[1]),
-                                Object::Real(b.color[2]),
-                            ]),
-                        );
-                        if (b.width - 1.0).abs() > 0.001 {
-                            field_dict.set(
-                                "BS",
-                                Object::Dictionary(dictionary! {
-                                    "W" => Object::Real(b.width),
-                                    "S" => Object::Name(b"S".to_vec())
-                                }),
-                            );
-                        }
-                    }
-                    if !mk.is_empty() {
-                        field_dict.set("MK", Object::Dictionary(mk));
-                    }
+                    apply_mk_and_border(&mut field_dict, background, border);
 
                     let field_id = doc.add_object(Object::Dictionary(field_dict));
                     acro_fields.push(Object::Reference(field_id));
@@ -1748,11 +1724,7 @@ pub fn create_document_json(
                         parent_dict.set("DV", Object::Name(dv.as_bytes().to_vec()));
                     }
 
-                    if let Some(tip) = tooltip
-                        && !tip.is_empty() {
-                            parent_dict
-                                .set("TU", Object::string_literal(tip.as_bytes().to_vec()));
-                        }
+                    apply_tooltip(&mut parent_dict, tooltip);
 
                     doc.set_object(parent_id, Object::Dictionary(parent_dict));
                     acro_fields.push(Object::Reference(parent_id));
@@ -1850,44 +1822,9 @@ pub fn create_document_json(
                     );
                     field_dict.set("P", Object::Reference(page_ids[*page]));
 
-                    if let Some(tip) = tooltip
-                        && !tip.is_empty() {
-                            field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
-                        }
+                    apply_tooltip(&mut field_dict, tooltip);
 
-                    let mut mk = Dictionary::new();
-                    if let Some(bg) = background {
-                        mk.set(
-                            "BG",
-                            Object::Array(vec![
-                                Object::Real(bg[0]),
-                                Object::Real(bg[1]),
-                                Object::Real(bg[2]),
-                            ]),
-                        );
-                    }
-                    if let Some(b) = border {
-                        mk.set(
-                            "BC",
-                            Object::Array(vec![
-                                Object::Real(b.color[0]),
-                                Object::Real(b.color[1]),
-                                Object::Real(b.color[2]),
-                            ]),
-                        );
-                        if (b.width - 1.0).abs() > 0.001 {
-                            field_dict.set(
-                                "BS",
-                                Object::Dictionary(dictionary! {
-                                    "W" => Object::Real(b.width),
-                                    "S" => Object::Name(b"S".to_vec())
-                                }),
-                            );
-                        }
-                    }
-                    if !mk.is_empty() {
-                        field_dict.set("MK", Object::Dictionary(mk));
-                    }
+                    apply_mk_and_border(&mut field_dict, background, border);
 
                     let field_id = doc.add_object(Object::Dictionary(field_dict));
                     acro_fields.push(Object::Reference(field_id));
@@ -1927,44 +1864,9 @@ pub fn create_document_json(
                     field_dict.set("Ff", Object::Integer(flags));
                     field_dict.set("P", Object::Reference(page_ids[*page]));
 
-                    if let Some(tip) = tooltip
-                        && !tip.is_empty() {
-                            field_dict.set("TU", Object::string_literal(tip.as_bytes().to_vec()));
-                        }
+                    apply_tooltip(&mut field_dict, tooltip);
 
-                    let mut mk = Dictionary::new();
-                    if let Some(bg) = background {
-                        mk.set(
-                            "BG",
-                            Object::Array(vec![
-                                Object::Real(bg[0]),
-                                Object::Real(bg[1]),
-                                Object::Real(bg[2]),
-                            ]),
-                        );
-                    }
-                    if let Some(b) = border {
-                        mk.set(
-                            "BC",
-                            Object::Array(vec![
-                                Object::Real(b.color[0]),
-                                Object::Real(b.color[1]),
-                                Object::Real(b.color[2]),
-                            ]),
-                        );
-                        if (b.width - 1.0).abs() > 0.001 {
-                            field_dict.set(
-                                "BS",
-                                Object::Dictionary(dictionary! {
-                                    "W" => Object::Real(b.width),
-                                    "S" => Object::Name(b"S".to_vec())
-                                }),
-                            );
-                        }
-                    }
-                    if !mk.is_empty() {
-                        field_dict.set("MK", Object::Dictionary(mk));
-                    }
+                    apply_mk_and_border(&mut field_dict, background, border);
 
                     let field_id = doc.add_object(Object::Dictionary(field_dict));
                     acro_fields.push(Object::Reference(field_id));
