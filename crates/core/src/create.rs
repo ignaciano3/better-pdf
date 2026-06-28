@@ -323,6 +323,8 @@ enum FieldDef {
         combo: bool,
         #[serde(default)]
         editable: bool,
+        #[serde(default)]
+        multiselect: bool,
         options: Vec<String>,
         selected: Option<String>,
         default_selected: Option<String>,
@@ -1738,6 +1740,7 @@ pub fn create_document_json(
                     height,
                     combo,
                     editable,
+                    multiselect,
                     options,
                     selected,
                     default_selected,
@@ -1771,11 +1774,13 @@ pub fn create_document_json(
                     );
                     let ap_id = doc.add_object(Object::Stream(ap_stream));
 
-                    // Edit flag (bit 18) only meaningful for combo boxes.
+                    // Edit flag (bit 18) only meaningful for combo boxes;
+                    // Multiselect flag (bit 22) only meaningful for list boxes.
                     let flags: i64 = (*read_only as i64)
                         | ((*required as i64) << 1)
                         | ((*combo as i64) << 17)
-                        | (((*combo && *editable) as i64) << 18);
+                        | (((*combo && *editable) as i64) << 18)
+                        | (((!*combo && *multiselect) as i64) << 21);
 
                     let rect = Object::Array(vec![
                         Object::Real(*x),
@@ -2847,6 +2852,39 @@ mod tests {
         let w = get_first_field_dict(&doc);
         let ff = w.get(b"Ff").unwrap().as_i64().unwrap();
         assert!(ff & (1 << 18) == 0, "Edit bit (18) must not be set without editable; Ff = {ff}");
+    }
+
+    #[test]
+    fn multiselect_listbox_sets_multiselect_flag() {
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":50,"height":40,"combo":false,"multiselect":true,"options":["a","b"]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let ff = w.get(b"Ff").unwrap().as_i64().unwrap();
+        assert!(ff & (1 << 17) == 0, "Combo bit (18) must not be set on a list box; Ff = {ff}");
+        assert!(ff & (1 << 21) != 0, "Multiselect bit (22) not set; Ff = {ff}");
+        assert!(crate::forms::is_multiselect(ff), "is_multiselect should report true; Ff = {ff}");
+    }
+
+    #[test]
+    fn listbox_without_multiselect_has_no_multiselect_flag() {
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":50,"height":40,"combo":false,"options":["a","b"]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let ff = w.get(b"Ff").unwrap().as_i64().unwrap();
+        assert!(ff & (1 << 21) == 0, "Multiselect bit (22) must not be set by default; Ff = {ff}");
+    }
+
+    #[test]
+    fn multiselect_ignored_on_combo_box() {
+        // Combo boxes are never multi-select; the flag must be suppressed even if requested.
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":50,"height":20,"combo":true,"multiselect":true,"options":["a","b"]}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let ff = w.get(b"Ff").unwrap().as_i64().unwrap();
+        assert!(ff & (1 << 21) == 0, "Multiselect bit (22) must not be set on a combo box; Ff = {ff}");
     }
 
     #[test]

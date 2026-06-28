@@ -124,6 +124,35 @@ describe("form-generation: listbox", () => {
     expect(field!.type).toBe("listbox");
     expect(field!.options).toContain("Z");
     expect(field!.value).toBe("Z");
+    expect(field!.multiSelect).toBe(false);
+  });
+
+  test("multiSelect listbox round-trips and accepts selectMultiple", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addListBox("myMulti", {
+        page: 0,
+        x: 50,
+        y: 500,
+        width: 150,
+        height: 80,
+        options: ["X", "Y", "Z"] as const,
+        multiSelect: true,
+      });
+    });
+    const form = reloaded.getForm();
+    const field = form.getField("myMulti");
+    expect(field).toBeDefined();
+    expect(field!.type).toBe("listbox");
+    expect(field!.multiSelect).toBe(true);
+
+    // The Multiselect flag is what gates selectMultiple — it must not throw.
+    const listBox = form.getListBox("myMulti");
+    listBox.selectMultiple(["X", "Z"]);
+    const out = await reloaded.save();
+    const again = await PdfDocument.load(out);
+    const refilled = again.getForm().getField("myMulti");
+    expect(refilled!.value).toContain("X");
+    expect(refilled!.value).toContain("Z");
   });
 });
 
@@ -213,6 +242,23 @@ describe("form-generation: validation", () => {
         height: 20,
         options: ["A", "B"] as const,
         selected: "Z" as "A",
+      }),
+    ).toThrow(RangeError);
+  });
+
+  test("multiSelect on a dropdown throws", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    const fb = doc.createForm();
+    expect(() =>
+      fb.addDropdown("d", {
+        page: 0,
+        x: 10,
+        y: 10,
+        width: 100,
+        height: 20,
+        options: ["A", "B"] as const,
+        multiSelect: true,
       }),
     ).toThrow(RangeError);
   });

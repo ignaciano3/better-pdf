@@ -102,6 +102,14 @@ export interface ChoiceOptions<O extends string> extends BaseFieldOptions {
    * {@link FormBuilder.addListBox}, since list boxes are never combo boxes.
    */
   editable?: boolean;
+  /**
+   * For list boxes ({@link FormBuilder.addListBox}): allow more than one option
+   * to be selected at once (sets the choice Multiselect flag). The resulting
+   * field reports `FieldInfo.multiSelect === true` and accepts
+   * `listBox.selectMultiple(values)`. Rejected by {@link FormBuilder.addDropdown},
+   * since combo boxes are never multi-select.
+   */
+  multiSelect?: boolean;
   /** Horizontal alignment of the field's value. Defaults to `"left"`. */
   align?: FieldAlign;
   /** Font size in points for the field's value. Defaults to 12. */
@@ -182,6 +190,7 @@ interface WireChoice extends WireBase {
   height: number;
   combo: boolean;
   editable?: boolean;
+  multiselect?: boolean;
   options: string[];
   selected?: string;
   defaultSelected?: string;
@@ -450,6 +459,9 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     assertPositive(opts.width, `${name}.width`);
     assertPositive(opts.height, `${name}.height`);
     if (opts.options.length === 0) throw new RangeError(`${name}: choice field must have at least one option`);
+    if (opts.multiSelect && combo) {
+      throw new RangeError(`${name}: multiSelect is only valid on list boxes, not dropdowns`);
+    }
     if (opts.selected !== undefined && !(opts.options as readonly string[]).includes(opts.selected)) {
       throw new RangeError(`${name}: selected "${opts.selected}" not in options`);
     }
@@ -465,6 +477,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
       options: [...opts.options],
     };
     if (editable && combo) def.editable = true;
+    if (opts.multiSelect && !combo) def.multiselect = true;
     if (opts.selected !== undefined) def.selected = opts.selected;
     if (opts.defaultSelected !== undefined) def.defaultSelected = opts.defaultSelected;
     applyTextStyle(def, opts, name);
