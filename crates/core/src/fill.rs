@@ -19,6 +19,24 @@ struct FillOp {
     reset: Option<bool>,
     image_offset: Option<usize>,
     image_length: Option<usize>,
+    /// When present, change the field's flags rather than its value. Mutually
+    /// exclusive with every other op kind.
+    flags: Option<FieldFlagOps>,
+}
+
+/// Flag mutations requested for one field. Each `Some(true)` sets the bit,
+/// `Some(false)` clears it, and `None` leaves it untouched. `read_only`,
+/// `required`, and `no_export` are field `/Ff` bits; `hidden`, `print`, and
+/// `no_view` are annotation `/F` bits applied to every widget of the field.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FieldFlagOps {
+    read_only: Option<bool>,
+    required: Option<bool>,
+    no_export: Option<bool>,
+    hidden: Option<bool>,
+    print: Option<bool>,
+    no_view: Option<bool>,
 }
 
 /// Apply the given fill ops to `data` and return new PDF bytes (incremental
@@ -121,6 +139,19 @@ enum Apply {
         options: Vec<String>,
         ap: ApInputs,
     },
+    /// Set/clear bits on the field's `/Ff` and on each widget's `/F`, without
+    /// touching any value or appearance. `*_set`/`*_clear` are bit masks; the
+    /// new value is `(current & !clear) | set`. `field_ff_base` is the field's
+    /// effective (inherited) `/Ff` at resolve time, used when the field has no
+    /// `/Ff` of its own so inherited bits are preserved.
+    SetFlags {
+        field_ff_set: i64,
+        field_ff_clear: i64,
+        field_ff_base: i64,
+        widget_f_set: i64,
+        widget_f_clear: i64,
+        widgets: Vec<ObjectId>,
+    },
 }
 
 /// Locate the field for `op.name`, classify it, and build the mutation plan.
@@ -130,6 +161,45 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
     let ft = forms::inherited_name(doc, dict, b"FT").unwrap_or_default();
     let ff = forms::inherited_int(doc, dict, b"Ff").unwrap_or(0);
     let kind = forms::classify(&ft, ff);
+
+    // Changing flags is mutually exclusive with every value-bearing op kind.
+    if let Some(flags) = &op.flags {
+        if op.value.is_some()
+            || op.values.is_some()
+            || op.default_value.is_some()
+            || op.reset == Some(true)
+            || op.image_offset.is_some()
+        {
+            return Err(format!(
+                "field {} flags op cannot be combined with other mutations",
+                op.name
+            ));
+        }
+        let (mut field_set, mut field_clear) = (0i64, 0i64);
+        flag_masks(flags.read_only, 1 << 0, &mut field_set, &mut field_clear);
+        flag_masks(flags.required, 1 << 1, &mut field_set, &mut field_clear);
+        flag_masks(flags.no_export, 1 << 2, &mut field_set, &mut field_clear);
+        let (mut widget_set, mut widget_clear) = (0i64, 0i64);
+        flag_masks(flags.hidden, 1 << 1, &mut widget_set, &mut widget_clear);
+        flag_masks(flags.print, 1 << 2, &mut widget_set, &mut widget_clear);
+        flag_masks(flags.no_view, 1 << 5, &mut widget_set, &mut widget_clear);
+        let widgets = if widget_set != 0 || widget_clear != 0 {
+            widget_ids(field_id, dict)
+        } else {
+            Vec::new()
+        };
+        return Ok(Resolved {
+            field_id,
+            apply: Apply::SetFlags {
+                field_ff_set: field_set,
+                field_ff_clear: field_clear,
+                field_ff_base: ff,
+                widget_f_set: widget_set,
+                widget_f_clear: widget_clear,
+                widgets,
+            },
+        });
+    }
 
     // Setting the default value (/DV) is mutually exclusive with setting the
     // current value/image, and only applies to value-bearing field types.
@@ -450,6 +520,27 @@ fn quadding(doc: &Document, dict: &Dictionary) -> i64 {
     forms::inherited_int(doc, dict, b"Q").unwrap_or(0)
 }
 
+/// Fold one tri-state flag request into set/clear bit masks: `Some(true)` sets
+/// the bit, `Some(false)` clears it, `None` leaves it alone.
+fn flag_masks(opt: Option<bool>, bit: i64, set: &mut i64, clear: &mut i64) {
+    match opt {
+        Some(true) => *set |= bit,
+        Some(false) => *clear |= bit,
+        None => {}
+    }
+}
+
+/// Collect a field's widget annotation ids: its /Kids, or the field itself when
+/// it has none (the common single-widget case).
+fn widget_ids(field_id: ObjectId, dict: &Dictionary) -> Vec<ObjectId> {
+    let ids: Vec<ObjectId> = dict
+        .get(b"Kids")
+        .and_then(|o| o.as_array())
+        .map(|a| a.iter().filter_map(|k| k.as_reference().ok()).collect())
+        .unwrap_or_default();
+    if ids.is_empty() { vec![field_id] } else { ids }
+}
+
 /// The /DR/Font/<name> dictionary for a DA font name, if present.
 fn font_dict<'a>(doc: &'a Document, acro: &'a Dictionary, font: &str) -> Option<&'a Dictionary> {
     let dr = forms::as_dict(doc, acro.get(b"DR").ok()?).ok()?;
@@ -652,6 +743,32 @@ fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
                 d.set("I", Object::Array(i_arr));
             }
             draw_listbox_multi_appearances(inc, options, indices, ap)?;
+        }
+        Apply::SetFlags {
+            field_ff_set,
+            field_ff_clear,
+            field_ff_base,
+            widget_f_set,
+            widget_f_clear,
+            widgets,
+        } => {
+            if *field_ff_set != 0 || *field_ff_clear != 0 {
+                let d = field_dict_mut(inc, r.field_id)?;
+                // Prefer the field's own /Ff (which may already reflect an
+                // earlier op this run); fall back to the inherited base so we
+                // don't drop inherited bits when the field has no /Ff of its own.
+                let current = d.get(b"Ff").ok().and_then(|o| o.as_i64().ok()).unwrap_or(*field_ff_base);
+                let next = (current & !*field_ff_clear) | *field_ff_set;
+                d.set("Ff", Object::Integer(next));
+            }
+            for wid in widgets {
+                inc.opt_clone_object_to_new_document(*wid)
+                    .map_err(|e| e.to_string())?;
+                let d = field_dict_mut(inc, *wid)?;
+                let current = d.get(b"F").ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+                let next = (current & !*widget_f_clear) | *widget_f_set;
+                d.set("F", Object::Integer(next));
+            }
         }
     }
     Ok(())
@@ -1316,5 +1433,129 @@ mod tests {
             Some("GARCIA")
         );
         Document::load_mem(&out).unwrap();
+    }
+
+    // -- Part B: field-flag / widget-visibility mutation ---------------------
+
+    /// Read a field's boolean attribute (`readOnly`/`required`/`exported`) from
+    /// the parsed field info.
+    fn reparse_flag(bytes: &[u8], field_name: &str, key: &str) -> Option<bool> {
+        let json = crate::forms::read_fields_json(bytes).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == field_name)
+            .and_then(|f| f[key].as_bool())
+    }
+
+    /// Read the first widget's boolean visibility flag from the parsed info.
+    fn reparse_widget_flag(bytes: &[u8], field_name: &str, key: &str) -> Option<bool> {
+        let json = crate::forms::read_fields_json(bytes).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == field_name)
+            .and_then(|f| f["widgets"].as_array())
+            .and_then(|w| w.first())
+            .and_then(|w| w[key].as_bool())
+    }
+
+    const TEXT_FIELD: &str = "beneficiario.apellidos_nombres";
+
+    #[test]
+    fn set_read_only_flag_toggles_both_ways() {
+        assert_eq!(reparse_flag(FICHA, TEXT_FIELD, "readOnly"), Some(false));
+        let on = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"readOnly":true}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_flag(&on, TEXT_FIELD, "readOnly"), Some(true));
+        // Output is still append-only.
+        assert_eq!(&on[..FICHA.len()], FICHA);
+
+        let off = fill_fields_json(
+            &on,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"readOnly":false}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_flag(&off, TEXT_FIELD, "readOnly"), Some(false));
+    }
+
+    #[test]
+    fn set_required_and_no_export_flags() {
+        let out = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"required":true,"noExport":true}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_flag(&out, TEXT_FIELD, "required"), Some(true));
+        // exported is the inverse of the NoExport flag.
+        assert_eq!(reparse_flag(&out, TEXT_FIELD, "exported"), Some(false));
+    }
+
+    #[test]
+    fn setting_a_flag_does_not_disturb_the_value() {
+        let filled = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","value":"GARCIA"}}]"#),
+            &[],
+        )
+        .unwrap();
+        let out = fill_fields_json(
+            &filled,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"readOnly":true}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_value(&out, TEXT_FIELD).as_deref(), Some("GARCIA"));
+        assert_eq!(reparse_flag(&out, TEXT_FIELD, "readOnly"), Some(true));
+    }
+
+    #[test]
+    fn hide_sets_widget_hidden_flag_and_show_clears_it() {
+        let hidden = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"hidden":true}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_widget_flag(&hidden, TEXT_FIELD, "hidden"), Some(true));
+
+        let shown = fill_fields_json(
+            &hidden,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"hidden":false}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_widget_flag(&shown, TEXT_FIELD, "hidden"), Some(false));
+    }
+
+    #[test]
+    fn set_print_and_no_view_widget_flags() {
+        let out = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"print":true,"noView":true}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_widget_flag(&out, TEXT_FIELD, "print"), Some(true));
+        assert_eq!(reparse_widget_flag(&out, TEXT_FIELD, "noView"), Some(true));
+    }
+
+    #[test]
+    fn flags_op_rejects_combination_with_value() {
+        let err = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","value":"X","flags":{{"readOnly":true}}}}]"#),
+            &[],
+        )
+        .unwrap_err();
+        assert!(err.contains("cannot be combined"), "got: {err}");
     }
 }

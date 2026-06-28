@@ -77,6 +77,7 @@ export { PageOutOfRangeError } from "./core/errors.js";
 export { PdfForm } from "./forms/form.js";
 export type { FieldInfo, FieldType, FieldWidget } from "./forms/form.js";
 export {
+  PdfField,
   PdfTextField,
   PdfCheckBox,
   PdfRadioGroup,
@@ -84,6 +85,7 @@ export {
   PdfListBox,
   PdfSignature,
 } from "./forms/fields.js";
+export type { FieldFlagChanges } from "./forms/fields.js";
 export {
   PdfError,
   UnknownFieldError,

@@ -4,6 +4,7 @@
 export { PdfForm } from "./form.js";
 export type { FieldInfo, FieldType, FieldWidget } from "./form.js";
 export {
+  PdfField,
   PdfTextField,
   PdfCheckBox,
   PdfRadioGroup,
@@ -11,6 +12,7 @@ export {
   PdfListBox,
   PdfSignature,
 } from "./fields.js";
+export type { FieldFlagChanges } from "./fields.js";
 export {
   PdfError,
   UnknownFieldError,

@@ -1,4 +1,4 @@
-import type { FieldInfo } from "./form.js";
+import type { FieldInfo, FieldWidget } from "./form.js";
 import {
   InvalidOptionError,
   MaxLengthExceededError,
@@ -6,13 +6,29 @@ import {
   MultiSelectError,
 } from "../core/errors.js";
 
+/**
+ * Flag changes for a loaded field. Each property toggles one PDF flag: `true`
+ * sets it, `false` clears it, and omitting it leaves the flag unchanged.
+ * `readOnly` / `required` / `noExport` are field `/Ff` flags; `hidden` /
+ * `print` / `noView` are annotation `/F` flags applied to every widget.
+ */
+export interface FieldFlagChanges {
+  readOnly?: boolean;
+  required?: boolean;
+  noExport?: boolean;
+  hidden?: boolean;
+  print?: boolean;
+  noView?: boolean;
+}
+
 /** One queued mutation: set field `name` to a value or visual signature image. */
 export type FillOp =
   | { name: string; value: string }
   | { name: string; values: string[] }
   | { name: string; defaultValue: string }
   | { name: string; reset: true }
-  | { name: string; image: Uint8Array };
+  | { name: string; image: Uint8Array }
+  | { name: string; flags: FieldFlagChanges };
 
 /** Shared, ordered list of pending mutations for a document. */
 export class FillQueue {
@@ -44,6 +60,84 @@ export class FillQueue {
 }
 
 /**
+ * Common base for every form-field wrapper. Beyond holding the field's parsed
+ * {@link FieldInfo} and the document's pending-mutation queue, it exposes the
+ * setters that change a *loaded* field's flags (as opposed to its value): the
+ * field `/Ff` flags ({@link setReadOnly}, {@link setRequired},
+ * {@link setExported}) and the per-widget `/F` visibility flags ({@link hide},
+ * {@link show}, {@link setPrintable}, {@link setNoView}).
+ *
+ * Every change is applied to the in-memory {@link FieldInfo} immediately and
+ * written to the PDF bytes when `doc.save()` is called.
+ */
+export abstract class PdfField {
+  /** @internal */
+  constructor(protected readonly info: FieldInfo, protected readonly queue: FillQueue) {}
+
+  /**
+   * Set or clear this field's ReadOnly flag (`/Ff` bit 1). A read-only field is
+   * displayed but cannot be edited or selected in a viewer.
+   */
+  setReadOnly(value: boolean): void {
+    this.queue.push({ name: this.info.name, flags: { readOnly: value } });
+    this.info.readOnly = value;
+  }
+
+  /**
+   * Set or clear this field's Required flag (`/Ff` bit 2). Viewers may refuse to
+   * submit the form while a required field is empty.
+   */
+  setRequired(value: boolean): void {
+    this.queue.push({ name: this.info.name, flags: { required: value } });
+    this.info.required = value;
+  }
+
+  /**
+   * Set whether this field is exported when the form is submitted. `false` sets
+   * the NoExport flag (`/Ff` bit 3); `true` clears it. `FieldInfo.exported`
+   * mirrors this value (it is the inverse of the NoExport flag).
+   */
+  setExported(value: boolean): void {
+    this.queue.push({ name: this.info.name, flags: { noExport: !value } });
+    this.info.exported = value;
+  }
+
+  /**
+   * Hide this field on screen and in print by setting the Hidden flag (`/F`
+   * bit 2) on every one of its widgets.
+   */
+  hide(): void {
+    this.setWidgetFlag({ hidden: true }, (w) => (w.hidden = true));
+  }
+
+  /** Show this field by clearing the Hidden flag (`/F` bit 2) on every widget. */
+  show(): void {
+    this.setWidgetFlag({ hidden: false }, (w) => (w.hidden = false));
+  }
+
+  /**
+   * Set or clear the Print flag (`/F` bit 3) on every widget: whether the field
+   * appears in printed output.
+   */
+  setPrintable(value: boolean): void {
+    this.setWidgetFlag({ print: value }, (w) => (w.print = value));
+  }
+
+  /**
+   * Set or clear the NoView flag (`/F` bit 6) on every widget: hidden on screen
+   * but still rendered when printed (if also printable).
+   */
+  setNoView(value: boolean): void {
+    this.setWidgetFlag({ noView: value }, (w) => (w.noView = value));
+  }
+
+  private setWidgetFlag(flags: FieldFlagChanges, mut: (w: FieldWidget) => void): void {
+    this.queue.push({ name: this.info.name, flags });
+    for (const w of this.info.widgets) mut(w);
+  }
+}
+
+/**
  * A text field in a PDF form.
  *
  * Use `form.getTextField(name)` to get a `PdfTextField`, then call `setText()`
@@ -58,9 +152,7 @@ export class FillQueue {
  * const pdfBytes = await doc.save();
  * ```
  */
-export class PdfTextField {
-  /** @internal */
-  constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
+export class PdfTextField extends PdfField {
   /**
    * Set this field's text value.
    *
@@ -122,9 +214,7 @@ export class PdfTextField {
  * accepted.check();
  * ```
  */
-export class PdfCheckBox {
-  /** @internal */
-  constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
+export class PdfCheckBox extends PdfField {
   /**
    * Check this checkbox.
    *
@@ -199,9 +289,7 @@ export class PdfCheckBox {
  * group.select("Titular");
  * ```
  */
-export class PdfRadioGroup<Opt extends string = string> {
-  /** @internal */
-  constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
+export class PdfRadioGroup<Opt extends string = string> extends PdfField {
   /**
    * The valid export values for this radio group.
    *
@@ -272,9 +360,7 @@ export class PdfRadioGroup<Opt extends string = string> {
  * status.select("Casado");
  * ```
  */
-export class PdfDropdown<Opt extends string = string> {
-  /** @internal */
-  constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
+export class PdfDropdown<Opt extends string = string> extends PdfField {
   /**
    * The valid option export values for this dropdown.
    *
@@ -348,9 +434,7 @@ export class PdfDropdown<Opt extends string = string> {
  * language.select("TypeScript");
  * ```
  */
-export class PdfListBox<Opt extends string = string> {
-  /** @internal */
-  constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
+export class PdfListBox<Opt extends string = string> extends PdfField {
   /**
    * The valid option export values for this list box.
    *
@@ -454,9 +538,7 @@ export class PdfListBox<Opt extends string = string> {
  * form.getSignature("firma.titular").setImage(image);
  * ```
  */
-export class PdfSignature {
-  /** @internal */
-  constructor(private readonly info: FieldInfo, private readonly queue: FillQueue) {}
+export class PdfSignature extends PdfField {
   /**
    * Set the signature field's visual image.
    *
