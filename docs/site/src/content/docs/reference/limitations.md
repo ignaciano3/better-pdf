@@ -16,14 +16,30 @@ deliberately unsupported and not planned. The two are listed separately below.
   `IncorrectPasswordError`.) Modifying an encrypted PDF produces a **decrypted**
   output. **Still unsupported:** producing encrypted output (re-encryption) and
   encrypting documents you create.
-- No cryptographic signing (the API leaves room to add PAdES later).
-- **Appearance-affecting form-field flags are set at creation only.** The
-  `multiline`, `comb`, and `password` flags can be set when [creating a
-  field](/better-pdf/guides/creating-form-fields/) but **not toggled on a loaded
-  field**, because changing them requires regenerating the field's appearance
-  stream rather than just flipping a bit. (The ReadOnly / Required / NoExport
-  field flags and the Hidden / Print / NoView widget flags *can* be changed on a
-  loaded field — see [Filling forms](/better-pdf/guides/filling-forms/).)
+- **No cryptographic signing**, but **visual signatures are supported** —
+  `form.getSignature(name).setImage(bytes)` places an image in a signature
+  field's appearance. This is a visual mark only; it does **not** produce a
+  PAdES/CMS digital signature (the API leaves room to add that later).
+  - **Caveat — signature images use a stricter PNG decoder than `embedPng`.**
+    Signature PNGs must be **8-bit** (sub-byte indexed/palette packing is
+    rejected), indexed-color PNGs require a `PLTE` chunk, and interlaced PNGs,
+    unsupported color types, and unsupported row filters are rejected. JPEG is
+    also accepted. Convert to a plain 8-bit PNG or JPEG if `setImage` throws.
+- **Form creation and form reading are separate phases.** `getForm()` is **not
+  available on documents created with `PdfDocument.create()`** — it throws. You
+  add fields at creation time with the form builder
+  ([Creating form fields](/better-pdf/guides/creating-form-fields/)) and read or
+  fill them with `getForm()` only after **saving and re-loading** the document.
+- **Appearance-affecting form-field flags can now be toggled on a loaded
+  field** (added in 1.8.0). `multiline`, `comb`, and `password` are set via
+  `field.setMultiline()`, `field.setComb(true, maxLen)` / `setComb(false)`, and
+  `field.setPassword()` on a `PdfTextField`; the field's appearance stream is
+  regenerated from its current value (multiline wraps, comb draws fixed-pitch
+  cells, password draws nothing). Enabling `comb` requires a `maxLen` (written to
+  `/MaxLen`). These flags apply to text fields only. (The ReadOnly / Required /
+  NoExport field flags and the Hidden / Print / NoView widget flags can also be
+  changed on a loaded field — see
+  [Filling forms](/better-pdf/guides/filling-forms/).)
 - **Rich-text fields are not supported.** The PDF Rich Text flag (`/Ff` bit 26)
   and `/RV` value are ignored; field values are read and written as plain text.
 - Drawing APIs support standard-14 fonts and custom TTF/OTF font embedding via

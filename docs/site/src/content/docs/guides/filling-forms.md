@@ -114,10 +114,24 @@ of the field's widget annotations. The change is reflected on the field's
 `FieldInfo` (and `FieldInfo.widgets`) immediately and written to the PDF on
 `save()`.
 
-The appearance-affecting flags `multiline`, `comb`, and `password` are **not**
-toggleable on a loaded field — set them when [creating the
-field](/better-pdf/guides/creating-form-fields/), since changing them requires
-regenerating the field's appearance.
+### Appearance-affecting text-field flags
+
+`multiline`, `comb`, and `password` change how a text field's value is drawn, so
+toggling them on a loaded field **regenerates the field's appearance** from its
+current value. They are exposed on `PdfTextField` (text fields only):
+
+```ts
+const field = form.getTextField("notes");
+
+field.setMultiline(true);   // /Ff Multiline — wrap and top-align the value
+field.setComb(true, 8);     // /Ff Comb — 8 fixed-pitch cells (writes /MaxLen)
+field.setComb(false);       // clear Comb
+field.setPassword(true);    // /Ff Password — draw an empty appearance (value kept)
+```
+
+Enabling `comb` requires a cell count; the `setComb` overload makes `maxLen`
+mandatory when the first argument is `true`. A `password` field keeps its `/V`
+value but never renders it into the appearance stream.
 
 ## Flatten
 

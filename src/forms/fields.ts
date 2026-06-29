@@ -19,6 +19,16 @@ export interface FieldFlagChanges {
   hidden?: boolean;
   print?: boolean;
   noView?: boolean;
+  /**
+   * Appearance-affecting text-field `/Ff` flags. Toggling any of these on a
+   * loaded field regenerates the field's appearance stream from its current
+   * value. `combMaxLen` is the cell count written to `/MaxLen` when enabling
+   * `comb`.
+   */
+  multiline?: boolean;
+  password?: boolean;
+  comb?: boolean;
+  combMaxLen?: number;
 }
 
 /** One queued mutation: set field `name` to a value or visual signature image. */
@@ -199,6 +209,51 @@ export class PdfTextField extends PdfField {
     }
     this.queue.push({ name: this.info.name, defaultValue: value });
     this.info.defaultValue = value;
+  }
+
+  /**
+   * Set or clear this field's Multiline flag (`/Ff` bit 13). Unlike value
+   * setters, this regenerates the field's appearance: a multiline field wraps
+   * and top-aligns its current value; clearing it restores single-line layout.
+   *
+   * The change is applied to the PDF bytes when you call `doc.save()`.
+   */
+  setMultiline(value: boolean): void {
+    this.queue.push({ name: this.info.name, flags: { multiline: value } });
+    this.info.multiline = value;
+  }
+
+  /**
+   * Set or clear this field's Comb flag (`/Ff` bit 25), which lays the value out
+   * in `maxLen` fixed-pitch per-character cells. Enabling comb requires a cell
+   * count, which is written to `/MaxLen`; clearing it leaves `/MaxLen` as-is.
+   *
+   * The field's appearance is regenerated, and the change is applied to the PDF
+   * bytes when you call `doc.save()`.
+   */
+  setComb(value: true, maxLen: number): void;
+  setComb(value: false): void;
+  setComb(value: boolean, maxLen?: number): void {
+    if (value) {
+      this.queue.push({ name: this.info.name, flags: { comb: true, combMaxLen: maxLen } });
+      this.info.comb = true;
+      this.info.maxLength = maxLen ?? this.info.maxLength;
+    } else {
+      this.queue.push({ name: this.info.name, flags: { comb: false } });
+      this.info.comb = false;
+    }
+  }
+
+  /**
+   * Set or clear this field's Password flag (`/Ff` bit 14). A password field's
+   * value is never rendered into its appearance (the appearance is drawn empty),
+   * though the `/V` value itself is preserved.
+   *
+   * The change is applied to the PDF bytes when you call `doc.save()`.
+   */
+  setPassword(value: boolean): void {
+    this.queue.push({ name: this.info.name, flags: { password: value } });
+    this.info.password = value;
   }
 }
 
