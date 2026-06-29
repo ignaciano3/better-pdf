@@ -22,6 +22,7 @@ type PageStructureOp =
 
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
+  decryptPdf(data: Uint8Array, password: string): Uint8Array;
   readFields(data: Uint8Array): string;
   fillFields(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array;
   flattenFields(data: Uint8Array, namesJson: string): Uint8Array;

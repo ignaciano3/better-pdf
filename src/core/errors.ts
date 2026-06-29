@@ -84,7 +84,17 @@ export class PdfCoreError extends PdfError {}
  */
 export class EncryptedPdfError extends PdfError {
   constructor(
-    message = "this PDF is encrypted; encrypted PDFs are not supported",
+    message = "this PDF is encrypted; load it with PdfDocument.load(bytes, { password }) (use \"\" for owner-locked files)",
+  ) {
+    super(message);
+  }
+}
+
+/** Thrown when an encrypted PDF's password is wrong or missing. Pass the
+ * correct password via `PdfDocument.load(bytes, { password })`. */
+export class IncorrectPasswordError extends PdfError {
+  constructor(
+    message = "incorrect or missing password for this encrypted PDF",
   ) {
     super(message);
   }
@@ -116,6 +126,7 @@ export function toInvalidImageError(e: unknown): InvalidImageError {
 export function toPdfError(e: unknown): PdfError {
   if (e instanceof PdfError) return e;
   const message = e instanceof Error ? e.message : String(e);
+  if (message.includes("PASSWORD:")) return new IncorrectPasswordError();
   if (message.includes("ENCRYPTED:")) return new EncryptedPdfError();
   return new PdfCoreError(message);
 }

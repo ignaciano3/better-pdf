@@ -3,6 +3,7 @@
 import initCore, {
   apply_draw_ops,
   create_document,
+  decrypt_pdf,
   fill_fields,
   flatten_fields,
   image_info,
@@ -38,6 +39,11 @@ function ensureInitialized(): void {
       "better-pdf browser WASM is not initialized; await PdfDocument.load() or initializeWasm() first.",
     );
   }
+}
+
+export function decryptPdf(data: Uint8Array, password: string): Uint8Array {
+  ensureInitialized();
+  return decrypt_pdf(data, password);
 }
 
 export function readFields(data: Uint8Array): string {

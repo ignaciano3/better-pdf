@@ -13,6 +13,7 @@
 import * as wasm from "./core/wasm-browser.js";
 import { initializeWasm } from "./core/wasm-browser.js";
 import { PdfDocumentBase } from "./core/document.js";
+import { toPdfError } from "./core/errors.js";
 
 /**
  * Represents a loaded PDF document.
@@ -50,9 +51,21 @@ export class PdfDocument extends PdfDocumentBase {
    * const doc = await PdfDocument.load(bytes);
    * ```
    */
-  static async load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument> {
+  static async load(
+    input: Uint8Array | ArrayBuffer,
+    opts?: { password?: string },
+  ): Promise<PdfDocument> {
     await initializeWasm();
-    const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const raw = input instanceof Uint8Array ? input : new Uint8Array(input);
+    if (opts?.password === undefined) {
+      return new PdfDocument(raw, wasm);
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = wasm.decryptPdf(raw, opts.password);
+    } catch (e) {
+      throw toPdfError(e);
+    }
     return new PdfDocument(bytes, wasm);
   }
 
@@ -96,6 +109,7 @@ export {
   MultiSelectError,
   PdfCoreError,
   EncryptedPdfError,
+  IncorrectPasswordError,
   InvalidImageError,
   InvalidRotationError,
 } from "./core/errors.js";

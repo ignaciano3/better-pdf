@@ -49,8 +49,20 @@ export class PdfDocument extends PdfDocumentBase {
    * const doc = await PdfDocument.load(bytes);
    * ```
    */
-  static async load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument> {
-    const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+  static async load(
+    input: Uint8Array | ArrayBuffer,
+    opts?: { password?: string },
+  ): Promise<PdfDocument> {
+    const raw = input instanceof Uint8Array ? input : new Uint8Array(input);
+    if (opts?.password === undefined) {
+      return new PdfDocument(raw, wasm);
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = wasm.decryptPdf(raw, opts.password);
+    } catch (e) {
+      throw toPdfError(e);
+    }
     return new PdfDocument(bytes, wasm);
   }
 
@@ -153,6 +165,7 @@ export {
   MultiSelectError,
   PdfCoreError,
   EncryptedPdfError,
+  IncorrectPasswordError,
   InvalidImageError,
   InvalidRotationError,
 } from "./core/errors.js";

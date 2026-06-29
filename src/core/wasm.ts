@@ -6,6 +6,7 @@ import {
   initSync,
   apply_draw_ops,
   create_document,
+  decrypt_pdf,
   fill_fields,
   flatten_fields,
   image_info,
@@ -23,6 +24,10 @@ import {
 initSync({
   module: readFileSync(new URL("../../pkg-web/better_pdf_core_bg.wasm", import.meta.url)),
 });
+
+export function decryptPdf(data: Uint8Array, password: string): Uint8Array {
+  return decrypt_pdf(data, password);
+}
 
 export function readFields(data: Uint8Array): string {
   return read_fields(data);
