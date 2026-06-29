@@ -1488,7 +1488,12 @@ pub fn create_document_json(
                 }
                 _ => continue,
             };
-            if da_font_alias(base).is_none() {
+            // Reject anything `da_font_alias` doesn't map *and* anything whose
+            // width table can't be resolved — the per-field appearance below
+            // does `standard_14_widths(base).unwrap()`, so both must agree.
+            if da_font_alias(base).is_none()
+                || crate::appearance::standard_14_widths(base).is_none()
+            {
                 return Err(format!("unknown field font: {base}"));
             }
             needed.insert(base);
@@ -3075,6 +3080,18 @@ mod tests {
         let w = get_first_field_dict(&doc);
         let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
         assert!(da.contains("/CoBo"), "DA should reference the Courier-Bold alias, got: {da}");
+    }
+
+    #[test]
+    fn listbox_field_uses_requested_font() {
+        // List boxes are choice fields with combo:false; the font path is shared
+        // with dropdowns via _addChoice, but lock it in for regression safety.
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":80,"height":40,"combo":false,"options":["a","b"],"font":"Times-Bold"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("/TiBo"), "DA should reference the Times-Bold alias, got: {da}");
     }
 
     #[test]
