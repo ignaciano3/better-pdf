@@ -135,6 +135,15 @@ pub fn set_outline(data: &[u8], json: &str) -> Result<Vec<u8>, JsError> {
     outline::set_outline_json(data, json).map_err(|e| JsError::new(&e))
 }
 
+/// Decrypt an encrypted PDF with `password` (empty string for the common
+/// owner-locked case) and return plaintext bytes. Unencrypted input is returned
+/// unchanged. Errors start with `PASSWORD:` (bad/missing password) or
+/// `ENCRYPTED:` (unsupported scheme).
+#[wasm_bindgen]
+pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, JsError> {
+    doc_io::decrypt_pdf(data, password).map_err(|e| JsError::new(&e))
+}
+
 /// Internal re-exports for the fuzz targets in `fuzz/`. Not a public API.
 #[doc(hidden)]
 pub mod fuzz_api {

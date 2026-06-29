@@ -3,6 +3,56 @@ use lopdf::Document;
 /// Stable, machine-detectable prefix the TS boundary maps to `EncryptedPdfError`.
 pub const ENCRYPTED_PREFIX: &str = "ENCRYPTED:";
 
+/// Stable, machine-detectable prefix the TS boundary maps to `IncorrectPasswordError`.
+pub const PASSWORD_PREFIX: &str = "PASSWORD:";
+
+/// Decrypt `data` using `password` (empty string handles the common owner-locked
+/// case). Unencrypted input is returned verbatim (byte-identical). Encrypted
+/// input is decrypted in place, the `/Encrypt` trailer entry removed, and the
+/// document re-serialized to plaintext bytes. A wrong/missing password yields an
+/// error starting with [`PASSWORD_PREFIX`]; an unsupported or unreadable scheme
+/// yields one starting with [`ENCRYPTED_PREFIX`].
+///
+/// In lopdf 0.41, `load_mem_with_options` auto-decrypts during loading when the
+/// password authenticates, so we use `was_encrypted()` to distinguish the
+/// unencrypted pass-through case from a successfully decrypted document.
+pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
+    let load_result = Document::load_mem_with_options(
+        data,
+        lopdf::LoadOptions::with_password(password),
+    );
+    match load_result {
+        Ok(doc) if !doc.was_encrypted() => {
+            // Unencrypted input — return byte-identical.
+            Ok(data.to_vec())
+        }
+        Ok(mut doc) => {
+            // Encrypted; lopdf already decrypted and removed /Encrypt. Re-serialize.
+            let mut out = Vec::new();
+            doc.save_to(&mut out).map_err(|e| e.to_string())?;
+            Ok(out)
+        }
+        Err(lopdf::Error::InvalidPassword) => {
+            Err(format!("{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF"))
+        }
+        Err(lopdf::Error::Decryption(de)) => Err(classify_decryption_error(de)),
+        Err(e) => Err(format!("{ENCRYPTED_PREFIX} {e}")),
+    }
+}
+
+/// Map a lopdf decryption error to one of our stable prefixes.
+fn classify_decryption_error(de: lopdf::encryption::DecryptionError) -> String {
+    use lopdf::encryption::DecryptionError::{
+        IncorrectPassword, MissingOwnerPassword, MissingUserPassword, Padding,
+    };
+    match de {
+        IncorrectPassword | Padding | MissingUserPassword | MissingOwnerPassword => {
+            format!("{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF")
+        }
+        other => format!("{ENCRYPTED_PREFIX} unsupported or unreadable encryption: {other}"),
+    }
+}
+
 /// Parse PDF bytes into a `Document`, failing fast on encrypted files.
 ///
 /// Encryption is not supported. If the parsed trailer carries an `/Encrypt`
@@ -22,6 +72,105 @@ pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
 mod tests {
     use super::*;
     use lopdf::{dictionary, Dictionary, Document, Object};
+
+    const FICHA: &[u8] =
+        include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
+
+    /// Encrypt FICHA with the standard security handler and return the bytes.
+    /// `user_pw` is the user password (empty for the common owner-locked case).
+    fn encrypt_rc4(user_pw: &str) -> Vec<u8> {
+        use lopdf::{EncryptionState, EncryptionVersion, Permissions};
+        let mut doc = Document::load_mem(FICHA).unwrap();
+        let version = EncryptionVersion::V2 {
+            document: &doc,
+            owner_password: "owner",
+            user_password: user_pw,
+            key_length: 128,
+            permissions: Permissions::all(),
+        };
+        let state = EncryptionState::try_from(version).unwrap();
+        doc.encrypt(&state).unwrap();
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    fn encrypt_aes128(user_pw: &str) -> Vec<u8> {
+        use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
+        use lopdf::{EncryptionState, EncryptionVersion, Permissions};
+        use std::collections::BTreeMap;
+        use std::sync::Arc;
+        let mut doc = Document::load_mem(FICHA).unwrap();
+        let cf: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
+        let version = EncryptionVersion::V4 {
+            document: &doc,
+            encrypt_metadata: true,
+            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), cf)]),
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner",
+            user_password: user_pw,
+            permissions: Permissions::all(),
+        };
+        let state = EncryptionState::try_from(version).unwrap();
+        doc.encrypt(&state).unwrap();
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    fn encrypt_aes256(user_pw: &str) -> Vec<u8> {
+        use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
+        use lopdf::{EncryptionState, EncryptionVersion, Permissions};
+        use std::collections::BTreeMap;
+        use std::sync::Arc;
+        let mut doc = Document::load_mem(FICHA).unwrap();
+        let cf: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
+        let key = [0x42u8; 32];
+        let version = EncryptionVersion::V5 {
+            encrypt_metadata: true,
+            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), cf)]),
+            file_encryption_key: &key,
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner",
+            user_password: user_pw,
+            permissions: Permissions::all(),
+        };
+        let state = EncryptionState::try_from(version).unwrap();
+        doc.encrypt(&state).unwrap();
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    /// Generate the committed encrypted fixtures. Ignored so routine `cargo test`
+    /// doesn't overwrite them. Run on demand:
+    ///   cargo test emit_encrypted_fixtures -- --ignored
+    #[test]
+    #[ignore]
+    fn emit_encrypted_fixtures() {
+        use std::path::Path;
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/generated");
+        for (name, bytes) in [
+            ("ficha-rc4.pdf", encrypt_rc4("")),
+            ("ficha-aes128.pdf", encrypt_aes128("")),
+            ("ficha-aes256.pdf", encrypt_aes256("")),
+            ("ficha-rc4-pw.pdf", encrypt_rc4("secret")),
+        ] {
+            // Self-check: each fixture must round-trip through decrypt before commit.
+            // In lopdf 0.41, load_mem auto-decrypts when the password is available;
+            // supply the right password via load_mem_with_options so was_encrypted() is true.
+            let pw = if name == "ficha-rc4-pw.pdf" { "secret" } else { "" };
+            let loaded = Document::load_mem_with_options(
+                &bytes,
+                lopdf::LoadOptions::with_password(pw),
+            )
+            .unwrap_or_else(|e| panic!("{name} decrypt failed: {e}"));
+            assert!(loaded.was_encrypted(), "{name} should have been encrypted before loading");
+            std::fs::write(dir.join(name), &bytes).expect("write fixture");
+        }
+    }
 
     /// Build a minimal valid PDF whose trailer references an `/Encrypt` dict,
     /// without performing real encryption (detection only checks the key).
@@ -98,5 +247,55 @@ mod tests {
     fn load_pdf_accepts_plain_pdf() {
         let bytes = plain_pdf_bytes();
         assert!(load_pdf(&bytes).is_ok(), "plain PDF must load");
+    }
+
+    const FICHA_RC4: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-rc4.pdf");
+    const FICHA_AES128: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-aes128.pdf");
+    const FICHA_AES256: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-aes256.pdf");
+    const FICHA_RC4_PW: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-rc4-pw.pdf");
+
+    fn assert_decrypted_ficha(out: &[u8]) {
+        let doc = Document::load_mem(out).unwrap();
+        assert!(!doc.trailer.has(b"Encrypt"), "decrypted output must not be encrypted");
+        let fields = crate::forms::read_fields_json(out).unwrap();
+        assert!(fields.contains("beneficiario.apellidos_nombres"), "fields should be readable");
+    }
+
+    #[test]
+    fn decrypt_pdf_passes_through_unencrypted_unchanged() {
+        let out = decrypt_pdf(FICHA, "").unwrap();
+        assert_eq!(out, FICHA, "unencrypted input must be returned byte-identical");
+    }
+
+    #[test]
+    fn decrypts_rc4_empty_password() {
+        assert_decrypted_ficha(&decrypt_pdf(FICHA_RC4, "").unwrap());
+    }
+
+    #[test]
+    fn decrypts_aes128_empty_password() {
+        assert_decrypted_ficha(&decrypt_pdf(FICHA_AES128, "").unwrap());
+    }
+
+    #[test]
+    fn decrypts_aes256_empty_password() {
+        assert_decrypted_ficha(&decrypt_pdf(FICHA_AES256, "").unwrap());
+    }
+
+    #[test]
+    fn decrypts_with_correct_password() {
+        assert_decrypted_ficha(&decrypt_pdf(FICHA_RC4_PW, "secret").unwrap());
+    }
+
+    #[test]
+    fn wrong_password_yields_password_prefix() {
+        let err = decrypt_pdf(FICHA_RC4_PW, "wrong").unwrap_err();
+        assert!(err.starts_with(PASSWORD_PREFIX), "got: {err}");
+    }
+
+    #[test]
+    fn empty_password_on_password_protected_yields_password_prefix() {
+        let err = decrypt_pdf(FICHA_RC4_PW, "").unwrap_err();
+        assert!(err.starts_with(PASSWORD_PREFIX), "got: {err}");
     }
 }
