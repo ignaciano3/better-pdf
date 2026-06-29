@@ -1,5 +1,6 @@
 import type { Color } from "./color.js";
 import type { FieldNameOf, FormSchema } from "../forms/schema.js";
+import { StandardFonts } from "./fonts.js";
 
 // ---------------------------------------------------------------------------
 // Public option interfaces
@@ -48,6 +49,9 @@ export interface TextFieldOptions extends BaseFieldOptions {
   align?: FieldAlign;
   /** Font size in points for the field's value. Defaults to 12. */
   fontSize?: number;
+  /** Standard-14 font for the field's value. Defaults to Helvetica. Embedded
+   * (PdfFont) fonts are not supported for form fields. */
+  font?: StandardFonts;
 }
 
 /**
@@ -114,6 +118,9 @@ export interface ChoiceOptions<O extends string> extends BaseFieldOptions {
   align?: FieldAlign;
   /** Font size in points for the field's value. Defaults to 12. */
   fontSize?: number;
+  /** Standard-14 font for the field's value. Defaults to Helvetica. Embedded
+   * (PdfFont) fonts are not supported for form fields. */
+  font?: StandardFonts;
 }
 
 export interface SignatureFieldOptions extends BaseFieldOptions {
@@ -158,6 +165,7 @@ interface WireTextField extends WireBase {
   comb?: boolean;
   align?: FieldAlign;
   fontSize?: number;
+  font?: string;
 }
 
 /** @internal */
@@ -196,6 +204,7 @@ interface WireChoice extends WireBase {
   defaultSelected?: string;
   align?: FieldAlign;
   fontSize?: number;
+  font?: string;
 }
 
 /** @internal */
@@ -246,18 +255,25 @@ function assertGeometry(opts: { x: number; y: number }, label: string): void {
 }
 
 /**
- * Copy validated `align`/`fontSize` from a text/choice options object onto its
- * wire def. `fontSize` must be a finite number > 0.
+ * Copy validated `align`/`fontSize`/`font` from a text/choice options object
+ * onto its wire def. `fontSize` must be a finite number > 0. `font` must be a
+ * standard-14 font name.
  */
 function applyTextStyle(
-  def: { align?: FieldAlign; fontSize?: number },
-  opts: { align?: FieldAlign; fontSize?: number },
+  def: { align?: FieldAlign; fontSize?: number; font?: string },
+  opts: { align?: FieldAlign; fontSize?: number; font?: StandardFonts },
   label: string,
 ): void {
   if (opts.align !== undefined) def.align = opts.align;
   if (opts.fontSize !== undefined) {
     assertPositive(opts.fontSize, `${label}.fontSize`);
     def.fontSize = opts.fontSize;
+  }
+  if (opts.font !== undefined) {
+    if (!Object.values(StandardFonts).includes(opts.font)) {
+      throw new RangeError(`${label}.font is not a standard-14 font: ${String(opts.font)}`);
+    }
+    def.font = opts.font;
   }
 }
 

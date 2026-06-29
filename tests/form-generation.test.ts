@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PdfDocument, PageSizes, PdfError } from "../src/index.ts";
+import { PdfDocument, PageSizes, PdfError, StandardFonts } from "../src/index.ts";
 
 const FICHA = "tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf";
 
@@ -813,5 +813,61 @@ describe("form-generation: reset", () => {
       d.createForm().addTextField("t", { page: 0, x: 50, y: 700, width: 120, height: 20 });
     });
     expect(() => doc.getForm().resetField("nope")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// field font option
+// ---------------------------------------------------------------------------
+
+describe("form-generation: field font", () => {
+  test("text field font round-trips as the DA alias", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("t", {
+        page: 0,
+        x: 50,
+        y: 700,
+        width: 200,
+        height: 20,
+        font: StandardFonts.TimesRoman,
+      });
+    });
+    expect(reloaded.getForm().getField("t")?.fontName).toBe("TiRo");
+  });
+
+  test("dropdown font round-trips as the DA alias", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addDropdown("d", {
+        page: 0,
+        x: 50,
+        y: 650,
+        width: 200,
+        height: 20,
+        options: ["a", "b"] as const,
+        font: StandardFonts.CourierBold,
+      });
+    });
+    expect(reloaded.getForm().getField("d")?.fontName).toBe("CoBo");
+  });
+
+  test("omitting font defaults to Helvetica (Helv alias)", async () => {
+    const reloaded = await buildAndReload((doc) => {
+      doc.createForm().addTextField("t", {
+        page: 0, x: 50, y: 700, width: 200, height: 20,
+      });
+    });
+    expect(reloaded.getForm().getField("t")?.fontName).toBe("Helv");
+  });
+
+  test("an unknown font string throws RangeError", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    const fb = doc.createForm();
+    expect(() =>
+      fb.addTextField("t", {
+        page: 0, x: 10, y: 10, width: 100, height: 20,
+        font: "Comic Sans" as StandardFonts,
+      }),
+    ).toThrow(RangeError);
   });
 });
