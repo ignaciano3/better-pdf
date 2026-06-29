@@ -118,6 +118,32 @@ test("setPrintable and setNoView round-trip on the widget", async () => {
   expect(info.widgets.every((w) => w.print)).toBe(true);
 });
 
+test("setMultiline toggles the flag and round-trips", async () => {
+  const doc = await load();
+  expect(doc.getForm().getField(TEXT_FIELD)!.multiline).toBe(false);
+  doc.getForm().getTextField(TEXT_FIELD).setMultiline(true);
+  const out = await doc.save();
+  const info = (await PdfDocument.load(out)).getForm().getField(TEXT_FIELD)!;
+  expect(info.multiline).toBe(true);
+});
+
+test("setComb with a maxLen toggles the flag and writes the cell count", async () => {
+  const doc = await load();
+  doc.getForm().getTextField(TEXT_FIELD).setComb(true, 8);
+  const out = await doc.save();
+  const info = (await PdfDocument.load(out)).getForm().getField(TEXT_FIELD)!;
+  expect(info.comb).toBe(true);
+  expect(info.maxLength).toBe(8);
+});
+
+test("setPassword toggles the flag and round-trips", async () => {
+  const doc = await load();
+  doc.getForm().getTextField(TEXT_FIELD).setPassword(true);
+  const out = await doc.save();
+  const info = (await PdfDocument.load(out)).getForm().getField(TEXT_FIELD)!;
+  expect(info.password).toBe(true);
+});
+
 test("filling a value and then locking the field keeps both", async () => {
   const doc = await load();
   const field = doc.getForm().getTextField(TEXT_FIELD);

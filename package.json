@@ -1,6 +1,6 @@
 {
   "name": "@ignaciano3/better-pdf",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "A maintained, fast alternative to pdf-lib for filling and flattening PDF AcroForms.",
   "type": "module",
   "author": "Ignacio Garcia P <ignaciogp08@gmail.com>",

@@ -394,6 +394,7 @@ pub(crate) fn emit_text_block_cid(
 /// skewed by `x_skew`/`y_skew` degrees. Matches pdf-lib's order:
 /// translate → rotate → scale → skew. When there is no rotation or skew this
 /// collapses to the single combined `sx 0 0 sy x y cm` form.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_placement(
     out: &mut Vec<u8>,
     x: f32,

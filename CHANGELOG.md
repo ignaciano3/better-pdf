@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-29
+
+### Added
+
+- **Toggle `multiline` / `comb` / `password` on a loaded text field.**
+  `PdfTextField` gains `setMultiline(value)`, `setComb(value, maxLen)` /
+  `setComb(false)`, and `setPassword(value)`. Unlike the other flag setters,
+  these regenerate the field's appearance stream from its current value:
+  multiline wraps and top-aligns, comb draws fixed-pitch per-character cells
+  (writing the cell count to `/MaxLen`), and password renders an empty
+  appearance so the value never leaks into the stream (the `/V` is preserved).
+  Enabling `comb` requires a `maxLen`; the `setComb` overload enforces this at
+  the type level, and the engine rejects a comb toggle that would leave the
+  field with no `/MaxLen`. These flags apply to text fields only.
+
 ## [1.7.0] - 2026-06-28
 
 ### Added

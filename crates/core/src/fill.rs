@@ -37,6 +37,21 @@ struct FieldFlagOps {
     hidden: Option<bool>,
     print: Option<bool>,
     no_view: Option<bool>,
+    /// Appearance-affecting text-field `/Ff` bits. Toggling any of these
+    /// regenerates the field's appearance stream from its current `/V`.
+    multiline: Option<bool>,
+    password: Option<bool>,
+    comb: Option<bool>,
+    /// Cell count for the comb layout (written to `/MaxLen`). Required when
+    /// turning `comb` on for a field that has no `/MaxLen`.
+    comb_max_len: Option<i64>,
+}
+
+impl FieldFlagOps {
+    /// True when the op touches a flag that changes how the value is drawn.
+    fn touches_appearance(&self) -> bool {
+        self.multiline.is_some() || self.password.is_some() || self.comb.is_some()
+    }
 }
 
 /// Apply the given fill ops to `data` and return new PDF bytes (incremental
@@ -65,6 +80,7 @@ pub fn fill_fields_json(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Ve
                 | Apply::Dropdown { .. }
                 | Apply::ListBoxMulti { .. }
                 | Apply::Signature { .. }
+                | Apply::SetAppearanceFlags { .. }
         )
     });
 
@@ -103,6 +119,12 @@ struct ApInputs {
     widgets: Vec<WidgetBox>,
     /// True for text-area fields (Ff Multiline bit); choice fields are always false.
     multiline: bool,
+    /// True for comb text fields (Ff Comb bit): draw the value in fixed cells.
+    comb: bool,
+    /// True for password text fields (Ff Password bit): draw no visible value.
+    password: bool,
+    /// Cell count for the comb layout, from `/MaxLen`. Only meaningful when `comb`.
+    max_len: i64,
 }
 
 enum Apply {
@@ -152,6 +174,18 @@ enum Apply {
         widget_f_clear: i64,
         widgets: Vec<ObjectId>,
     },
+    /// Toggle appearance-affecting text-field `/Ff` bits (multiline / comb /
+    /// password) and redraw the field's appearance from `value` (its current
+    /// `/V`). `max_len`, when present, is written to `/MaxLen` for comb layout.
+    /// `ap` already reflects the *new* flag state.
+    SetAppearanceFlags {
+        field_ff_set: i64,
+        field_ff_clear: i64,
+        field_ff_base: i64,
+        max_len: Option<i64>,
+        value: String,
+        ap: ApInputs,
+    },
 }
 
 /// Locate the field for `op.name`, classify it, and build the mutation plan.
@@ -179,6 +213,58 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
         flag_masks(flags.read_only, 1 << 0, &mut field_set, &mut field_clear);
         flag_masks(flags.required, 1 << 1, &mut field_set, &mut field_clear);
         flag_masks(flags.no_export, 1 << 2, &mut field_set, &mut field_clear);
+
+        // Appearance-affecting flags (multiline/comb/password) require redrawing
+        // the value, so they take a different path that regenerates the /AP.
+        if flags.touches_appearance() {
+            if kind != "text" {
+                return Err(format!(
+                    "field {} flags multiline/comb/password apply only to text fields, not {}",
+                    op.name, kind
+                ));
+            }
+            flag_masks(flags.multiline, 1 << 12, &mut field_set, &mut field_clear);
+            flag_masks(flags.password, 1 << 13, &mut field_set, &mut field_clear);
+            flag_masks(flags.comb, 1 << 24, &mut field_set, &mut field_clear);
+            let new_ff = (ff & !field_clear) | field_set;
+
+            // Resolve the comb cell count: explicit arg wins, else existing
+            // /MaxLen. Turning comb on without either is an error.
+            let mut write_max_len = None;
+            if let Some(ml) = flags.comb_max_len {
+                if ml < 0 {
+                    return Err(format!("field {} comb maxLen must be >= 0", op.name));
+                }
+                write_max_len = Some(ml);
+            }
+            if forms::is_comb(new_ff)
+                && write_max_len.is_none()
+                && forms::inherited_int(doc, dict, b"MaxLen").is_none()
+            {
+                return Err(format!(
+                    "field {} comb requires a maxLen (no /MaxLen present)",
+                    op.name
+                ));
+            }
+
+            let value = read_v_string(dict).unwrap_or_default();
+            let mut ap = ap_inputs(doc, field_id, dict, &op.name, new_ff)?;
+            if let Some(ml) = write_max_len {
+                ap.max_len = ml;
+            }
+            return Ok(Resolved {
+                field_id,
+                apply: Apply::SetAppearanceFlags {
+                    field_ff_set: field_set,
+                    field_ff_clear: field_clear,
+                    field_ff_base: ff,
+                    max_len: write_max_len,
+                    value,
+                    ap,
+                },
+            });
+        }
+
         let (mut widget_set, mut widget_clear) = (0i64, 0i64);
         flag_masks(flags.hidden, 1 << 1, &mut widget_set, &mut widget_clear);
         flag_masks(flags.print, 1 << 2, &mut widget_set, &mut widget_clear);
@@ -376,6 +462,7 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
 /// field. When `validate_option` is true, choice values are checked against the
 /// field's options (the normal fill path); reset passes false because the value
 /// comes from the field's own `/DV`.
+#[allow(clippy::too_many_arguments)]
 fn value_apply(
     doc: &Document,
     field_id: ObjectId,
@@ -451,7 +538,15 @@ fn ap_inputs(
         font_ref,
         widgets: widget_boxes(doc, field_id, dict),
         multiline: forms::is_multiline(ff),
+        comb: forms::is_comb(ff),
+        password: forms::is_password(ff),
+        max_len: forms::inherited_int(doc, dict, b"MaxLen").unwrap_or(0),
     })
+}
+
+/// Read a field's `/V` (current value) as a string, if present.
+fn read_v_string(dict: &Dictionary) -> Option<String> {
+    dict.get(b"V").ok().and_then(|o| decode_text_string(o).ok())
 }
 
 /// Effective /DA: field's own, else inherited, else AcroForm's, else default.
@@ -770,6 +865,29 @@ fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
                 d.set("F", Object::Integer(next));
             }
         }
+        Apply::SetAppearanceFlags {
+            field_ff_set,
+            field_ff_clear,
+            field_ff_base,
+            max_len,
+            value,
+            ap,
+        } => {
+            {
+                let d = field_dict_mut(inc, r.field_id)?;
+                let current = d
+                    .get(b"Ff")
+                    .ok()
+                    .and_then(|o| o.as_i64().ok())
+                    .unwrap_or(*field_ff_base);
+                let next = (current & !*field_ff_clear) | *field_ff_set;
+                d.set("Ff", Object::Integer(next));
+                if let Some(ml) = max_len {
+                    d.set("MaxLen", Object::Integer(*ml));
+                }
+            }
+            draw_appearances(inc, value, ap)?;
+        }
     }
     Ok(())
 }
@@ -791,7 +909,16 @@ fn draw_appearances(
     for wb in &ap.widgets {
         let w = wb.rect[2] - wb.rect[0];
         let h = wb.rect[3] - wb.rect[1];
-        let content = if ap.multiline {
+        let content = if ap.password {
+            // Password fields never render their value into the appearance
+            // stream (the value would otherwise leak in plain text).
+            appearance::text_appearance_content_empty()
+        } else if ap.comb {
+            let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h, &ap.widths);
+            appearance::text_appearance_content_comb(
+                &text, size, w, h, ap.max_len, &ap.da.color, &ap.font, &ap.widths,
+            )
+        } else if ap.multiline {
             // Multiline: do not shrink-to-fit width (we wrap instead). Honor an
             // explicit DA size; for auto (size 0) use a fixed, height-clamped
             // default so wrapping has a stable measure.
@@ -1546,6 +1673,123 @@ mod tests {
         .unwrap();
         assert_eq!(reparse_widget_flag(&out, TEXT_FIELD, "print"), Some(true));
         assert_eq!(reparse_widget_flag(&out, TEXT_FIELD, "noView"), Some(true));
+    }
+
+    #[test]
+    fn set_multiline_flag_toggles_and_redraws_wrapped() {
+        // Field starts as single-line.
+        assert_eq!(reparse_flag(FICHA, TEXT_FIELD, "multiline"), Some(false));
+        // Give it a value, then turn on multiline: the appearance must be
+        // regenerated in wrapped (multiline) form, which emits a `TL` leading.
+        let filled = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","value":"GARCIA"}}]"#),
+            &[],
+        )
+        .unwrap();
+        let on = fill_fields_json(
+            &filled,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"multiline":true}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_flag(&on, TEXT_FIELD, "multiline"), Some(true));
+        let doc = Document::load_mem(&on).unwrap();
+        let ap = ap_content(&doc, TEXT_FIELD).expect("AP/N present");
+        assert!(ap.contains(" TL "), "multiline AP must emit a leading: {ap}");
+        // Value survives the flag toggle.
+        assert_eq!(reparse_value(&on, TEXT_FIELD).as_deref(), Some("GARCIA"));
+
+        // Toggling it back off restores the single-line appearance (no TL).
+        let off = fill_fields_json(
+            &on,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"multiline":false}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_flag(&off, TEXT_FIELD, "multiline"), Some(false));
+        let doc = Document::load_mem(&off).unwrap();
+        let ap = ap_content(&doc, TEXT_FIELD).expect("AP/N present");
+        assert!(!ap.contains(" TL "), "single-line AP must not emit a leading: {ap}");
+    }
+
+    #[test]
+    fn set_comb_flag_writes_maxlen_and_draws_cells() {
+        let on = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","value":"AB","flags":{{"comb":true,"combMaxLen":5}}}}]"#),
+            &[],
+        );
+        // A flags op cannot carry a value, so set value first, then toggle comb.
+        assert!(on.is_err(), "value+flags must be rejected");
+
+        let filled = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","value":"AB"}}]"#),
+            &[],
+        )
+        .unwrap();
+        let on = fill_fields_json(
+            &filled,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"comb":true,"combMaxLen":5}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_flag(&on, TEXT_FIELD, "comb"), Some(true));
+        // /MaxLen was written from combMaxLen.
+        let doc = Document::load_mem(&on).unwrap();
+        let (_, field) = find_field(&doc, TEXT_FIELD).unwrap();
+        assert_eq!(field.get(b"MaxLen").unwrap().as_i64().unwrap(), 5);
+        // Comb draws one Tj per character (two cells for "AB").
+        let ap = ap_content(&doc, TEXT_FIELD).expect("AP/N present");
+        assert_eq!(ap.matches(") Tj").count(), 2, "comb must place each glyph: {ap}");
+    }
+
+    #[test]
+    fn comb_without_maxlen_is_rejected() {
+        let err = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"comb":true}}}}]"#),
+            &[],
+        )
+        .unwrap_err();
+        assert!(err.contains("comb requires a maxLen"), "got: {err}");
+    }
+
+    #[test]
+    fn set_password_flag_renders_empty_appearance() {
+        let filled = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","value":"SECRET"}}]"#),
+            &[],
+        )
+        .unwrap();
+        let on = fill_fields_json(
+            &filled,
+            &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"password":true}}}}]"#),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(reparse_flag(&on, TEXT_FIELD, "password"), Some(true));
+        let doc = Document::load_mem(&on).unwrap();
+        let ap = ap_content(&doc, TEXT_FIELD).expect("AP/N present");
+        // The value must not leak into the appearance stream.
+        assert!(!ap.contains("SECRET"), "password value leaked into AP: {ap}");
+        assert!(!ap.contains(") Tj"), "password AP must draw nothing: {ap}");
+        // The /V itself is preserved (only the rendering is suppressed).
+        assert_eq!(reparse_value(&on, TEXT_FIELD).as_deref(), Some("SECRET"));
+    }
+
+    #[test]
+    fn appearance_flags_rejected_on_non_text_field() {
+        // estado_civil is a choice field, not text.
+        let err = fill_fields_json(
+            FICHA,
+            r#"[{"name":"beneficiario.estado_civil","flags":{"multiline":true}}]"#,
+            &[],
+        )
+        .unwrap_err();
+        assert!(err.contains("apply only to text fields"), "got: {err}");
     }
 
     #[test]

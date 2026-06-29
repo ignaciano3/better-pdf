@@ -280,6 +280,13 @@ pub fn text_appearance_content_multiline(
     out
 }
 
+/// Build an empty appearance content stream (a well-formed but value-free
+/// marked-content block). Used for password fields, whose value must never be
+/// rendered into the appearance.
+pub fn text_appearance_content_empty() -> Vec<u8> {
+    b"/Tx BMC q BT ET Q EMC".to_vec()
+}
+
 /// Build the content stream for a comb text field: a single line split into
 /// `max_len` equal cells, with character `i` centered in cell `i`. Mirrors the
 /// PDF Comb flag layout (fixed pitch regardless of the value). `text` is a
