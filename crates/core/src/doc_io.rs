@@ -58,14 +58,24 @@ fn classify_decryption_error(de: lopdf::encryption::DecryptionError) -> String {
 
 /// Parse PDF bytes into a `Document`, failing fast on encrypted files.
 ///
-/// Encryption is not supported. If the parsed trailer carries an `/Encrypt`
-/// entry, this returns an `Err` whose message starts with [`ENCRYPTED_PREFIX`]
-/// so the TS layer can raise a typed `EncryptedPdfError`.
+/// Rejects any originally-encrypted PDF so the operation fails loudly rather than
+/// silently corrupting on save. Two cases must both be caught:
+/// - A still-encrypted trailer (`/Encrypt` present) — e.g. a password-protected
+///   file loaded without the password.
+/// - An auto-decrypted file: lopdf 0.41's `load_mem` transparently decrypts a
+///   file whose user password is empty and **removes** `/Encrypt`, so the trailer
+///   check alone misses it. `was_encrypted()` still reports `true`. Without this
+///   the incremental save path would append plaintext onto the original encrypted
+///   bytes and produce a broken document.
+///
+/// Callers decrypt up front with [`decrypt_pdf`] (via `PdfDocument.load(bytes,
+/// { password })`), whose plaintext output reports `was_encrypted() == false` and
+/// passes this check.
 pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
     let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
-    if doc.trailer.has(b"Encrypt") {
+    if doc.trailer.has(b"Encrypt") || doc.was_encrypted() {
         return Err(format!(
-            "{ENCRYPTED_PREFIX} this PDF is encrypted; encrypted PDFs are not supported"
+            "{ENCRYPTED_PREFIX} this PDF is encrypted; load it with PdfDocument.load(bytes, {{ password }}) (use \"\" for owner-locked files)"
         ));
     }
     Ok(doc)
@@ -255,6 +265,23 @@ mod tests {
     fn load_pdf_accepts_plain_pdf() {
         let bytes = plain_pdf_bytes();
         assert!(load_pdf(&bytes).is_ok(), "plain PDF must load");
+    }
+
+    #[test]
+    fn load_pdf_rejects_auto_decrypted_empty_password_file() {
+        // lopdf auto-decrypts an empty-user-password file during load_mem and
+        // strips /Encrypt, so the trailer check alone misses it. load_pdf must
+        // still reject via was_encrypted(), or a later incremental save would
+        // append plaintext onto the encrypted base and silently corrupt output.
+        let err = load_pdf(FICHA_RC4).expect_err("auto-decrypted encrypted PDF must be rejected");
+        assert!(err.starts_with(ENCRYPTED_PREFIX), "got: {err}");
+    }
+
+    #[test]
+    fn load_pdf_accepts_decrypt_pdf_output() {
+        // The plaintext output of decrypt_pdf must pass load_pdf (was_encrypted=false).
+        let plain = decrypt_pdf(FICHA_RC4, "").unwrap();
+        assert!(load_pdf(&plain).is_ok(), "decrypted output must load");
     }
 
     const FICHA_RC4: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-rc4.pdf");
