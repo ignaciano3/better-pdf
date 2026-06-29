@@ -4,14 +4,14 @@
 
 **Goal:** Decrypt encrypted PDFs on load (RC4 / AES-128 / AES-256, optional password, empty default) so they can be read and modified, with modification producing a decrypted output.
 
-**Architecture:** A new `decrypt_pdf(data, password)` WASM entry point runs once at `PdfDocument.load`: unencrypted input passes through verbatim; encrypted input is decrypted with lopdf's built-in `Document::decrypt`, has its `/Encrypt` trailer entry stripped, and is re-serialized to plaintext. The decrypted bytes become `this.bytes`, so every existing operation and the incremental save path are untouched.
+**Architecture:** A new `decrypt_pdf(data, password)` WASM entry point. Decryption is **opt-in**: bare `PdfDocument.load(bytes)` stays lazy/unchanged; `PdfDocument.load(bytes, { password })` (password defined, even `""`) calls `decrypt_pdf`. Unencrypted input passes through verbatim; encrypted input is decrypted with lopdf, has `/Encrypt` stripped, and is re-serialized to plaintext. The decrypted bytes become `this.bytes`, so every existing operation and the incremental save path are untouched. Gating on `password` keeps the unencrypted benchmark hot path free of an extra parse.
 
 **Tech Stack:** Rust (lopdf 0.41, which ships the RC4/AES decryption), WASM, TypeScript, Bun test runner, `cargo test`.
 
 ## Global Constraints
 
 - Supported algorithms come entirely from lopdf: RC4, AES-128, AES-256. No crypto is implemented here.
-- `password` defaults to `""` (empty) — handles the common owner-locked / empty-user-password case transparently.
+- Decryption is **opt-in via `password`**: bare `load(bytes)` is lazy/unchanged (no WASM call, no benchmark regression); `load(bytes, { password })` (any string, incl. `""`) decrypts. `password: ""` handles owner-locked files. An encrypted file loaded without `password` throws `EncryptedPdfError` on first use (message nudges to pass one).
 - Unencrypted input must pass through `decrypt_pdf` **byte-identical** (return `data.to_vec()`, no re-serialization) so the existing "no-op save returns identical bytes" test still passes.
 - Decrypting strips `/Encrypt` (`doc.trailer.remove(b"Encrypt")`) before `save_to`, or lopdf's writer would re-encrypt.
 - Error prefixes (stable, matched by the TS layer): password failures → `PASSWORD:`; unsupported/unreadable encryption → `ENCRYPTED:` (the existing prefix).
@@ -316,25 +316,27 @@ Expected: `✨ Done`.
 
 - [ ] **Step 2: Write the failing TS tests**
 
-Create `tests/encrypted.test.ts`:
+Create `tests/encrypted.test.ts`. **Note the opt-in semantics:** decryption only
+happens when a `password` is passed (even `""`); bare `load(bytes)` stays lazy and
+an encrypted file then rejects on first use.
 
 ```ts
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PdfDocument, IncorrectPasswordError } from "../src/index.ts";
+import { PdfDocument, IncorrectPasswordError, EncryptedPdfError } from "../src/index.ts";
 
 const fx = (name: string) =>
   new Uint8Array(readFileSync(join(import.meta.dir, "fixtures/generated", name)));
 
-test("loads an RC4-encrypted PDF with the default empty password", async () => {
-  const doc = await PdfDocument.load(fx("ficha-rc4.pdf"));
+test("loads an RC4-encrypted PDF with an explicit empty password", async () => {
+  const doc = await PdfDocument.load(fx("ficha-rc4.pdf"), { password: "" });
   const names = doc.getForm().getFields().map((f) => f.name);
   expect(names).toContain("beneficiario.apellidos_nombres");
 });
 
-test("loads an AES-128-encrypted PDF", async () => {
-  const doc = await PdfDocument.load(fx("ficha-aes128.pdf"));
+test("loads an AES-128-encrypted PDF with an explicit empty password", async () => {
+  const doc = await PdfDocument.load(fx("ficha-aes128.pdf"), { password: "" });
   expect(doc.getForm().getFields().length).toBeGreaterThan(0);
 });
 
@@ -349,17 +351,23 @@ test("wrong password throws IncorrectPasswordError", async () => {
   ).rejects.toBeInstanceOf(IncorrectPasswordError);
 });
 
-test("missing password on a protected PDF throws IncorrectPasswordError", async () => {
-  await expect(PdfDocument.load(fx("ficha-rc4-pw.pdf"))).rejects.toBeInstanceOf(
-    IncorrectPasswordError,
-  );
+test("empty password on a password-protected PDF throws IncorrectPasswordError", async () => {
+  await expect(
+    PdfDocument.load(fx("ficha-rc4-pw.pdf"), { password: "" }),
+  ).rejects.toBeInstanceOf(IncorrectPasswordError);
+});
+
+test("an encrypted PDF loaded without a password rejects on use (opt-in)", async () => {
+  // Bare load is lazy; the existing reject fires on the first operation.
+  const doc = await PdfDocument.load(fx("ficha-rc4.pdf"));
+  expect(() => doc.getForm().getFields()).toThrow(EncryptedPdfError);
 });
 
 test("filling an encrypted form produces a decrypted output", async () => {
-  const doc = await PdfDocument.load(fx("ficha-rc4.pdf"));
+  const doc = await PdfDocument.load(fx("ficha-rc4.pdf"), { password: "" });
   doc.getForm().getTextField("beneficiario.apellidos_nombres").setText("GARCIA");
   const out = await doc.save();
-  // Reload WITHOUT a password — the output must be decrypted.
+  // Reload WITHOUT a password — the output must be plain (decrypted).
   const reloaded = await PdfDocument.load(out);
   expect(reloaded.getForm().getField("beneficiario.apellidos_nombres")?.value).toBe("GARCIA");
 });
@@ -413,11 +421,11 @@ export class IncorrectPasswordError extends PdfError {
 }
 ```
 
-Update `EncryptedPdfError`'s default message to reflect that supported encryption now decrypts automatically:
+Update `EncryptedPdfError`'s default message to point the caller at the password option (it now also fires when an encrypted file is loaded without one):
 
 ```ts
   constructor(
-    message = "this PDF uses an unsupported encryption scheme and cannot be opened",
+    message = "this PDF is encrypted; load it with PdfDocument.load(bytes, { password }) (use \"\" for owner-locked files)",
   ) {
 ```
 
@@ -430,7 +438,9 @@ Update `toPdfError` to map the password prefix (before the encrypted one):
 
 - [ ] **Step 7: Update `PdfDocument.load` and export the error**
 
-In `src/index.ts`, replace `static async load`:
+In `src/index.ts`, replace `static async load`. **Decryption is opt-in:** when no
+`password` is given, stay lazy and unchanged (no WASM call — preserves the
+benchmark hot path); only decrypt when a `password` is provided.
 
 ```ts
   static async load(
@@ -438,9 +448,12 @@ In `src/index.ts`, replace `static async load`:
     opts?: { password?: string },
   ): Promise<PdfDocument> {
     const raw = input instanceof Uint8Array ? input : new Uint8Array(input);
+    if (opts?.password === undefined) {
+      return new PdfDocument(raw, wasm);
+    }
     let bytes: Uint8Array;
     try {
-      bytes = wasm.decryptPdf(raw, opts?.password ?? "");
+      bytes = wasm.decryptPdf(raw, opts.password);
     } catch (e) {
       throw toPdfError(e);
     }
@@ -450,7 +463,7 @@ In `src/index.ts`, replace `static async load`:
 
 Ensure `toPdfError` is imported in `src/index.ts` (add it to the existing import from `./core/errors.js` if absent). Add `IncorrectPasswordError` to the error re-export list in `src/index.ts`.
 
-Then apply the **same change** to `src/index.browser.ts`, whose `PdfDocument.load` is a separate implementation (it already `await initializeWasm()` first):
+Then apply the **same opt-in change** to `src/index.browser.ts`, whose `PdfDocument.load` is a separate implementation (it already `await initializeWasm()` first):
 
 ```ts
   static async load(
@@ -459,9 +472,12 @@ Then apply the **same change** to `src/index.browser.ts`, whose `PdfDocument.loa
   ): Promise<PdfDocument> {
     await initializeWasm();
     const raw = input instanceof Uint8Array ? input : new Uint8Array(input);
+    if (opts?.password === undefined) {
+      return new PdfDocument(raw, wasm);
+    }
     let bytes: Uint8Array;
     try {
-      bytes = wasm.decryptPdf(raw, opts?.password ?? "");
+      bytes = wasm.decryptPdf(raw, opts.password);
     } catch (e) {
       throw toPdfError(e);
     }
@@ -513,13 +529,14 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 Replace the `No encrypted PDF support` bullet with a residual-only limitation:
 
 ```md
-- **Encrypted PDFs are decrypted on load** (RC4, AES-128, AES-256). Pass the
-  password via `PdfDocument.load(bytes, { password })`; the empty default handles
-  owner-locked / empty-user-password files. Modifying an encrypted PDF produces a
-  **decrypted** output. **Still unsupported:** producing encrypted output
-  (re-encryption) and encrypting documents you create — there is no API to write
-  an encrypted PDF. Rare/unimplemented schemes throw `EncryptedPdfError`; a wrong
-  or missing password throws `IncorrectPasswordError`.
+- **Encrypted PDFs are decrypted on load** (RC4, AES-128, AES-256) when you pass a
+  password: `PdfDocument.load(bytes, { password })`. Use `{ password: "" }` for
+  owner-locked / empty-user-password files. (Decryption is opt-in — bare
+  `load(bytes)` does not decrypt, so an encrypted file loaded without a password
+  throws `EncryptedPdfError` telling you to pass one; a wrong password throws
+  `IncorrectPasswordError`.) Modifying an encrypted PDF produces a **decrypted**
+  output. **Still unsupported:** producing encrypted output (re-encryption) and
+  encrypting documents you create.
 ```
 
 - [ ] **Step 2: Document loading in `filling-forms.md`**
@@ -529,17 +546,18 @@ Add a short section (after the intro / before "Inspect fields"):
 ```md
 ## Encrypted PDFs
 
-`PdfDocument.load` decrypts encrypted PDFs automatically (RC4 / AES-128 /
-AES-256). Owner-locked files with an empty user password just work; otherwise
-pass the password:
+`PdfDocument.load` decrypts encrypted PDFs (RC4 / AES-128 / AES-256) when you pass
+a `password`. Use `""` for owner-locked files (an empty user password):
 
 ```ts
-const doc = await PdfDocument.load(bytes, { password: "secret" });
+const ownerLocked = await PdfDocument.load(bytes, { password: "" });
+const protected_ = await PdfDocument.load(bytes, { password: "secret" });
 ```
 
-A wrong or missing password throws `IncorrectPasswordError`; an unsupported
-scheme throws `EncryptedPdfError`. Saving an edited encrypted PDF produces a
-**decrypted** (unencrypted) output.
+Decryption is opt-in: bare `load(bytes)` does not decrypt, so an encrypted file
+loaded without a `password` throws `EncryptedPdfError` (pass a password). A wrong
+password throws `IncorrectPasswordError`. Saving an edited encrypted PDF produces
+a **decrypted** (unencrypted) output.
 ```
 
 - [ ] **Step 3: Update the pdf-lib migration note**
@@ -549,9 +567,9 @@ In `docs/site/src/content/docs/migrating/from-pdf-lib.md`, add a bullet/section 
 ```md
 - **Encrypted PDFs:** pdf-lib throws `EncryptedPDFError` (or with
   `ignoreEncryption: true` skips the check *without* decrypting, yielding garbage
-  on save). better-pdf actually decrypts on load — `PdfDocument.load(bytes,
-  { password })` (empty password by default) — and produces a decrypted output
-  when you save.
+  on save). better-pdf actually decrypts — `PdfDocument.load(bytes, { password })`
+  (use `""` for owner-locked files) — and produces a decrypted output when you
+  save.
 ```
 
 - [ ] **Step 4: Update `README.md`**
@@ -566,11 +584,12 @@ Add under `## [Unreleased]`:
 ### Added
 
 - **Read & modify encrypted PDFs.** `PdfDocument.load(bytes, { password })`
-  decrypts RC4 / AES-128 / AES-256 encrypted PDFs on load (empty password by
-  default for owner-locked files), so they can be read, filled, and flattened.
-  Modifying an encrypted PDF produces a decrypted output. A wrong/missing
-  password throws the new `IncorrectPasswordError`; unsupported schemes throw
-  `EncryptedPdfError`. Producing encrypted output is still unsupported.
+  decrypts RC4 / AES-128 / AES-256 encrypted PDFs (use `""` for owner-locked
+  files), so they can be read, filled, and flattened. Decryption is opt-in —
+  bare `load(bytes)` is unchanged. Modifying an encrypted PDF produces a
+  decrypted output. A wrong password throws the new `IncorrectPasswordError`; an
+  encrypted file loaded without a password throws `EncryptedPdfError`. Producing
+  encrypted output is still unsupported.
 ```
 
 Insert `## [1.7.0] - 2026-06-28` between `## [Unreleased]` and the new `### Added`. Bump `package.json` `version` and `crates/core/Cargo.toml` `version` to `1.7.0`, then `cd crates/core && cargo build` to refresh `Cargo.lock`.

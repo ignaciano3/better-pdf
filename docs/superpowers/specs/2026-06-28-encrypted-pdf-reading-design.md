@@ -60,13 +60,27 @@ PdfDocument.load(
 ): Promise<PdfDocument>
 ```
 
-- `password` defaults to `""` — transparently handles the common owner-locked /
-  empty-user-password case with no caller effort.
-- A supplied password is used for user **or** owner authentication (lopdf's
-  `decrypt` tries both).
-- Passing `password` for a non-encrypted PDF is silently ignored.
-- `load()` becomes the single fail-fast point that can throw a password /
-  encryption error.
+- **Decryption is opt-in via the `password` option** (decided after a benchmark
+  review — see below). Bare `load(bytes)` (no `opts`, or `opts` without
+  `password`) stays **lazy and unchanged** — it makes no WASM call, so the
+  `load → mutate → save` benchmark is unaffected. Passing `password` (any string,
+  including `""`) triggers the eager decrypt path.
+- `password: ""` handles the common owner-locked / empty-user-password case.
+- A supplied password is used for user **or** owner authentication.
+- Passing `password` for a non-encrypted PDF is silently ignored (returns it
+  unchanged).
+- An encrypted file loaded **without** `password` is not decrypted; the first
+  operation hits the existing `load_pdf` reject and throws `EncryptedPdfError`,
+  whose message tells the caller to pass `{ password }`.
+
+### Why opt-in (benchmark rationale)
+
+Reliable encryption detection requires a full `Document::load_mem` parse (a cheap
+byte-scan for `/Encrypt` is unreliable for xref-stream PDFs). Making bare `load`
+eager would add that parse to **every** load — and the benchmark runs a full
+`load → mutate → save` cycle per iteration on unencrypted fixtures, so it would
+measurably regress (worst on large forms). Gating the eager path behind
+`password` keeps the common path free.
 
 ## New WASM entry point
 
@@ -96,23 +110,25 @@ A small internal helper does the load/detect/decrypt/strip/save so the
 
 ## Load flow (TS)
 
-`PdfDocument.load` resolves the bytes, then calls
-`wasm.decryptPdf(bytes, opts?.password ?? "")` once and constructs the document
-with the returned bytes as `this.bytes`. No other TS or Rust code changes — all
-existing operations consume `this.bytes`.
+`PdfDocument.load`:
+- When `opts?.password === undefined`: construct the document with the raw bytes
+  unchanged (lazy, exactly as today — **no WASM call**).
+- When `opts.password` is defined (including `""`): call
+  `wasm.decryptPdf(bytes, opts.password)` once and construct with the returned
+  (plaintext) bytes as `this.bytes`.
 
-**Behavior change:** `load()` was previously lazy (no WASM call until the first
-read/op). It now eagerly calls `decrypt_pdf`, which parses the PDF. Consequences:
-password/encryption errors and gross parse failures surface at `load()` (fail
-fast) rather than at the first operation. This is intentional and an improvement;
-the extra parse on every load is negligible for a fill/flatten workflow that
-parses again on the first real operation anyway.
+No other TS or Rust code changes — all existing operations consume `this.bytes`.
+When the password path is taken, `load()` is the fail-fast point for
+password/encryption errors. The same change applies to both the Node entry
+(`src/index.ts`) and the browser entry (`src/index.browser.ts`), whose `load`
+implementations are separate.
 
 ## Error taxonomy
 
-- **`EncryptedPdfError`** (existing): re-scoped to "encrypted with an algorithm /
-  revision better-pdf can't open" — mapped from `ENCRYPTED:`. Message updated to
-  reflect that supported encryption is now decrypted automatically.
+- **`EncryptedPdfError`** (existing): now covers two cases — (a) an encrypted file
+  loaded **without** a `password` (the existing `load_pdf` reject path), and (b) an
+  algorithm/revision lopdf can't open (`ENCRYPTED:` from `decrypt_pdf`). Message
+  updated to tell the caller to pass `PdfDocument.load(bytes, { password })`.
 - **`IncorrectPasswordError extends PdfError`** (new): wrong or missing password —
   mapped from the new `PASSWORD:` prefix. Message guides the caller to pass / fix
   `opts.password`.
