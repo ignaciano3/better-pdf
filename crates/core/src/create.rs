@@ -279,6 +279,8 @@ enum FieldDef {
         text_color: Option<[f32; 3]>,
         font_size: Option<f32>,
         align: Option<String>,
+        #[serde(default)]
+        font: Option<String>,
     },
     CheckBox {
         name: String,
@@ -338,6 +340,8 @@ enum FieldDef {
         text_color: Option<[f32; 3]>,
         font_size: Option<f32>,
         align: Option<String>,
+        #[serde(default)]
+        font: Option<String>,
     },
     #[serde(rename = "signature")]
     Signature {
@@ -498,6 +502,26 @@ fn mark_on_appearance(style: &str, size: f32) -> Stream {
         _ => return checkbox_on_appearance(size),
     };
     button_xobject(size, content)
+}
+
+/// Map a standard-14 base font name to its deterministic AcroForm /DR resource
+/// alias. Returns `None` for names that are not standard-14 text fonts.
+fn da_font_alias(base: &str) -> Option<&'static str> {
+    Some(match base {
+        "Helvetica" => "Helv",
+        "Helvetica-Bold" => "HeBo",
+        "Helvetica-Oblique" => "HeOb",
+        "Helvetica-BoldOblique" => "HeBO",
+        "Courier" => "Cour",
+        "Courier-Bold" => "CoBo",
+        "Courier-Oblique" => "CoOb",
+        "Courier-BoldOblique" => "CoBO",
+        "Times-Roman" => "TiRo",
+        "Times-Bold" => "TiBo",
+        "Times-Italic" => "TiIt",
+        "Times-BoldItalic" => "TiBI",
+        _ => return None,
+    })
 }
 
 pub fn create_document_json(
@@ -1451,9 +1475,42 @@ pub fn create_document_json(
 
     // Build AcroForm and field widgets if any fields are defined
     let acro_form_ref = if !fields.is_empty() {
-        // Shared Helv font for all field appearances
+        // Collect the distinct standard-14 fonts used by text/choice fields
+        // (Helvetica is always present, since the form-level /DA references it).
+        // Validate each up front so an unknown font fails before any object is
+        // written. Register each font once in /DR/Font under its alias.
+        let mut needed: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        needed.insert("Helvetica");
+        for field in &fields {
+            let base = match field {
+                FieldDef::Text { font, .. } | FieldDef::Choice { font, .. } => {
+                    font.as_deref().unwrap_or("Helvetica")
+                }
+                _ => continue,
+            };
+            if da_font_alias(base).is_none() {
+                return Err(format!("unknown field font: {base}"));
+            }
+            needed.insert(base);
+        }
+
+        // alias -> font object id, and base-font -> (alias, object id). Helvetica
+        // is added first so Helvetica-only forms stay byte-identical to before.
+        let mut dr_fonts = Dictionary::new();
+        let mut font_registry: std::collections::HashMap<&str, (&'static str, lopdf::ObjectId)> =
+            std::collections::HashMap::new();
         let helv = doc.add_object(Object::Dictionary(font_dict("Helvetica")));
-        let widths = crate::appearance::helvetica_widths();
+        dr_fonts.set("Helv", Object::Reference(helv));
+        font_registry.insert("Helvetica", ("Helv", helv));
+        for base in &needed {
+            if *base == "Helvetica" {
+                continue;
+            }
+            let alias = da_font_alias(base).unwrap();
+            let fid = doc.add_object(Object::Dictionary(font_dict(base)));
+            dr_fonts.set(alias, Object::Reference(fid));
+            font_registry.insert(base, (alias, fid));
+        }
 
         let mut acro_fields: Vec<Object> = Vec::new();
         // Track which field object ids go on which page: page_index -> Vec<ObjectId>
@@ -1482,12 +1539,16 @@ pub fn create_document_json(
                     text_color,
                     font_size,
                     align,
+                    font,
                 } => {
                     let val_str = value.clone().unwrap_or_default();
                     let val_bytes = crate::appearance::encode_winansi(&val_str);
                     let op = color_op(*text_color);
                     let size = font_size.unwrap_or(12.0);
                     let q = quadding(align);
+                    let base_font = font.as_deref().unwrap_or("Helvetica");
+                    let (font_alias, font_ref) = font_registry[base_font];
+                    let widths = crate::appearance::standard_14_widths(base_font).unwrap();
 
                     let content = if *comb {
                         crate::appearance::text_appearance_content_comb(
@@ -1497,7 +1558,7 @@ pub fn create_document_json(
                             *height,
                             max_length.unwrap_or(0),
                             &op,
-                            "Helv",
+                            font_alias,
                             &widths,
                         )
                     } else {
@@ -1508,12 +1569,12 @@ pub fn create_document_json(
                             *height,
                             q,
                             &op,
-                            "Helv",
+                            font_alias,
                             &widths,
                         )
                     };
                     let ap_stream = crate::appearance::build_appearance_xobject(
-                        content, *width, *height, "Helv", helv,
+                        content, *width, *height, font_alias, font_ref,
                     );
                     let ap_id = doc.add_object(Object::Stream(ap_stream));
 
@@ -1538,7 +1599,7 @@ pub fn create_document_json(
                     field_dict.set("FT", Object::Name(b"Tx".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
-                    field_dict.set("DA", Object::string_literal(format!("/Helv {size} Tf {op}")));
+                    field_dict.set("DA", Object::string_literal(format!("/{font_alias} {size} Tf {op}")));
                     if align.is_some() {
                         field_dict.set("Q", Object::Integer(q));
                     }
@@ -1752,12 +1813,16 @@ pub fn create_document_json(
                     text_color,
                     font_size,
                     align,
+                    font,
                 } => {
                     let value = selected.clone().unwrap_or_default();
                     let val_bytes = crate::appearance::encode_winansi(&value);
                     let op = color_op(*text_color);
                     let size = font_size.unwrap_or(12.0);
                     let q = quadding(align);
+                    let base_font = font.as_deref().unwrap_or("Helvetica");
+                    let (font_alias, font_ref) = font_registry[base_font];
+                    let widths = crate::appearance::standard_14_widths(base_font).unwrap();
 
                     let content = crate::appearance::text_appearance_content(
                         &val_bytes,
@@ -1766,11 +1831,11 @@ pub fn create_document_json(
                         *height,
                         q,
                         &op,
-                        "Helv",
+                        font_alias,
                         &widths,
                     );
                     let ap_stream = crate::appearance::build_appearance_xobject(
-                        content, *width, *height, "Helv", helv,
+                        content, *width, *height, font_alias, font_ref,
                     );
                     let ap_id = doc.add_object(Object::Stream(ap_stream));
 
@@ -1802,7 +1867,7 @@ pub fn create_document_json(
                     field_dict.set("FT", Object::Name(b"Ch".to_vec()));
                     field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
                     field_dict.set("Rect", rect);
-                    field_dict.set("DA", Object::string_literal(format!("/Helv {size} Tf {op}")));
+                    field_dict.set("DA", Object::string_literal(format!("/{font_alias} {size} Tf {op}")));
                     if align.is_some() {
                         field_dict.set("Q", Object::Integer(q));
                     }
@@ -1910,9 +1975,7 @@ pub fn create_document_json(
         let acro_dict = dictionary! {
             "Fields" => Object::Array(acro_fields),
             "DR" => Object::Dictionary(dictionary! {
-                "Font" => Object::Dictionary(dictionary! {
-                    "Helv" => Object::Reference(helv)
-                })
+                "Font" => Object::Dictionary(dr_fonts)
             }),
             "DA" => Object::string_literal("/Helv 0 Tf 0 g"),
             "NeedAppearances" => Object::Boolean(false)
@@ -2966,5 +3029,91 @@ mod tests {
         assert!(s.contains("10 10 m"), "expected moveto: {s}");
         assert!(s.contains(" l"), "expected lineto: {s}");
         assert!(s.contains('B'), "expected fill+stroke paint op B: {s}");
+    }
+
+    #[test]
+    fn da_font_alias_maps_all_standard_14() {
+        assert_eq!(da_font_alias("Helvetica"), Some("Helv"));
+        assert_eq!(da_font_alias("Times-Roman"), Some("TiRo"));
+        assert_eq!(da_font_alias("Courier-Bold"), Some("CoBo"));
+        assert_eq!(da_font_alias("Times-BoldItalic"), Some("TiBI"));
+        assert_eq!(da_font_alias("Symbol"), None);
+    }
+
+    #[test]
+    fn text_field_uses_requested_standard_14_font() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":100,"height":20,"font":"Times-Roman"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("/TiRo"), "DA should reference the Times alias, got: {da}");
+
+        // /DR/Font has TiRo -> a font dict with BaseFont Times-Roman.
+        let cat = doc.catalog().unwrap();
+        let acro = match cat.get(b"AcroForm").unwrap() {
+            Object::Reference(id) => doc.get_dictionary(*id).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!("AcroForm not dict/ref"),
+        };
+        let dr = acro.get(b"DR").unwrap().as_dict().unwrap();
+        let fonts = dr.get(b"Font").unwrap().as_dict().unwrap();
+        let tiro = match fonts.get(b"TiRo").unwrap() {
+            Object::Reference(id) => doc.get_dictionary(*id).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!("TiRo not dict/ref"),
+        };
+        let base = tiro.get(b"BaseFont").unwrap().as_name().unwrap();
+        assert_eq!(&String::from_utf8_lossy(base), "Times-Roman");
+    }
+
+    #[test]
+    fn choice_field_uses_requested_font() {
+        let f = r#"[{"type":"choice","name":"c","page":0,"x":0,"y":0,"width":80,"height":20,"combo":true,"options":["a","b"],"font":"Courier-Bold"}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("/CoBo"), "DA should reference the Courier-Bold alias, got: {da}");
+    }
+
+    #[test]
+    fn default_font_is_helvetica_alias() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":100,"height":20}]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let w = get_first_field_dict(&doc);
+        let da = String::from_utf8_lossy(w.get(b"DA").unwrap().as_str().unwrap()).to_string();
+        assert!(da.contains("/Helv"), "default DA should use Helv, got: {da}");
+    }
+
+    #[test]
+    fn distinct_fonts_each_registered_once_in_dr() {
+        let f = r#"[
+            {"type":"text","name":"a","page":0,"x":0,"y":0,"width":100,"height":20,"font":"Times-Roman"},
+            {"type":"text","name":"b","page":0,"x":0,"y":40,"width":100,"height":20,"font":"Times-Roman"},
+            {"type":"text","name":"c","page":0,"x":0,"y":80,"width":100,"height":20,"font":"Courier"}
+        ]"#;
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let cat = doc.catalog().unwrap();
+        let acro = match cat.get(b"AcroForm").unwrap() {
+            Object::Reference(id) => doc.get_dictionary(*id).unwrap(),
+            Object::Dictionary(d) => d,
+            _ => panic!("AcroForm not dict/ref"),
+        };
+        let fonts = acro.get(b"DR").unwrap().as_dict().unwrap().get(b"Font").unwrap().as_dict().unwrap();
+        assert!(fonts.has(b"Helv"), "Helv always present");
+        assert!(fonts.has(b"TiRo"), "TiRo present");
+        assert!(fonts.has(b"Cour"), "Cour present");
+        // TiRo used twice but registered once: exactly these three entries.
+        assert_eq!(fonts.iter().count(), 3, "expected exactly Helv/TiRo/Cour");
+    }
+
+    #[test]
+    fn unknown_field_font_is_rejected() {
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":100,"height":20,"font":"Comic Sans"}]"#;
+        let r = create_document_json(r#"[{"op":"addPage","width":595,"height":842}]"#, &[], &[], "[]", f);
+        assert!(r.is_err(), "unknown font must be rejected");
     }
 }
