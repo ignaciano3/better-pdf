@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-28
+
+### Added
+
+- **Configurable standard-14 field font.** `addTextField`, `addDropdown`, and
+  `addListBox` accept `font?: StandardFonts` to render the field value in any of
+  the 12 standard text fonts (Helvetica / Times / Courier families). Each
+  distinct font is registered once in the AcroForm `/DR`. Defaults to Helvetica;
+  embedded/CJK fonts remain unsupported for form fields.
+
 ## [1.5.0] - 2026-06-28
 
 ### Added

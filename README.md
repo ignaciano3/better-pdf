@@ -797,6 +797,11 @@ we will deliberately never add, see [Non-Goals](#non-goals).)
 - Appearance metrics cover the standard 14 text fonts (with Arial / Times New
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
+- **Form-field text appearance:** field values render in a **standard-14 font**
+  — selectable per field via the builder `font` option (Helvetica / Times /
+  Courier families), with `fontSize`, `textColor`, and `align` also
+  configurable. **Embedded / non-Latin (CJK) fonts are not supported for
+  form-field values** — only the standard-14 WinAnsi fonts.
 - Color: RGB and grayscale only; CMYK is not supported.
 - XMP metadata streams are not written or modified (only the Info dictionary is
   updated via `doc.setTitle()` / `doc.getMetadata()` etc.).

@@ -37,11 +37,12 @@ deliberately unsupported and not planned. The two are listed separately below.
 - Appearance metrics cover the standard 14 text fonts (with Arial / Times New
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
-- **Form-field text appearance:** field values always render in **Helvetica** —
-  the font family is fixed and not configurable. Size (`fontSize`), color
-  (`textColor`), and horizontal alignment (`align`) of text and choice fields,
-  and the selected-mark style (`checkStyle`) of checkboxes and radios, **are**
-  configurable.
+- **Form-field text appearance:** field values render in a **standard-14 font**
+  — selectable per field via the builder `font` option (Helvetica / Times /
+  Courier families), with `fontSize`, `textColor`, and `align` also
+  configurable (and `checkStyle` for the selected mark of checkboxes and
+  radios). **Embedded / non-Latin (CJK) fonts are not supported for
+  form-field values** — only the standard-14 WinAnsi fonts.
 - **Form-field format / calculation actions (AcroForm JavaScript)** are not
   supported — there is no API for `/AA` additional-action scripts such as date
   pickers, number/currency masks, validation, or calculated fields. These rely

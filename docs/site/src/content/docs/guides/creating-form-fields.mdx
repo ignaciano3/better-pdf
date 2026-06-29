@@ -119,6 +119,10 @@ Some options are specific to a field type:
   `listBox.selectMultiple(values)` (see
   [Filling forms](/better-pdf/guides/filling-forms/)). `addDropdown` rejects
   `multiSelect`, since combo boxes are never multi-select.
+- **Font** — `font` selects the field value's typeface from the standard-14
+  fonts (`StandardFonts` enum: Helvetica / Times / Courier × regular / bold /
+  italic / bold-italic). Defaults to Helvetica. Applies to text, dropdown, and
+  list-box fields. Embedded (`PdfFont`) fonts are not supported for form fields.
 
 Every value-bearing field also accepts a **default value** (`/DV`) — what a
 viewer's "reset form" restores, independent of the field's initial value:
@@ -127,9 +131,10 @@ viewer's "reset form" restores, independent of the field's initial value:
 can be set on existing fields with `setDefaultText` / `setDefaultChecked` /
 `setDefaultSelected` (see [Filling forms](/better-pdf/guides/filling-forms/)).
 
-:::note[Field text is always Helvetica]
-Field values render in Helvetica. The size (`fontSize`), color (`textColor`),
-and alignment (`align`) are configurable — the font family is fixed.
+:::note[Field text fonts]
+Field values render in one of the standard-14 fonts (`font`, default Helvetica).
+Size (`fontSize`), color (`textColor`), and alignment (`align`) are also
+configurable. Embedded/CJK fonts are not supported for form-field values.
 :::
 
 ## Field names
