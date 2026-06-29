@@ -35,6 +35,9 @@ pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
         Err(lopdf::Error::InvalidPassword) => {
             Err(format!("{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF"))
         }
+        // Defensive / forward-compatible: lopdf 0.41 surfaces wrong passwords as
+        // the load-time `InvalidPassword` above, but retain this arm in case a
+        // future version raises a `Decryption` error during loading instead.
         Err(lopdf::Error::Decryption(de)) => Err(classify_decryption_error(de)),
         Err(e) => Err(format!("{ENCRYPTED_PREFIX} {e}")),
     }
@@ -157,11 +160,16 @@ mod tests {
             ("ficha-aes128.pdf", encrypt_aes128("")),
             ("ficha-aes256.pdf", encrypt_aes256("")),
             ("ficha-rc4-pw.pdf", encrypt_rc4("secret")),
+            // Password-protected (non-empty user password) AES fixtures so the
+            // wrong-password path is exercisable: lopdf tries the empty password
+            // first, so only a non-empty user password rejects a wrong guess.
+            ("ficha-aes128-pw.pdf", encrypt_aes128("secret")),
+            ("ficha-aes256-pw.pdf", encrypt_aes256("secret")),
         ] {
             // Self-check: each fixture must round-trip through decrypt before commit.
             // In lopdf 0.41, load_mem auto-decrypts when the password is available;
             // supply the right password via load_mem_with_options so was_encrypted() is true.
-            let pw = if name == "ficha-rc4-pw.pdf" { "secret" } else { "" };
+            let pw = if name.ends_with("-pw.pdf") { "secret" } else { "" };
             let loaded = Document::load_mem_with_options(
                 &bytes,
                 lopdf::LoadOptions::with_password(pw),
@@ -253,6 +261,10 @@ mod tests {
     const FICHA_AES128: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-aes128.pdf");
     const FICHA_AES256: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-aes256.pdf");
     const FICHA_RC4_PW: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-rc4-pw.pdf");
+    const FICHA_AES128_PW: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/ficha-aes128-pw.pdf");
+    const FICHA_AES256_PW: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/ficha-aes256-pw.pdf");
 
     fn assert_decrypted_ficha(out: &[u8]) {
         let doc = Document::load_mem(out).unwrap();
@@ -297,5 +309,33 @@ mod tests {
     fn empty_password_on_password_protected_yields_password_prefix() {
         let err = decrypt_pdf(FICHA_RC4_PW, "").unwrap_err();
         assert!(err.starts_with(PASSWORD_PREFIX), "got: {err}");
+    }
+
+    // Wrong-password tests must use *password-protected* (non-empty user
+    // password) AES fixtures: lopdf tries the empty password first, so a
+    // wrong guess against an owner-locked (empty user password) file would be
+    // silently ignored and the file opened. These fixtures have user password
+    // "secret", so an empty/wrong guess is genuinely rejected.
+    #[test]
+    fn wrong_password_on_aes128_yields_password_prefix() {
+        let err = decrypt_pdf(FICHA_AES128_PW, "wrong").unwrap_err();
+        assert!(err.starts_with(PASSWORD_PREFIX), "got: {err}");
+    }
+
+    #[test]
+    fn wrong_password_on_aes256_yields_password_prefix() {
+        let err = decrypt_pdf(FICHA_AES256_PW, "wrong").unwrap_err();
+        assert!(err.starts_with(PASSWORD_PREFIX), "got: {err}");
+    }
+
+    // Sanity: the correct password decrypts the password-protected AES fixtures.
+    #[test]
+    fn decrypts_aes128_with_correct_password() {
+        assert_decrypted_ficha(&decrypt_pdf(FICHA_AES128_PW, "secret").unwrap());
+    }
+
+    #[test]
+    fn decrypts_aes256_with_correct_password() {
+        assert_decrypted_ficha(&decrypt_pdf(FICHA_AES256_PW, "secret").unwrap());
     }
 }
