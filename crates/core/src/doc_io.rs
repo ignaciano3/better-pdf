@@ -27,7 +27,11 @@ pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
             Ok(data.to_vec())
         }
         Ok(mut doc) => {
-            // Encrypted; lopdf already decrypted and removed /Encrypt. Re-serialize.
+            // Encrypted and successfully decrypted. lopdf already removes /Encrypt
+            // during load, but strip it explicitly too so the plaintext contract
+            // is enforced here rather than relying on that side effect (and so the
+            // writer can't re-encrypt).
+            doc.trailer.remove(b"Encrypt");
             let mut out = Vec::new();
             doc.save_to(&mut out).map_err(|e| e.to_string())?;
             Ok(out)
