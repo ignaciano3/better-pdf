@@ -3,6 +3,21 @@ title: Filling & flattening forms
 description: Inspect, fill, and flatten AcroForm fields on an existing PDF.
 ---
 
+## Encrypted PDFs
+
+`PdfDocument.load` decrypts encrypted PDFs (RC4 / AES-128 / AES-256) when you pass
+a `password`. Use `""` for owner-locked files (an empty user password):
+
+```ts
+const ownerLocked = await PdfDocument.load(bytes, { password: "" });
+const protected_ = await PdfDocument.load(bytes, { password: "secret" });
+```
+
+Decryption is opt-in: bare `load(bytes)` does not decrypt, so an encrypted file
+loaded without a `password` throws `EncryptedPdfError` (pass a password). A wrong
+password throws `IncorrectPasswordError`. Saving an edited encrypted PDF produces
+a **decrypted** (unencrypted) output.
+
 ## Inspect fields
 
 `form.getFields()` returns plain `FieldInfo[]`:

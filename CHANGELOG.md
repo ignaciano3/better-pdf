@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-28
+
+### Added
+
+- **Read & modify encrypted PDFs.** `PdfDocument.load(bytes, { password })`
+  decrypts RC4 / AES-128 / AES-256 encrypted PDFs (use `""` for owner-locked
+  files), so they can be read, filled, and flattened. Decryption is opt-in —
+  bare `load(bytes)` is unchanged. Modifying an encrypted PDF produces a
+  decrypted output. A wrong password throws the new `IncorrectPasswordError`; an
+  encrypted file loaded without a password throws `EncryptedPdfError`. Producing
+  encrypted output is still unsupported.
+
 ## [1.6.0] - 2026-06-28
 
 ### Added

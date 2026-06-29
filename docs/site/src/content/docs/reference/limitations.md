@@ -8,7 +8,14 @@ deliberately unsupported and not planned. The two are listed separately below.
 
 ## Limitations
 
-- No encrypted PDF support — encrypted PDFs are detected on load (an `/Encrypt` trailer entry) and rejected with a typed `EncryptedPdfError`, so they fail fast with a clear, catchable error rather than breaking somewhere downstream.
+- **Encrypted PDFs are decrypted on load** (RC4, AES-128, AES-256) when you pass a
+  password: `PdfDocument.load(bytes, { password })`. Use `{ password: "" }` for
+  owner-locked / empty-user-password files. (Decryption is opt-in — bare
+  `load(bytes)` does not decrypt, so an encrypted file loaded without a password
+  throws `EncryptedPdfError` telling you to pass one; a wrong password throws
+  `IncorrectPasswordError`.) Modifying an encrypted PDF produces a **decrypted**
+  output. **Still unsupported:** producing encrypted output (re-encryption) and
+  encrypting documents you create.
 - No cryptographic signing (the API leaves room to add PAdES later).
 - **Appearance-affecting form-field flags are set at creation only.** The
   `multiline`, `comb`, and `password` flags can be set when [creating a

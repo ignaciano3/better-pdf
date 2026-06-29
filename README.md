@@ -4,7 +4,7 @@ A maintained, fast alternative to `pdf-lib` for PDF AcroForms and document gener
 
 `better-pdf` exposes a TypeScript API backed by a Rust core compiled to WebAssembly. It covers two workflows: (1) **AcroForm-first** — load an existing PDF, inspect fields, fill/flatten/sign, and save an incremental update; and (2) **generate & draw** — create new PDFs from scratch or stamp text, images, and vector graphics onto existing pages.
 
-> **Status:** 1.0.0 — stable. The full feature set — AcroForm reading/filling/flattening/visual-signatures/typed-form generation (incl. multi-line text fields and multi-select list boxes), PDF generation and drawing (text, images, rectangles, lines, ellipses, SVG paths/arcs, polygons, links), custom TTF/OTF font embedding with Unicode/CJK, document metadata, outlines, page operations (merge/copy/reorder/split/insert/remove/move), page rotation/resize, PNG transparency + palette, PDF page embedding, and encrypted-PDF detection — is implemented and tested. The public API is frozen as of 1.0.0 (the final breaking changes landed in 0.20.0 — see the [0.19 → 0.20 migration guide](docs/site/src/content/docs/migrating/0.19-to-0.20.md)); the package follows Semantic Versioning.
+> **Status:** 1.0.0 — stable. The full feature set — AcroForm reading/filling/flattening/visual-signatures/typed-form generation (incl. multi-line text fields and multi-select list boxes), PDF generation and drawing (text, images, rectangles, lines, ellipses, SVG paths/arcs, polygons, links), custom TTF/OTF font embedding with Unicode/CJK, document metadata, outlines, page operations (merge/copy/reorder/split/insert/remove/move), page rotation/resize, PNG transparency + palette, PDF page embedding, and encrypted-PDF decryption (RC4 / AES-128 / AES-256 via `load(bytes, { password })`) — is implemented and tested. The public API is frozen as of 1.0.0 (the final breaking changes landed in 0.20.0 — see the [0.19 → 0.20 migration guide](docs/site/src/content/docs/migrating/0.19-to-0.20.md)); the package follows Semantic Versioning.
 
 Coming from pdf-lib? See the [migration guide](docs/migrating-from-pdf-lib.md).
 
@@ -57,6 +57,7 @@ See the [per-runtime guide](docs/site/src/content/docs/guides/runtimes.md) and [
 - Add, insert, remove, and move pages on loaded documents: `doc.addPage(size?)` appends a blank, immediately drawable page; `doc.insertPage(index, size?)`, `doc.removePage(index)`, and `doc.movePage(from, to)` restructure the page order (reflected after save + reload). Incremental — existing forms and content are preserved.
 - Non-ASCII document metadata: `setTitle`/`setAuthor`/etc. encode non-Latin text (Japanese, accented Latin, Arabic, etc.) as UTF-16BE for correct round-trip fidelity.
 - Palette (indexed-color) PNG embedding: `embedPng` handles color-type-3 PNGs with `tRNS` transparency — transparency is stored as a soft mask, same as RGBA PNGs. No API change.
+- Decrypt and modify encrypted PDFs: `PdfDocument.load(bytes, { password })` decrypts RC4 / AES-128 / AES-256 encrypted PDFs (use `{ password: "" }` for owner-locked / empty-user-password files). Decryption is opt-in — bare `load(bytes)` is unchanged. Saving an edited encrypted PDF produces a **decrypted** output. Re-encryption and creating encrypted PDFs are still unsupported.
 
 ## Install
 
@@ -507,7 +508,7 @@ const output = await doc.save();
 
 ### `PdfDocument`
 
-- `PdfDocument.load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument>` — open an existing PDF
+- `PdfDocument.load(input: Uint8Array | ArrayBuffer, options?: { password?: string }): Promise<PdfDocument>` — open an existing PDF; pass `{ password }` to decrypt an encrypted PDF (use `""` for owner-locked files)
 - `PdfDocument.create(): Promise<PdfDocument>` — create a new empty document
 - `PdfDocument.merge(docs: Uint8Array[]): Promise<Uint8Array>` — combine multiple PDFs into one (all pages, in order)
 - `PdfDocument.assemble(docs: Uint8Array[], selections: {docIndex: number, pageIndex: number}[]): Promise<Uint8Array>` — build a new PDF from an explicit ordered page selection across sources
@@ -643,7 +644,8 @@ whole family or a specific case:
   unsupported images, malformed PDFs); the core's message is preserved.
 - `PageOutOfRangeError` — `getPage(i)` called with an index outside `[0, pageCount)`.
 - `InvalidImageError` — `embedJpg`/`embedPng` rejected the image bytes (unsupported format or CMYK JPEG).
-- `EncryptedPdfError` — the PDF is encrypted; encrypted PDFs are not supported, so loading/reading fails fast with this typed error instead of a confusing downstream failure.
+- `EncryptedPdfError` — the PDF is encrypted and no password was supplied; pass `{ password }` (or `{ password: "" }` for owner-locked files) to `PdfDocument.load`.
+- `IncorrectPasswordError` — the password supplied to `PdfDocument.load` did not decrypt the PDF.
 - `MultiSelectError` — `selectMultiple()` was called on a list box that does not have the Multiselect flag set (`.field`).
 
 ```ts
@@ -781,7 +783,7 @@ count).
 Gaps better-pdf does not cover **yet** — things we intend to close. (For features
 we will deliberately never add, see [Non-Goals](#non-goals).)
 
-- No encrypted PDF support — encrypted PDFs are detected on load and rejected with a typed `EncryptedPdfError` (decrypt the file first).
+- **Encrypted PDF decryption** (RC4, AES-128, AES-256) is supported via `PdfDocument.load(bytes, { password })` (use `{ password: "" }` for owner-locked / empty-user-password files). Decryption is opt-in — bare `load(bytes)` is unchanged; an encrypted file loaded without a password throws `EncryptedPdfError` (nudging you to pass one), and a wrong password throws `IncorrectPasswordError`. Saving an edited encrypted PDF produces a **decrypted** output. **Still unsupported:** producing encrypted output (re-encryption) and encrypting documents you create.
 - No cryptographic signing (the API leaves room to add PAdES later).
 - Appearance-affecting form-field flags (`multiline`, `comb`, `password`) are set
   at field creation only — they cannot be toggled on a loaded field (the

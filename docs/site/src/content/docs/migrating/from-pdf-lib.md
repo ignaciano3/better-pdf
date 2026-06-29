@@ -36,7 +36,11 @@ core and stricter validation. This guide maps the APIs.
   throws `Unexpected N type: undefined`.
 - **Signatures are visual only** — image appearances, not cryptographic signing.
 - **Scope:** creation, page drawing, and form filling are all covered.
-  Encryption is not supported.
+- **Encrypted PDFs:** pdf-lib throws `EncryptedPDFError` (or with
+  `ignoreEncryption: true` skips the check *without* decrypting, yielding garbage
+  on save). better-pdf actually decrypts — `PdfDocument.load(bytes, { password })`
+  (use `""` for owner-locked files) — and produces a decrypted output when you
+  save.
 
 ## Generating documents
 
