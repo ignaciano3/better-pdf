@@ -703,4 +703,49 @@ export class PdfDocumentBase {
       throw toPdfError(e);
     }
   }
+
+  /**
+   * @internal
+   * Shared `PdfDocument.load` body: coerce input to bytes, decrypting when a
+   * password is supplied. The entry barrels add the per-runtime init prelude.
+   */
+  protected static loadBytes(
+    wasmBinding: CoreWasm,
+    input: Uint8Array | ArrayBuffer,
+    opts?: { password?: string },
+  ): Uint8Array {
+    const raw = input instanceof Uint8Array ? input : new Uint8Array(input);
+    if (opts?.password === undefined) return raw;
+    try {
+      return wasmBinding.decryptPdf(raw, opts.password);
+    } catch (e) {
+      throw toPdfError(e);
+    }
+  }
+
+  /** @internal Shared `PdfDocument.assemble` body. */
+  protected static assembleImpl(
+    wasmBinding: CoreWasm,
+    docs: Uint8Array[],
+    selections: { docIndex: number; pageIndex: number }[],
+  ): Uint8Array {
+    return PdfDocumentBase.runAssemble(docs, selections, wasmBinding);
+  }
+
+  /** @internal Shared `PdfDocument.merge` body: every page of every doc, in order. */
+  protected static mergeImpl(wasmBinding: CoreWasm, docs: Uint8Array[]): Uint8Array {
+    const selections: { docIndex: number; pageIndex: number }[] = [];
+    for (let docIndex = 0; docIndex < docs.length; docIndex++) {
+      let pageInfos: { index: number }[];
+      try {
+        pageInfos = JSON.parse(wasmBinding.readPages(docs[docIndex]!)) as { index: number }[];
+      } catch (e) {
+        throw toPdfError(e);
+      }
+      for (let pageIndex = 0; pageIndex < pageInfos.length; pageIndex++) {
+        selections.push({ docIndex, pageIndex });
+      }
+    }
+    return PdfDocumentBase.runAssemble(docs, selections, wasmBinding);
+  }
 }
