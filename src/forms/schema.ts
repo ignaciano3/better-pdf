@@ -8,15 +8,28 @@ import type {
   PdfSignature,
 } from "./fields.js";
 
-/** The compile-time shape of one generated field's metadata entry. */
-export interface FieldMeta {
-  type: FieldType;
+/**
+ * The compile-time shape of one declared field's metadata, generic over the
+ * field `type`, its radio `states`, and its choice `options`. {@link FieldMeta}
+ * is the widened form; the {@link FormBuilder} threads concrete instantiations
+ * through its `addX` methods. Keeping this in one place stops the builder's
+ * accumulated schema from drifting from `FieldMeta`.
+ */
+export type DeclaredField<
+  T extends FieldType,
+  St extends readonly string[],
+  Opt extends readonly string[],
+> = {
+  type: T;
   readOnly: boolean;
   value: string | null;
-  states: readonly string[];
-  options: readonly string[];
+  states: St;
+  options: Opt;
   multiSelect: boolean;
-}
+};
+
+/** The compile-time shape of one generated field's metadata entry. */
+export type FieldMeta = DeclaredField<FieldType, readonly string[], readonly string[]>;
 
 /** The shape of a generated `…Fields` metadata object (i.e. `typeof myFormFields`). */
 export type FormSchema = Record<string, FieldMeta>;

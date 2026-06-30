@@ -1,5 +1,5 @@
 import { colorToTuple, type Color } from "./color.js";
-import type { FieldNameOf, FormSchema } from "../forms/schema.js";
+import type { DeclaredField, FieldNameOf, FormSchema } from "../forms/schema.js";
 import { StandardFonts } from "./fonts.js";
 
 // ---------------------------------------------------------------------------
@@ -314,7 +314,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     name: N,
     opts: TextFieldOptions,
   ): FormBuilder<
-    S & Record<N, { type: "text"; readOnly: boolean; value: string | null; states: readonly []; options: readonly [] }>
+    S & Record<N, DeclaredField<"text", readonly [], readonly []>>
   > {
     const base = buildBase(name, opts, this.names);
     assertPositive(opts.width, `${name}.width`);
@@ -353,7 +353,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     this.defs.push(def);
     this.names.add(name);
     return this as unknown as FormBuilder<
-      S & Record<N, { type: "text"; readOnly: boolean; value: string | null; states: readonly []; options: readonly [] }>
+      S & Record<N, DeclaredField<"text", readonly [], readonly []>>
     >;
   }
 
@@ -365,7 +365,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     name: N,
     opts: CheckBoxOptions,
   ): FormBuilder<
-    S & Record<N, { type: "checkbox"; readOnly: boolean; value: string | null; states: readonly []; options: readonly [] }>
+    S & Record<N, DeclaredField<"checkbox", readonly [], readonly []>>
   > {
     const base = buildBase(name, opts, this.names);
     assertPositive(opts.size, `${name}.size`);
@@ -377,7 +377,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     this.defs.push(def);
     this.names.add(name);
     return this as unknown as FormBuilder<
-      S & Record<N, { type: "checkbox"; readOnly: boolean; value: string | null; states: readonly []; options: readonly [] }>
+      S & Record<N, DeclaredField<"checkbox", readonly [], readonly []>>
     >;
   }
 
@@ -389,7 +389,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     name: N,
     opts: Omit<RadioGroupOptions, "selected" | "defaultSelected"> & { options: readonly (RadioOption & { value: O })[]; selected?: NoInfer<O>; defaultSelected?: NoInfer<O> },
   ): FormBuilder<
-    S & Record<N, { type: "radio"; readOnly: boolean; value: string | null; states: readonly O[]; options: readonly [] }>
+    S & Record<N, DeclaredField<"radio", readonly O[], readonly []>>
   > {
     if (!name) throw new Error("Field name must be non-empty");
     if (this.names.has(name)) throw new Error(`Duplicate field name: "${name}"`);
@@ -427,7 +427,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     this.defs.push(def);
     this.names.add(name);
     return this as unknown as FormBuilder<
-      S & Record<N, { type: "radio"; readOnly: boolean; value: string | null; states: readonly O[]; options: readonly [] }>
+      S & Record<N, DeclaredField<"radio", readonly O[], readonly []>>
     >;
   }
 
@@ -439,10 +439,10 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     name: N,
     opts: ChoiceOptions<O>,
   ): FormBuilder<
-    S & Record<N, { type: "dropdown"; readOnly: boolean; value: string | null; states: readonly []; options: readonly O[] }>
+    S & Record<N, DeclaredField<"dropdown", readonly [], readonly O[]>>
   > {
     return this._addChoice(name, opts, true, opts.editable ?? false) as unknown as FormBuilder<
-      S & Record<N, { type: "dropdown"; readOnly: boolean; value: string | null; states: readonly []; options: readonly O[] }>
+      S & Record<N, DeclaredField<"dropdown", readonly [], readonly O[]>>
     >;
   }
 
@@ -454,10 +454,10 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     name: N,
     opts: ChoiceOptions<O>,
   ): FormBuilder<
-    S & Record<N, { type: "listbox"; readOnly: boolean; value: string | null; states: readonly []; options: readonly O[] }>
+    S & Record<N, DeclaredField<"listbox", readonly [], readonly O[]>>
   > {
     return this._addChoice(name, opts, false, false) as unknown as FormBuilder<
-      S & Record<N, { type: "listbox"; readOnly: boolean; value: string | null; states: readonly []; options: readonly O[] }>
+      S & Record<N, DeclaredField<"listbox", readonly [], readonly O[]>>
     >;
   }
 
@@ -506,7 +506,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     name: N,
     opts: SignatureFieldOptions,
   ): FormBuilder<
-    S & Record<N, { type: "signature"; readOnly: boolean; value: string | null; states: readonly []; options: readonly [] }>
+    S & Record<N, DeclaredField<"signature", readonly [], readonly []>>
   > {
     const base = buildBase(name, opts, this.names);
     assertPositive(opts.width, `${name}.width`);
@@ -515,7 +515,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     this.defs.push(def);
     this.names.add(name);
     return this as unknown as FormBuilder<
-      S & Record<N, { type: "signature"; readOnly: boolean; value: string | null; states: readonly []; options: readonly [] }>
+      S & Record<N, DeclaredField<"signature", readonly [], readonly []>>
     >;
   }
 
