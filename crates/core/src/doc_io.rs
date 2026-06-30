@@ -17,10 +17,8 @@ pub const PASSWORD_PREFIX: &str = "PASSWORD:";
 /// password authenticates, so we use `was_encrypted()` to distinguish the
 /// unencrypted pass-through case from a successfully decrypted document.
 pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
-    let load_result = Document::load_mem_with_options(
-        data,
-        lopdf::LoadOptions::with_password(password),
-    );
+    let load_result =
+        Document::load_mem_with_options(data, lopdf::LoadOptions::with_password(password));
     match load_result {
         Ok(doc) if !doc.was_encrypted() => {
             // Unencrypted input — return byte-identical.
@@ -36,9 +34,9 @@ pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
             doc.save_to(&mut out).map_err(|e| e.to_string())?;
             Ok(out)
         }
-        Err(lopdf::Error::InvalidPassword) => {
-            Err(format!("{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF"))
-        }
+        Err(lopdf::Error::InvalidPassword) => Err(format!(
+            "{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF"
+        )),
         // Defensive / forward-compatible: lopdf 0.41 surfaces wrong passwords as
         // the load-time `InvalidPassword` above, but retain this arm in case a
         // future version raises a `Decryption` error during loading instead.
@@ -88,7 +86,7 @@ pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lopdf::{dictionary, Dictionary, Document, Object};
+    use lopdf::{Dictionary, Document, Object, dictionary};
 
     const FICHA: &[u8] =
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
@@ -183,13 +181,18 @@ mod tests {
             // Self-check: each fixture must round-trip through decrypt before commit.
             // In lopdf 0.41, load_mem auto-decrypts when the password is available;
             // supply the right password via load_mem_with_options so was_encrypted() is true.
-            let pw = if name.ends_with("-pw.pdf") { "secret" } else { "" };
-            let loaded = Document::load_mem_with_options(
-                &bytes,
-                lopdf::LoadOptions::with_password(pw),
-            )
-            .unwrap_or_else(|e| panic!("{name} decrypt failed: {e}"));
-            assert!(loaded.was_encrypted(), "{name} should have been encrypted before loading");
+            let pw = if name.ends_with("-pw.pdf") {
+                "secret"
+            } else {
+                ""
+            };
+            let loaded =
+                Document::load_mem_with_options(&bytes, lopdf::LoadOptions::with_password(pw))
+                    .unwrap_or_else(|e| panic!("{name} decrypt failed: {e}"));
+            assert!(
+                loaded.was_encrypted(),
+                "{name} should have been encrypted before loading"
+            );
             std::fs::write(dir.join(name), &bytes).expect("write fixture");
         }
     }
@@ -289,9 +292,12 @@ mod tests {
     }
 
     const FICHA_RC4: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-rc4.pdf");
-    const FICHA_AES128: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-aes128.pdf");
-    const FICHA_AES256: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-aes256.pdf");
-    const FICHA_RC4_PW: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-rc4-pw.pdf");
+    const FICHA_AES128: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/ficha-aes128.pdf");
+    const FICHA_AES256: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/ficha-aes256.pdf");
+    const FICHA_RC4_PW: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/ficha-rc4-pw.pdf");
     const FICHA_AES128_PW: &[u8] =
         include_bytes!("../../../tests/fixtures/generated/ficha-aes128-pw.pdf");
     const FICHA_AES256_PW: &[u8] =
@@ -299,15 +305,24 @@ mod tests {
 
     fn assert_decrypted_ficha(out: &[u8]) {
         let doc = Document::load_mem(out).unwrap();
-        assert!(!doc.trailer.has(b"Encrypt"), "decrypted output must not be encrypted");
+        assert!(
+            !doc.trailer.has(b"Encrypt"),
+            "decrypted output must not be encrypted"
+        );
         let fields = crate::forms::read_fields_json(out).unwrap();
-        assert!(fields.contains("beneficiario.apellidos_nombres"), "fields should be readable");
+        assert!(
+            fields.contains("beneficiario.apellidos_nombres"),
+            "fields should be readable"
+        );
     }
 
     #[test]
     fn decrypt_pdf_passes_through_unencrypted_unchanged() {
         let out = decrypt_pdf(FICHA, "").unwrap();
-        assert_eq!(out, FICHA, "unencrypted input must be returned byte-identical");
+        assert_eq!(
+            out, FICHA,
+            "unencrypted input must be returned byte-identical"
+        );
     }
 
     #[test]

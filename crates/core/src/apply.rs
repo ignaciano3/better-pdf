@@ -110,9 +110,8 @@ mod tests {
     use super::*;
     use lopdf::{Document, Object};
 
-    const FICHA: &[u8] = include_bytes!(
-        "../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf"
-    );
+    const FICHA: &[u8] =
+        include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
 
     fn page0_content(doc: &Document) -> String {
         let pages = doc.get_pages();

@@ -64,7 +64,10 @@ fn build_siblings(
             .ok_or_else(|| format!("outline page {} out of range", item.page))?;
 
         let mut dict = Dictionary::new();
-        dict.set("Title", Object::string_literal(item.title.as_bytes().to_vec()));
+        dict.set(
+            "Title",
+            Object::string_literal(item.title.as_bytes().to_vec()),
+        );
         dict.set("Parent", Object::Reference(parent));
         dict.set(
             "Dest",
@@ -192,9 +195,8 @@ pub(crate) fn outline_apply(
 mod tests {
     use super::*;
     use lopdf::Document;
-    const FICHA: &[u8] = include_bytes!(
-        "../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf"
-    );
+    const FICHA: &[u8] =
+        include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
 
     #[test]
     fn sets_outline_with_dest() {

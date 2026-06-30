@@ -2,7 +2,7 @@
 pub mod cmap;
 use std::collections::{BTreeSet, HashMap};
 
-use lopdf::{dictionary, Dictionary, Object, ObjectId, Stream};
+use lopdf::{Dictionary, Object, ObjectId, Stream, dictionary};
 use ttf_parser::Face;
 
 use crate::fonts::cmap::to_unicode_cmap;
@@ -81,9 +81,13 @@ pub fn build_embedded_font(
     w_entries.sort_by_key(|(emit, _)| *emit);
     let mut w_array: Vec<Object> = Vec::new();
     for (emit, orig) in w_entries {
-        let adv = face.glyph_hor_advance(ttf_parser::GlyphId(orig)).unwrap_or(0);
+        let adv = face
+            .glyph_hor_advance(ttf_parser::GlyphId(orig))
+            .unwrap_or(0);
         w_array.push(Object::Integer(emit as i64));
-        w_array.push(Object::Array(vec![Object::Real((adv as f32 * scale).round())]));
+        w_array.push(Object::Array(vec![Object::Real(
+            (adv as f32 * scale).round(),
+        )]));
     }
 
     // FontFile2 stream with /Length1 = uncompressed program length.
@@ -95,7 +99,11 @@ pub fn build_embedded_font(
 
     // Derive a PostScript-safe base name.
     let base = font_postscript_name(&face).unwrap_or_else(|| "Embedded".to_string());
-    let base_name = if input.subset { format!("AAAAAA+{base}") } else { base.clone() };
+    let base_name = if input.subset {
+        format!("AAAAAA+{base}")
+    } else {
+        base.clone()
+    };
 
     let bbox = face.global_bounding_box();
     let flags = 4i64; // Symbolic; refine if needed.
@@ -207,14 +215,18 @@ pub fn wrap_embedded(font: &[u8], size: f32, avail_w: f32, text: &str) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    const FONT: &[u8] = include_bytes!("../../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+    const FONT: &[u8] =
+        include_bytes!("../../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
 
     #[test]
     fn measures_text_width_positive_and_scales_with_size() {
         let w12 = measure_embedded(FONT, 12.0, "Hello").unwrap();
         let w24 = measure_embedded(FONT, 24.0, "Hello").unwrap();
         assert!(w12 > 0.0);
-        assert!((w24 - 2.0 * w12).abs() < 0.01, "width must scale linearly with size");
+        assert!(
+            (w24 - 2.0 * w12).abs() < 0.01,
+            "width must scale linearly with size"
+        );
     }
 
     #[test]
@@ -228,19 +240,32 @@ mod tests {
         let mut doc = Document::with_version("1.7");
         let mut add = |o: Object| doc.add_object(o);
         let used: std::collections::BTreeSet<char> = "Hé".chars().collect();
-        let input = EmbeddedFontInput { data: FONT, subset: false, used_chars: used };
+        let input = EmbeddedFontInput {
+            data: FONT,
+            subset: false,
+            used_chars: used,
+        };
         let (font_id, built) = build_embedded_font(&mut add, &input).unwrap();
 
         let type0 = doc.get_object(font_id).unwrap().as_dict().unwrap();
         assert_eq!(type0.get(b"Subtype").unwrap().as_name().unwrap(), b"Type0");
-        assert_eq!(type0.get(b"Encoding").unwrap().as_name().unwrap(), b"Identity-H");
+        assert_eq!(
+            type0.get(b"Encoding").unwrap().as_name().unwrap(),
+            b"Identity-H"
+        );
         assert!(type0.has(b"ToUnicode"));
         // descendant CIDFontType2 present
         let desc = type0.get(b"DescendantFonts").unwrap().as_array().unwrap();
         let cid_ref = desc[0].as_reference().unwrap();
         let cid = doc.get_object(cid_ref).unwrap().as_dict().unwrap();
-        assert_eq!(cid.get(b"Subtype").unwrap().as_name().unwrap(), b"CIDFontType2");
-        assert_eq!(cid.get(b"CIDToGIDMap").unwrap().as_name().unwrap(), b"Identity");
+        assert_eq!(
+            cid.get(b"Subtype").unwrap().as_name().unwrap(),
+            b"CIDFontType2"
+        );
+        assert_eq!(
+            cid.get(b"CIDToGIDMap").unwrap().as_name().unwrap(),
+            b"Identity"
+        );
         // glyph map covers used chars
         assert!(built.gid_for.contains_key(&'H'));
         assert!(built.gid_for.contains_key(&'é'));
@@ -254,22 +279,50 @@ mod tests {
         let mut doc = Document::with_version("1.7");
         let mut add = |o: Object| doc.add_object(o);
         let used: std::collections::BTreeSet<char> = "Hé".chars().collect();
-        let input = EmbeddedFontInput { data: FONT, subset: true, used_chars: used };
+        let input = EmbeddedFontInput {
+            data: FONT,
+            subset: true,
+            used_chars: used,
+        };
         let (font_id, built) = build_embedded_font(&mut add, &input).unwrap();
 
         // Walk Type0 -> DescendantFonts -> FontDescriptor -> FontFile2
         let type0 = doc.get_object(font_id).unwrap().as_dict().unwrap();
-        let cid = doc.get_object(type0.get(b"DescendantFonts").unwrap().as_array().unwrap()[0].as_reference().unwrap()).unwrap().as_dict().unwrap();
-        let fd = doc.get_object(cid.get(b"FontDescriptor").unwrap().as_reference().unwrap()).unwrap().as_dict().unwrap();
-        let ff = doc.get_object(fd.get(b"FontFile2").unwrap().as_reference().unwrap()).unwrap().as_stream().unwrap();
+        let cid = doc
+            .get_object(
+                type0.get(b"DescendantFonts").unwrap().as_array().unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let fd = doc
+            .get_object(cid.get(b"FontDescriptor").unwrap().as_reference().unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let ff = doc
+            .get_object(fd.get(b"FontFile2").unwrap().as_reference().unwrap())
+            .unwrap()
+            .as_stream()
+            .unwrap();
         let subset_len: i64 = ff.dict.get(b"Length1").unwrap().as_i64().unwrap();
-        assert!((subset_len as usize) < FONT.len(), "subset ({subset_len}) should be < original ({})", FONT.len());
+        assert!(
+            (subset_len as usize) < FONT.len(),
+            "subset ({subset_len}) should be < original ({})",
+            FONT.len()
+        );
 
         // The subset font must still parse and contain the gid we recorded for 'H'.
-        let raw = ff.decompressed_content().unwrap_or_else(|_| ff.content.clone());
+        let raw = ff
+            .decompressed_content()
+            .unwrap_or_else(|_| ff.content.clone());
         let face = ttf_parser::Face::parse(&raw, 0).unwrap();
         let h_gid = built.gid_for[&'H'];
-        assert!(face.glyph_hor_advance(ttf_parser::GlyphId(h_gid)).is_some(),
-            "gid {h_gid} must survive subsetting with the same id");
+        assert!(
+            face.glyph_hor_advance(ttf_parser::GlyphId(h_gid)).is_some(),
+            "gid {h_gid} must survive subsetting with the same id"
+        );
     }
 }

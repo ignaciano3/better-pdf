@@ -278,7 +278,9 @@ fn effective_da(doc: &Document, d: &Dictionary) -> Option<String> {
     if let Some(s) = inherited(doc, d, b"DA").and_then(da_string) {
         return Some(s);
     }
-    acroform(doc).and_then(|a| a.get(b"DA").ok()).and_then(da_string)
+    acroform(doc)
+        .and_then(|a| a.get(b"DA").ok())
+        .and_then(da_string)
 }
 
 pub(crate) fn da_string(o: &Object) -> Option<String> {
@@ -380,7 +382,11 @@ fn field_value(d: &Dictionary, key: &[u8]) -> Option<String> {
     d.get(key).ok().and_then(|o| match o {
         Object::Array(a) => {
             let parts: Vec<String> = a.iter().filter_map(value_to_string).collect();
-            if parts.is_empty() { None } else { Some(parts.join(", ")) }
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join(", "))
+            }
         }
         other => value_to_string(other),
     })
@@ -500,21 +506,27 @@ mod tests {
         let mut doc = Document::with_version("1.7");
         let pages_id = doc.new_object_id();
         let page_id = doc.new_object_id();
-        doc.set_object(page_id, Object::Dictionary(dictionary! {
-            "Type" => Object::Name(b"Page".to_vec()),
-            "Parent" => Object::Reference(pages_id),
-            "MediaBox" => vec![0i64.into(), 0i64.into(), 612i64.into(), 792i64.into()],
-        }));
+        doc.set_object(
+            page_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Page".to_vec()),
+                "Parent" => Object::Reference(pages_id),
+                "MediaBox" => vec![0i64.into(), 0i64.into(), 612i64.into(), 792i64.into()],
+            }),
+        );
         let field_id = doc.add_object(Object::Dictionary(field));
         // Put the widget on the page so it resolves to a page index.
         if let Ok(p) = doc.get_object_mut(page_id).and_then(|o| o.as_dict_mut()) {
             p.set("Annots", Object::Array(vec![Object::Reference(field_id)]));
         }
-        doc.set_object(pages_id, Object::Dictionary(dictionary! {
-            "Type" => Object::Name(b"Pages".to_vec()),
-            "Kids" => vec![Object::Reference(page_id)],
-            "Count" => Object::Integer(1),
-        }));
+        doc.set_object(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Pages".to_vec()),
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => Object::Integer(1),
+            }),
+        );
         let acroform_id = doc.add_object(Object::Dictionary(dictionary! {
             "Fields" => Object::Array(vec![Object::Reference(field_id)]),
         }));

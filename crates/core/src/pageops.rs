@@ -3,7 +3,7 @@
 //! A single primitive — [`manipulate_pages_json`] — builds a brand-new PDF from
 //! an ordered list of `{doc, page}` selections drawn from one or more source
 //! documents. Merge, extract, reorder, remove and split all reduce to this.
-use lopdf::{dictionary, Document, Object, ObjectId};
+use lopdf::{Document, Object, ObjectId, dictionary};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
@@ -44,7 +44,9 @@ fn resolve_inherited(doc: &Document, page_id: ObjectId) -> Vec<(Vec<u8>, Object)
             }
             if let Ok(v) = dict.get(key) {
                 let resolved = match v {
-                    Object::Reference(r) => doc.get_object(*r).cloned().unwrap_or_else(|_| v.clone()),
+                    Object::Reference(r) => {
+                        doc.get_object(*r).cloned().unwrap_or_else(|_| v.clone())
+                    }
                     other => other.clone(),
                 };
                 found.push((key.to_vec(), resolved));
@@ -66,11 +68,17 @@ struct SourceForm {
 /// Call AFTER `renumber_objects_with` so the returned ids/refs are in
 /// merged-id space, and BEFORE the objects are moved out of `doc`.
 fn capture_source_form(doc: &Document) -> SourceForm {
-    let mut out = SourceForm { dr: None, da: None, top_fields: Vec::new() };
+    let mut out = SourceForm {
+        dr: None,
+        da: None,
+        top_fields: Vec::new(),
+    };
     let Ok(root) = doc.trailer.get(b"Root").and_then(Object::as_reference) else {
         return out;
     };
-    let Ok(cat) = doc.get_dictionary(root) else { return out };
+    let Ok(cat) = doc.get_dictionary(root) else {
+        return out;
+    };
     let af = match cat.get(b"AcroForm") {
         Ok(Object::Reference(r)) => match doc.get_dictionary(*r) {
             Ok(d) => d,
@@ -96,7 +104,9 @@ fn capture_source_form(doc: &Document) -> SourceForm {
 fn top_field_of(doc: &Document, annot: ObjectId) -> ObjectId {
     let mut cur = annot;
     for _ in 0..128 {
-        let Ok(d) = doc.get_dictionary(cur) else { break };
+        let Ok(d) = doc.get_dictionary(cur) else {
+            break;
+        };
         match d.get(b"Parent").and_then(Object::as_reference) {
             Ok(p) => cur = p,
             Err(_) => break,
@@ -166,7 +176,10 @@ fn rebuild_acroform(
         let (Some(name), Some(&si)) = (partial_name(merged, fid), field_src.get(&fid)) else {
             continue;
         };
-        let collides = name_sources.get(&name).map(|s| s.len() > 1).unwrap_or(false);
+        let collides = name_sources
+            .get(&name)
+            .map(|s| s.len() > 1)
+            .unwrap_or(false);
         if collides {
             let new_name = format!("d{si}_{name}");
             if let Ok(d) = merged.get_dictionary_mut(fid) {
@@ -175,16 +188,20 @@ fn rebuild_acroform(
         }
     }
 
-    let fields: Vec<Object> = kept_fields.iter().map(|&id| Object::Reference(id)).collect();
+    let fields: Vec<Object> = kept_fields
+        .iter()
+        .map(|&id| Object::Reference(id))
+        .collect();
 
     // Merge /DR /Font entries across sources (first-writer-wins per name).
     let mut merged_fonts = lopdf::Dictionary::new();
     let mut da: Option<Object> = None;
     for s in sources {
         if da.is_none()
-            && let Some(d) = &s.da {
-                da = Some(d.clone());
-            }
+            && let Some(d) = &s.da
+        {
+            da = Some(d.clone());
+        }
         let Some(dr_obj) = &s.dr else { continue };
         let dr_dict = match dr_obj {
             Object::Reference(r) => merged.get_dictionary(*r).ok().cloned(),
@@ -240,8 +257,10 @@ pub fn manipulate_pages_json(
     docs_json: &str,
     plan_json: &str,
 ) -> Result<Vec<u8>, String> {
-    let descs: Vec<DocDesc> = serde_json::from_str(docs_json).map_err(|e| format!("invalid docs: {e}"))?;
-    let plan: Vec<Sel> = serde_json::from_str(plan_json).map_err(|e| format!("invalid plan: {e}"))?;
+    let descs: Vec<DocDesc> =
+        serde_json::from_str(docs_json).map_err(|e| format!("invalid docs: {e}"))?;
+    let plan: Vec<Sel> =
+        serde_json::from_str(plan_json).map_err(|e| format!("invalid plan: {e}"))?;
     if plan.is_empty() {
         return Err("no pages selected".to_string());
     }
@@ -312,7 +331,10 @@ pub fn manipulate_pages_json(
         // output tree has independent /Parent links. Shallow-clone the page
         // dict (shared Contents/Resources references are fine).
         let pid = if used.contains(&src_pid) {
-            let cloned = merged.get_dictionary(src_pid).map_err(|e| e.to_string())?.clone();
+            let cloned = merged
+                .get_dictionary(src_pid)
+                .map_err(|e| e.to_string())?
+                .clone();
             merged.add_object(Object::Dictionary(cloned))
         } else {
             used.insert(src_pid);
@@ -371,7 +393,11 @@ mod tests {
             if i > 0 {
                 table.push(',');
             }
-            table.push_str(&format!(r#"{{"offset":{},"length":{}}}"#, blob.len(), d.len()));
+            table.push_str(&format!(
+                r#"{{"offset":{},"length":{}}}"#,
+                blob.len(),
+                d.len()
+            ));
             blob.extend_from_slice(d);
         }
         table.push(']');
@@ -416,12 +442,9 @@ mod tests {
         let n = page_count(FICHA);
         if n >= 2 {
             let (blob, docs) = pack(&[FICHA]);
-            let out = manipulate_pages_json(
-                &blob,
-                &docs,
-                r#"[{"doc":0,"page":1},{"doc":0,"page":0}]"#,
-            )
-            .unwrap();
+            let out =
+                manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":1},{"doc":0,"page":0}]"#)
+                    .unwrap();
             assert_eq!(page_count(&out), 2);
         }
     }
@@ -467,7 +490,9 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
         let cat = doc.get_dictionary(root).unwrap();
-        let af = cat.get(b"AcroForm").expect("merged output must have /AcroForm");
+        let af = cat
+            .get(b"AcroForm")
+            .expect("merged output must have /AcroForm");
         let af = match af {
             Object::Reference(r) => doc.get_dictionary(*r).unwrap(),
             Object::Dictionary(d) => d,
@@ -563,7 +588,8 @@ mod tests {
         let unique: HashSet<&String> = names.iter().collect();
         assert_eq!(unique.len(), names.len(), "no duplicate top-level /T names");
         assert!(
-            names.iter().any(|n| n.starts_with("d0_")) && names.iter().any(|n| n.starts_with("d1_")),
+            names.iter().any(|n| n.starts_with("d0_"))
+                && names.iter().any(|n| n.starts_with("d1_")),
             "colliding names must be per-source prefixed"
         );
     }
@@ -592,12 +618,8 @@ mod tests {
     #[test]
     fn duplicate_page_selection_produces_two_distinct_pages() {
         let (blob, docs) = pack(&[FICHA]);
-        let out = manipulate_pages_json(
-            &blob,
-            &docs,
-            r#"[{"doc":0,"page":0},{"doc":0,"page":0}]"#,
-        )
-        .unwrap();
+        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0},{"doc":0,"page":0}]"#)
+            .unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let ids: Vec<_> = doc.get_pages().into_values().collect();
         assert_eq!(ids.len(), 2);

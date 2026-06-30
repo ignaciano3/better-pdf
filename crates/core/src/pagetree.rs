@@ -13,7 +13,7 @@
 //! return `Err("nested page trees not supported")`. The FICHA fixture (and most
 //! PDFs) is flat, so the supported tests pass.
 
-use lopdf::{dictionary, Dictionary, IncrementalDocument, Object, ObjectId, Stream};
+use lopdf::{Dictionary, IncrementalDocument, Object, ObjectId, Stream, dictionary};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -22,7 +22,11 @@ enum PageOp {
     #[serde(rename = "appendBlank")]
     AppendBlank { width: f32, height: f32 },
     #[serde(rename = "insertBlank")]
-    InsertBlank { index: usize, width: f32, height: f32 },
+    InsertBlank {
+        index: usize,
+        width: f32,
+        height: f32,
+    },
     #[serde(rename = "removePage")]
     RemovePage { index: usize },
     #[serde(rename = "movePage")]
@@ -53,7 +57,9 @@ pub fn insert_pages_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String>
 
     // Detect a nested page tree: any direct kid of the root that is itself a
     // /Pages node is unsupported for v1.
-    let root_dict = doc.get_dictionary(pages_root_id).map_err(|e| e.to_string())?;
+    let root_dict = doc
+        .get_dictionary(pages_root_id)
+        .map_err(|e| e.to_string())?;
     if let Ok(Object::Array(kids)) = root_dict.get(b"Kids") {
         for kid in kids {
             if let Ok(kid_id) = kid.as_reference()
@@ -74,16 +80,29 @@ pub fn insert_pages_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String>
     for op in &ops {
         match op {
             PageOp::AppendBlank { width, height } => {
-                entries.push(Entry::NewBlank { width: *width, height: *height });
+                entries.push(Entry::NewBlank {
+                    width: *width,
+                    height: *height,
+                });
             }
-            PageOp::InsertBlank { index, width, height } => {
+            PageOp::InsertBlank {
+                index,
+                width,
+                height,
+            } => {
                 if *index > entries.len() {
                     return Err(format!(
                         "insertBlank index {index} out of range (len {})",
                         entries.len()
                     ));
                 }
-                entries.insert(*index, Entry::NewBlank { width: *width, height: *height });
+                entries.insert(
+                    *index,
+                    Entry::NewBlank {
+                        width: *width,
+                        height: *height,
+                    },
+                );
             }
             PageOp::RemovePage { index } => {
                 if *index >= entries.len() {
@@ -167,30 +186,53 @@ pub fn insert_pages_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String>
 mod tests {
     use super::*;
     use lopdf::Document;
-    const FICHA: &[u8] = include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
-    fn count(b: &[u8]) -> usize { Document::load_mem(b).unwrap().get_pages().len() }
+    const FICHA: &[u8] =
+        include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
+    fn count(b: &[u8]) -> usize {
+        Document::load_mem(b).unwrap().get_pages().len()
+    }
 
     #[test]
     fn append_blank_adds_a_page() {
         let n = count(FICHA);
-        let out = insert_pages_json(FICHA, r#"[{"op":"appendBlank","width":595,"height":842}]"#).unwrap();
+        let out =
+            insert_pages_json(FICHA, r#"[{"op":"appendBlank","width":595,"height":842}]"#).unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental
         assert_eq!(count(&out), n + 1);
         // the new last page has the requested MediaBox
         let doc = Document::load_mem(&out).unwrap();
         let last = doc.get_pages().into_values().last().unwrap();
-        let mb = doc.get_dictionary(last).unwrap().get(b"MediaBox").unwrap().as_array().unwrap();
+        let mb = doc
+            .get_dictionary(last)
+            .unwrap()
+            .get(b"MediaBox")
+            .unwrap()
+            .as_array()
+            .unwrap();
         assert!((mb[2].as_float().unwrap() - 595.0).abs() < 0.5);
     }
     #[test]
     fn insert_blank_at_zero_is_first() {
         let n = count(FICHA);
-        let out = insert_pages_json(FICHA, r#"[{"op":"insertBlank","index":0,"width":100,"height":100}]"#).unwrap();
+        let out = insert_pages_json(
+            FICHA,
+            r#"[{"op":"insertBlank","index":0,"width":100,"height":100}]"#,
+        )
+        .unwrap();
         assert_eq!(count(&out), n + 1);
         let doc = Document::load_mem(&out).unwrap();
         let first = doc.get_pages().into_values().next().unwrap();
-        let mb = doc.get_dictionary(first).unwrap().get(b"MediaBox").unwrap().as_array().unwrap();
-        assert!((mb[2].as_float().unwrap() - 100.0).abs() < 0.5, "inserted page should be first");
+        let mb = doc
+            .get_dictionary(first)
+            .unwrap()
+            .get(b"MediaBox")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert!(
+            (mb[2].as_float().unwrap() - 100.0).abs() < 0.5,
+            "inserted page should be first"
+        );
     }
     #[test]
     fn remove_page_drops_one() {

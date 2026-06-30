@@ -3,13 +3,13 @@ use wasm_bindgen::prelude::*;
 mod appearance;
 mod apply;
 pub mod create;
-mod fonts;
 mod doc_io;
 mod draw;
 mod embed;
 mod fill;
 mod flatten;
 mod font_metrics;
+mod fonts;
 mod forms;
 mod metadata;
 mod outline;
@@ -54,7 +54,8 @@ pub fn apply_draw_ops(
     fonts: &[u8],
     fonts_json: &str,
 ) -> Result<Vec<u8>, JsError> {
-    draw::apply_draw_ops_json(data, ops_json, images, fonts, fonts_json).map_err(|e| JsError::new(&e))
+    draw::apply_draw_ops_json(data, ops_json, images, fonts, fonts_json)
+        .map_err(|e| JsError::new(&e))
 }
 
 /// Apply fill, flatten, draw, metadata, and outline operations to a loaded PDF

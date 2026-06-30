@@ -1,6 +1,6 @@
 //! Embed a page from another PDF as a Form XObject (deep-copies the page's
 //! content + resource subtree into the target document).
-use lopdf::{dictionary, Dictionary, Document, Object, ObjectId};
+use lopdf::{Dictionary, Document, Object, ObjectId, dictionary};
 use std::collections::HashMap;
 
 /// Recursively copy `src_id` and everything it references from `src` into `dst`,
@@ -85,13 +85,14 @@ pub fn embed_page_as_xobject(
     let mut content: Vec<u8> = Vec::new();
     for cid in src.get_page_contents(page_id) {
         if let Ok(obj) = src.get_object(cid)
-            && let Ok(stream) = obj.as_stream() {
-                let bytes = stream
-                    .decompressed_content()
-                    .unwrap_or_else(|_| stream.content.clone());
-                content.extend_from_slice(&bytes);
-                content.push(b'\n');
-            }
+            && let Ok(stream) = obj.as_stream()
+        {
+            let bytes = stream
+                .decompressed_content()
+                .unwrap_or_else(|_| stream.content.clone());
+            content.extend_from_slice(&bytes);
+            content.push(b'\n');
+        }
     }
 
     // Import the page's resolved Resources subtree (deep copy into dst).

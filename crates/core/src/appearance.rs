@@ -103,7 +103,10 @@ pub fn wrap_lines(text: &[u8], size: f32, avail_w: f32, widths: &FontWidths) -> 
 
     let mut out: Vec<Vec<u8>> = Vec::new();
     for para in normalized.split(|&b| b == b'\n') {
-        let words: Vec<&[u8]> = para.split(|&b| b == b' ').filter(|w| !w.is_empty()).collect();
+        let words: Vec<&[u8]> = para
+            .split(|&b| b == b' ')
+            .filter(|w| !w.is_empty())
+            .collect();
         if words.is_empty() {
             out.push(Vec::new());
             continue;
@@ -171,7 +174,9 @@ pub fn wrap_str(text: &str, avail_w: f32, mut measure: impl FnMut(&str) -> f32) 
 /// Wrap `text` for a standard-14 `font` at `size` so each line fits `avail_w`.
 pub fn wrap_standard14(text: &str, font: &str, size: f32, avail_w: f32) -> String {
     let widths = standard_14_widths(font).unwrap_or_else(helvetica_widths);
-    wrap_str(text, avail_w, |s| string_width(&encode_winansi(s), size, &widths))
+    wrap_str(text, avail_w, |s| {
+        string_width(&encode_winansi(s), size, &widths)
+    })
 }
 
 /// Width in points of `text` rendered in standard-14 `font` at `size`.
@@ -952,13 +957,15 @@ pub fn listbox_multi_content(
         }
         // Top-aligned: row 0 sits just under the top edge.
         let y = box_h - row_h * (i as f32 + 1.0);
-        write!(out, 
-                "0.60 0.75 0.85 rg {:.2} {:.2} {:.2} {:.2} re f ",
-                PAD,
-                y,
-                (box_w - 2.0 * PAD).max(0.0),
-                row_h
-            ).unwrap();
+        write!(
+            out,
+            "0.60 0.75 0.85 rg {:.2} {:.2} {:.2} {:.2} re f ",
+            PAD,
+            y,
+            (box_w - 2.0 * PAD).max(0.0),
+            row_h
+        )
+        .unwrap();
     }
 
     // 2) Text for every option, top to bottom.
@@ -1147,7 +1154,10 @@ mod tests {
         );
         let s = String::from_utf8(c).unwrap();
         // "hi" width = (222 + 556)/1000 * 10 = 7.78; tx = 200 - 2 - 7.78 = 190.22.
-        assert!(s.contains("190.22"), "expected right-quad tx 190.22 in: {s}");
+        assert!(
+            s.contains("190.22"),
+            "expected right-quad tx 190.22 in: {s}"
+        );
     }
 
     #[test]
@@ -1164,7 +1174,11 @@ mod tests {
 
     #[test]
     fn measure_unknown_font_errors() {
-        assert!(measure_text_width("Comic Sans", 12.0, "x").unwrap_err().contains("font"));
+        assert!(
+            measure_text_width("Comic Sans", 12.0, "x")
+                .unwrap_err()
+                .contains("font")
+        );
     }
 
     #[test]
@@ -1424,7 +1438,10 @@ mod tests {
         let img = signature_image(tiny_palette_png()).unwrap();
         if let SignatureImage::Raw { data, alpha, .. } = img {
             assert_eq!(data, vec![255, 0, 0]);
-            assert!(alpha.is_none(), "opaque palette PNG must not have alpha plane");
+            assert!(
+                alpha.is_none(),
+                "opaque palette PNG must not have alpha plane"
+            );
         } else {
             panic!("expected Raw");
         }
@@ -1450,30 +1467,25 @@ mod tests {
     fn tiny_palette_png() -> &'static [u8] {
         &[
             // PNG signature
-            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-            // IHDR: length=13
-            0x00, 0x00, 0x00, 0x0d,
-            0x49, 0x48, 0x44, 0x52,          // "IHDR"
-            0x00, 0x00, 0x00, 0x01,          // width=1
-            0x00, 0x00, 0x00, 0x01,          // height=1
-            0x08,                            // bit_depth=8
-            0x03,                            // color_type=3 (indexed)
-            0x00, 0x00, 0x00,                // compression, filter, interlace
-            0x28, 0xcb, 0x34, 0xbb,          // CRC
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // IHDR: length=13
+            0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // "IHDR"
+            0x00, 0x00, 0x00, 0x01, // width=1
+            0x00, 0x00, 0x00, 0x01, // height=1
+            0x08, // bit_depth=8
+            0x03, // color_type=3 (indexed)
+            0x00, 0x00, 0x00, // compression, filter, interlace
+            0x28, 0xcb, 0x34, 0xbb, // CRC
             // PLTE: length=3 (one RGB entry: red)
-            0x00, 0x00, 0x00, 0x03,
-            0x50, 0x4c, 0x54, 0x45,          // "PLTE"
-            0xff, 0x00, 0x00,                // (255, 0, 0)
-            0x19, 0xe2, 0x09, 0x37,          // CRC
+            0x00, 0x00, 0x00, 0x03, 0x50, 0x4c, 0x54, 0x45, // "PLTE"
+            0xff, 0x00, 0x00, // (255, 0, 0)
+            0x19, 0xe2, 0x09, 0x37, // CRC
             // IDAT: zlib of [filter=0, index=0]
-            0x00, 0x00, 0x00, 0x0a,
-            0x49, 0x44, 0x41, 0x54,          // "IDAT"
-            0x78, 0xda, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
-            0xe5, 0x27, 0xde, 0xfc,          // CRC
+            0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, // "IDAT"
+            0x78, 0xda, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xe5, 0x27, 0xde,
+            0xfc, // CRC
             // IEND
-            0x00, 0x00, 0x00, 0x00,
-            0x49, 0x45, 0x4e, 0x44,          // "IEND"
-            0xae, 0x42, 0x60, 0x82,          // CRC
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, // "IEND"
+            0xae, 0x42, 0x60, 0x82, // CRC
         ]
     }
 
@@ -1481,33 +1493,18 @@ mod tests {
     fn tiny_palette_png_with_trns() -> &'static [u8] {
         &[
             // PNG signature
-            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-            // IHDR
-            0x00, 0x00, 0x00, 0x0d,
-            0x49, 0x48, 0x44, 0x52,
-            0x00, 0x00, 0x00, 0x01,
-            0x00, 0x00, 0x00, 0x01,
-            0x08, 0x03, 0x00, 0x00, 0x00,
-            0x28, 0xcb, 0x34, 0xbb,
-            // PLTE
-            0x00, 0x00, 0x00, 0x03,
-            0x50, 0x4c, 0x54, 0x45,
-            0xff, 0x00, 0x00,
-            0x19, 0xe2, 0x09, 0x37,
-            // tRNS: alpha=128 for index 0
-            0x00, 0x00, 0x00, 0x01,
-            0x74, 0x52, 0x4e, 0x53,          // "tRNS"
-            0x80,                            // alpha=128
-            0xad, 0x5e, 0x5b, 0x46,          // CRC
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // IHDR
+            0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x01, 0x08, 0x03, 0x00, 0x00, 0x00, 0x28, 0xcb, 0x34, 0xbb, // PLTE
+            0x00, 0x00, 0x00, 0x03, 0x50, 0x4c, 0x54, 0x45, 0xff, 0x00, 0x00, 0x19, 0xe2, 0x09,
+            0x37, // tRNS: alpha=128 for index 0
+            0x00, 0x00, 0x00, 0x01, 0x74, 0x52, 0x4e, 0x53, // "tRNS"
+            0x80, // alpha=128
+            0xad, 0x5e, 0x5b, 0x46, // CRC
             // IDAT
-            0x00, 0x00, 0x00, 0x0a,
-            0x49, 0x44, 0x41, 0x54,
-            0x78, 0xda, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
-            0xe5, 0x27, 0xde, 0xfc,
-            // IEND
-            0x00, 0x00, 0x00, 0x00,
-            0x49, 0x45, 0x4e, 0x44,
-            0xae, 0x42, 0x60, 0x82,
+            0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x60, 0x00, 0x00,
+            0x00, 0x02, 0x00, 0x01, 0xe5, 0x27, 0xde, 0xfc, // IEND
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
         ]
     }
 

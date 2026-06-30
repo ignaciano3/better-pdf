@@ -1,12 +1,12 @@
 //! Draw engine: apply draw ops (text, images, etc.) to existing PDF pages via
 //! incremental update.
 
-use lopdf::{dictionary, Dictionary, IncrementalDocument, Object, ObjectId, Stream};
+use lopdf::{Dictionary, IncrementalDocument, Object, ObjectId, Stream, dictionary};
 use serde::Deserialize;
 
 use crate::appearance::{encode_winansi, escape_pdf_literal};
+use crate::fonts::{BuiltFont, EmbeddedFontInput, build_embedded_font};
 use std::io::Write;
-use crate::fonts::{build_embedded_font, BuiltFont, EmbeddedFontInput};
 
 fn default_true() -> bool {
     true
@@ -172,9 +172,22 @@ pub(crate) enum DrawOp {
 #[derive(Deserialize, Clone)]
 #[serde(tag = "t", rename_all = "lowercase")]
 pub(crate) enum Seg {
-    M { x: f32, y: f32 },
-    L { x: f32, y: f32 },
-    C { x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32 },
+    M {
+        x: f32,
+        y: f32,
+    },
+    L {
+        x: f32,
+        y: f32,
+    },
+    C {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        x: f32,
+        y: f32,
+    },
     Z,
 }
 
@@ -297,11 +310,17 @@ pub(crate) fn emit_text_block(
     if let Some(deg) = rotate {
         let t = deg.to_radians();
         let (sin_, cos_) = (t.sin(), t.cos());
-        writeln!(out, 
-                "{} {} {} {} {} {} cm",
-                fmt_num(cos_), fmt_num(sin_), fmt_num(-sin_), fmt_num(cos_),
-                fmt_num(x), fmt_num(y)
-            ).unwrap();
+        writeln!(
+            out,
+            "{} {} {} {} {} {} cm",
+            fmt_num(cos_),
+            fmt_num(sin_),
+            fmt_num(-sin_),
+            fmt_num(cos_),
+            fmt_num(x),
+            fmt_num(y)
+        )
+        .unwrap();
     }
     out.extend_from_slice(b"BT\n");
     writeln!(out, "/{font_key} {} Tf", fmt_num(size)).unwrap();
@@ -356,11 +375,17 @@ pub(crate) fn emit_text_block_cid(
     if let Some(deg) = rotate {
         let t = deg.to_radians();
         let (sin_, cos_) = (t.sin(), t.cos());
-        writeln!(out, 
-                "{} {} {} {} {} {} cm",
-                fmt_num(cos_), fmt_num(sin_), fmt_num(-sin_), fmt_num(cos_),
-                fmt_num(x), fmt_num(y)
-            ).unwrap();
+        writeln!(
+            out,
+            "{} {} {} {} {} {} cm",
+            fmt_num(cos_),
+            fmt_num(sin_),
+            fmt_num(-sin_),
+            fmt_num(cos_),
+            fmt_num(x),
+            fmt_num(y)
+        )
+        .unwrap();
     }
     out.extend_from_slice(b"BT\n");
     writeln!(out, "/{font_key} {} Tf", fmt_num(size)).unwrap();
@@ -373,7 +398,9 @@ pub(crate) fn emit_text_block_cid(
     }
     for (i, line) in gids_per_line.iter().enumerate() {
         let mut hex = String::with_capacity(line.len() * 4);
-        for gid in line { hex.push_str(&format!("{gid:04X}")); }
+        for gid in line {
+            hex.push_str(&format!("{gid:04X}"));
+        }
         if i == 0 {
             writeln!(out, "<{hex}> Tj").unwrap();
         } else {
@@ -403,7 +430,15 @@ pub(crate) fn emit_placement(
     y_skew: f32,
 ) {
     if rotate == 0.0 && x_skew == 0.0 && y_skew == 0.0 {
-        writeln!(out, "{} 0 0 {} {} {} cm", fmt_num(sx), fmt_num(sy), fmt_num(x), fmt_num(y)).unwrap();
+        writeln!(
+            out,
+            "{} 0 0 {} {} {} cm",
+            fmt_num(sx),
+            fmt_num(sy),
+            fmt_num(x),
+            fmt_num(y)
+        )
+        .unwrap();
         return;
     }
     // translate to the placement point
@@ -411,23 +446,27 @@ pub(crate) fn emit_placement(
     // rotate about that point
     if rotate != 0.0 {
         let r = rotate.to_radians();
-        writeln!(out, 
-                "{} {} {} {} 0 0 cm",
-                fmt_num(r.cos()),
-                fmt_num(r.sin()),
-                fmt_num(-r.sin()),
-                fmt_num(r.cos())
-            ).unwrap();
+        writeln!(
+            out,
+            "{} {} {} {} 0 0 cm",
+            fmt_num(r.cos()),
+            fmt_num(r.sin()),
+            fmt_num(-r.sin()),
+            fmt_num(r.cos())
+        )
+        .unwrap();
     }
     // scale to the target box
     writeln!(out, "{} 0 0 {} 0 0 cm", fmt_num(sx), fmt_num(sy)).unwrap();
     // skew (pdf-lib: [1, tan(yskew), tan(xskew), 1])
     if x_skew != 0.0 || y_skew != 0.0 {
-        writeln!(out, 
-                "1 {} {} 1 0 0 cm",
-                fmt_num(y_skew.to_radians().tan()),
-                fmt_num(x_skew.to_radians().tan())
-            ).unwrap();
+        writeln!(
+            out,
+            "1 {} {} 1 0 0 cm",
+            fmt_num(y_skew.to_radians().tan()),
+            fmt_num(x_skew.to_radians().tan())
+        )
+        .unwrap();
     }
 }
 
@@ -532,7 +571,15 @@ pub(crate) fn emit_rectangle(
         writeln!(out, "{} w", fmt_num(border_width.unwrap_or(1.0))).unwrap();
         emit_dash(out, dash, dash_phase);
     }
-    writeln!(out, "{} {} {} {} re", fmt_num(x), fmt_num(y), fmt_num(w), fmt_num(h)).unwrap();
+    writeln!(
+        out,
+        "{} {} {} {} re",
+        fmt_num(x),
+        fmt_num(y),
+        fmt_num(w),
+        fmt_num(h)
+    )
+    .unwrap();
     out.extend_from_slice(paint_op(fill.is_some(), border.is_some()).as_bytes());
     out.extend_from_slice(b"\nQ\n");
 }
@@ -568,42 +615,50 @@ pub(crate) fn emit_ellipse(
     }
     // Start at right vertex, go counter-clockwise.
     writeln!(out, "{} {} m", fmt_num(cx + rx), fmt_num(cy)).unwrap();
-    writeln!(out, 
-            "{} {} {} {} {} {} c",
-            fmt_num(cx + rx),
-            fmt_num(cy + oy),
-            fmt_num(cx + ox),
-            fmt_num(cy + ry),
-            fmt_num(cx),
-            fmt_num(cy + ry)
-        ).unwrap();
-    writeln!(out, 
-            "{} {} {} {} {} {} c",
-            fmt_num(cx - ox),
-            fmt_num(cy + ry),
-            fmt_num(cx - rx),
-            fmt_num(cy + oy),
-            fmt_num(cx - rx),
-            fmt_num(cy)
-        ).unwrap();
-    writeln!(out, 
-            "{} {} {} {} {} {} c",
-            fmt_num(cx - rx),
-            fmt_num(cy - oy),
-            fmt_num(cx - ox),
-            fmt_num(cy - ry),
-            fmt_num(cx),
-            fmt_num(cy - ry)
-        ).unwrap();
-    writeln!(out, 
-            "{} {} {} {} {} {} c",
-            fmt_num(cx + ox),
-            fmt_num(cy - ry),
-            fmt_num(cx + rx),
-            fmt_num(cy - oy),
-            fmt_num(cx + rx),
-            fmt_num(cy)
-        ).unwrap();
+    writeln!(
+        out,
+        "{} {} {} {} {} {} c",
+        fmt_num(cx + rx),
+        fmt_num(cy + oy),
+        fmt_num(cx + ox),
+        fmt_num(cy + ry),
+        fmt_num(cx),
+        fmt_num(cy + ry)
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "{} {} {} {} {} {} c",
+        fmt_num(cx - ox),
+        fmt_num(cy + ry),
+        fmt_num(cx - rx),
+        fmt_num(cy + oy),
+        fmt_num(cx - rx),
+        fmt_num(cy)
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "{} {} {} {} {} {} c",
+        fmt_num(cx - rx),
+        fmt_num(cy - oy),
+        fmt_num(cx - ox),
+        fmt_num(cy - ry),
+        fmt_num(cx),
+        fmt_num(cy - ry)
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "{} {} {} {} {} {} c",
+        fmt_num(cx + ox),
+        fmt_num(cy - ry),
+        fmt_num(cx + rx),
+        fmt_num(cy - oy),
+        fmt_num(cx + rx),
+        fmt_num(cy)
+    )
+    .unwrap();
     out.extend_from_slice(b"h\n");
     out.extend_from_slice(paint_op(fill.is_some(), border.is_some()).as_bytes());
     out.extend_from_slice(b"\nQ\n");
@@ -640,13 +695,25 @@ pub(crate) fn emit_path(
             Seg::L { x, y } => {
                 writeln!(out, "{} {} l", fmt_num(*x), fmt_num(*y)).unwrap();
             }
-            Seg::C { x1, y1, x2, y2, x, y } => {
-                writeln!(out, 
-                        "{} {} {} {} {} {} c",
-                        fmt_num(*x1), fmt_num(*y1),
-                        fmt_num(*x2), fmt_num(*y2),
-                        fmt_num(*x),  fmt_num(*y)
-                    ).unwrap();
+            Seg::C {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
+                writeln!(
+                    out,
+                    "{} {} {} {} {} {} c",
+                    fmt_num(*x1),
+                    fmt_num(*y1),
+                    fmt_num(*x2),
+                    fmt_num(*y2),
+                    fmt_num(*x),
+                    fmt_num(*y)
+                )
+                .unwrap();
             }
             Seg::Z => {
                 out.extend_from_slice(b"h\n");
@@ -745,7 +812,13 @@ pub(crate) fn register_extgstate(
                 .and_then(Object::as_dict_mut)
                 .ok()
                 .and_then(|res| res.get(b"ExtGState").ok().cloned())
-                .and_then(|obj| if let Object::Reference(id) = obj { Some(id) } else { None });
+                .and_then(|obj| {
+                    if let Object::Reference(id) = obj {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                });
             if let Some(sub_id) = extgstate_sub_ref {
                 inc.opt_clone_object_to_new_document(sub_id)
                     .map_err(|e| e.to_string())?;
@@ -803,7 +876,13 @@ pub(crate) fn register_xobject(
                 .and_then(Object::as_dict_mut)
                 .ok()
                 .and_then(|res| res.get(b"XObject").ok().cloned())
-                .and_then(|obj| if let Object::Reference(id) = obj { Some(id) } else { None });
+                .and_then(|obj| {
+                    if let Object::Reference(id) = obj {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                });
             if let Some(sub_id) = xobject_sub_ref {
                 inc.opt_clone_object_to_new_document(sub_id)
                     .map_err(|e| e.to_string())?;
@@ -851,7 +930,13 @@ fn resolve_and_set_subdict(
         .and_then(Object::as_dict)
         .ok()
         .and_then(|d| d.get(subdict_key).ok().cloned())
-        .and_then(|obj| if let Object::Reference(id) = obj { Some(id) } else { None });
+        .and_then(|obj| {
+            if let Object::Reference(id) = obj {
+                Some(id)
+            } else {
+                None
+            }
+        });
 
     match subdict_ref {
         Some(sub_id) => {
@@ -969,7 +1054,15 @@ fn validate_draw_ops(
     // Validate ALL ops before mutating anything
     for op in ops {
         match op {
-            DrawOp::Text { page, font, font_id, opacity, rotate, max_width, .. } => {
+            DrawOp::Text {
+                page,
+                font,
+                font_id,
+                opacity,
+                rotate,
+                max_width,
+                ..
+            } => {
                 check_page(*page, page_count)?;
                 if let Some(i) = font_id {
                     if *i >= font_descs.len() {
@@ -980,13 +1073,15 @@ fn validate_draw_ops(
                 }
                 check_opacity(opacity)?;
                 if let Some(deg) = rotate
-                    && !deg.is_finite() {
-                        return Err("invalid rotation".to_string());
-                    }
+                    && !deg.is_finite()
+                {
+                    return Err("invalid rotation".to_string());
+                }
                 if let Some(mw) = max_width
-                    && (!mw.is_finite() || *mw <= 0.0) {
-                        return Err("maxWidth must be > 0".to_string());
-                    }
+                    && (!mw.is_finite() || *mw <= 0.0)
+                {
+                    return Err("maxWidth must be > 0".to_string());
+                }
             }
             DrawOp::Image {
                 page,
@@ -1035,15 +1130,19 @@ fn validate_draw_ops(
                 thickness,
                 color,
                 opacity,
-                x1, y1, x2, y2,
+                x1,
+                y1,
+                x2,
+                y2,
                 ..
             } => {
                 check_page(*page, page_count)?;
                 check_opacity(opacity)?;
                 if let Some(t) = thickness
-                    && (!t.is_finite() || *t < 0.0) {
-                        return Err("thickness must be >= 0".to_string());
-                    }
+                    && (!t.is_finite() || *t < 0.0)
+                {
+                    return Err("thickness must be >= 0".to_string());
+                }
                 check_finite(&[*x1, *y1, *x2, *y2], "invalid coordinate")?;
                 check_color(color)?;
             }
@@ -1053,15 +1152,19 @@ fn validate_draw_ops(
                 border_color,
                 border_width,
                 opacity,
-                x, y, width, height,
+                x,
+                y,
+                width,
+                height,
                 ..
             } => {
                 check_page(*page, page_count)?;
                 check_opacity(opacity)?;
                 if let Some(bw) = border_width
-                    && (!bw.is_finite() || *bw < 0.0) {
-                        return Err("borderWidth must be >= 0".to_string());
-                    }
+                    && (!bw.is_finite() || *bw < 0.0)
+                {
+                    return Err("borderWidth must be >= 0".to_string());
+                }
                 check_finite(&[*x, *y, *width, *height], "invalid coordinate")?;
                 if *width <= 0.0 {
                     return Err("width must be > 0".to_string());
@@ -1078,15 +1181,19 @@ fn validate_draw_ops(
                 border_color,
                 border_width,
                 opacity,
-                x, y, x_scale, y_scale,
+                x,
+                y,
+                x_scale,
+                y_scale,
                 ..
             } => {
                 check_page(*page, page_count)?;
                 check_opacity(opacity)?;
                 if let Some(bw) = border_width
-                    && (!bw.is_finite() || *bw < 0.0) {
-                        return Err("borderWidth must be >= 0".to_string());
-                    }
+                    && (!bw.is_finite() || *bw < 0.0)
+                {
+                    return Err("borderWidth must be >= 0".to_string());
+                }
                 check_finite(&[*x, *y, *x_scale, *y_scale], "invalid coordinate")?;
                 if *x_scale <= 0.0 {
                     return Err("xScale must be > 0".to_string());
@@ -1110,7 +1217,12 @@ fn validate_draw_ops(
                     return Err("invalid media box".to_string());
                 }
             }
-            DrawOp::Link { page, rect, uri, go_to_page } => {
+            DrawOp::Link {
+                page,
+                rect,
+                uri,
+                go_to_page,
+            } => {
                 check_page(*page, page_count)?;
                 match (uri.is_some(), go_to_page.is_some()) {
                     (true, true) => {
@@ -1126,9 +1238,12 @@ fn validate_draw_ops(
                     return Err("invalid link rect".to_string());
                 }
                 if let Some(target) = go_to_page
-                    && *target >= page_count {
-                        return Err(format!("goToPage {target} out of range ({page_count} pages)"));
-                    }
+                    && *target >= page_count
+                {
+                    return Err(format!(
+                        "goToPage {target} out of range ({page_count} pages)"
+                    ));
+                }
             }
             DrawOp::Path {
                 page,
@@ -1145,13 +1260,21 @@ fn validate_draw_ops(
                 }
                 check_opacity(opacity)?;
                 if let Some(sw) = stroke_width
-                    && (!sw.is_finite() || *sw < 0.0) {
-                        return Err("strokeWidth must be >= 0".to_string());
-                    }
+                    && (!sw.is_finite() || *sw < 0.0)
+                {
+                    return Err("strokeWidth must be >= 0".to_string());
+                }
                 for seg in segments.iter() {
                     let coords: Vec<f32> = match seg {
                         Seg::M { x, y } | Seg::L { x, y } => vec![*x, *y],
-                        Seg::C { x1, y1, x2, y2, x, y } => vec![*x1, *y1, *x2, *y2, *x, *y],
+                        Seg::C {
+                            x1,
+                            y1,
+                            x2,
+                            y2,
+                            x,
+                            y,
+                        } => vec![*x1, *y1, *x2, *y2, *x, *y],
                         Seg::Z => vec![],
                     };
                     for &v in &coords {
@@ -1182,7 +1305,12 @@ fn embed_fonts(
     let mut used_per_font: std::collections::HashMap<usize, std::collections::BTreeSet<char>> =
         std::collections::HashMap::new();
     for op in ops {
-        if let DrawOp::Text { font_id: Some(i), text, .. } = op {
+        if let DrawOp::Text {
+            font_id: Some(i),
+            text,
+            ..
+        } = op
+        {
             used_per_font.entry(*i).or_default().extend(text.chars());
         }
     }
@@ -1216,12 +1344,14 @@ fn emit_page_ops(
     images: &[u8],
 ) -> Result<(), String> {
     // Create q and Q streams once, shared across all touched pages
-    let q_id = inc
-        .new_document
-        .add_object(Object::Stream(Stream::new(Dictionary::new(), b"q\n".to_vec())));
-    let q_ref_id = inc
-        .new_document
-        .add_object(Object::Stream(Stream::new(Dictionary::new(), b"Q\n".to_vec())));
+    let q_id = inc.new_document.add_object(Object::Stream(Stream::new(
+        Dictionary::new(),
+        b"q\n".to_vec(),
+    )));
+    let q_ref_id = inc.new_document.add_object(Object::Stream(Stream::new(
+        Dictionary::new(),
+        b"Q\n".to_vec(),
+    )));
 
     // Pre-create font objects (one per unique font used, keyed by STANDARD_14 index)
     let mut font_cache: std::collections::HashMap<usize, ObjectId> =
@@ -1266,12 +1396,8 @@ fn emit_page_ops(
                     page: _,
                 } => {
                     // Register ExtGState for opacity if present
-                    let gs_key = alloc_opacity_gs(
-                        opacity,
-                        &mut gs_counter,
-                        &mut extgstates_on_page,
-                        inc,
-                    );
+                    let gs_key =
+                        alloc_opacity_gs(opacity, &mut gs_counter, &mut extgstates_on_page, inc);
 
                     // Word-wrap server-side when maxWidth is set: one source of
                     // truth (vs. the old per-word measurement across the WASM
@@ -1319,7 +1445,9 @@ fn emit_page_ops(
                         let font_idx = standard_14_index(font.as_str()).unwrap();
 
                         // Ensure font object exists
-                        if let std::collections::hash_map::Entry::Vacant(e) = font_cache.entry(font_idx) {
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            font_cache.entry(font_idx)
+                        {
                             let fid = inc
                                 .new_document
                                 .add_object(Object::Dictionary(font_dict(font)));
@@ -1355,24 +1483,27 @@ fn emit_page_ops(
                     y_skew,
                     page: _,
                 } => {
-                    let gs_key = alloc_opacity_gs(
-                        opacity,
-                        &mut gs_counter,
-                        &mut extgstates_on_page,
-                        inc,
-                    );
+                    let gs_key =
+                        alloc_opacity_gs(opacity, &mut gs_counter, &mut extgstates_on_page, inc);
                     let end = image_offset + image_length;
                     let bytes = &images[*image_offset..end];
                     let img = crate::appearance::signature_image(bytes)?;
-                    let xid = crate::appearance::build_image_xobjects(
-                        img,
-                        &mut |o| inc.new_document.add_object(o),
-                    );
+                    let xid = crate::appearance::build_image_xobjects(img, &mut |o| {
+                        inc.new_document.add_object(o)
+                    });
                     let key = format!("BPI{img_counter}");
                     img_counter += 1;
                     emit_image_op(
-                        &mut stream_content, &key, *x, *y, *width, *height,
-                        gs_key.as_deref(), *rotate, *x_skew, *y_skew,
+                        &mut stream_content,
+                        &key,
+                        *x,
+                        *y,
+                        *width,
+                        *height,
+                        gs_key.as_deref(),
+                        *rotate,
+                        *x_skew,
+                        *y_skew,
                     );
                     xobjects_on_page.push((key, xid));
                 }
@@ -1390,12 +1521,8 @@ fn emit_page_ops(
                     y_skew,
                     page: _,
                 } => {
-                    let gs_key = alloc_opacity_gs(
-                        opacity,
-                        &mut gs_counter,
-                        &mut extgstates_on_page,
-                        inc,
-                    );
+                    let gs_key =
+                        alloc_opacity_gs(opacity, &mut gs_counter, &mut extgstates_on_page, inc);
                     let end = image_offset + image_length;
                     let src = &images[*image_offset..end];
                     // embed_page_as_xobject borrows new_document mutably; the draw
@@ -1410,15 +1537,24 @@ fn emit_page_ops(
                         writeln!(stream_content, "/{k} gs").unwrap();
                     }
                     emit_placement(
-                        &mut stream_content, *x, *y, *width / bw, *height / bh,
-                        *rotate, *x_skew, *y_skew,
+                        &mut stream_content,
+                        *x,
+                        *y,
+                        *width / bw,
+                        *height / bh,
+                        *rotate,
+                        *x_skew,
+                        *y_skew,
                     );
                     writeln!(stream_content, "/{key} Do").unwrap();
                     stream_content.extend_from_slice(b"Q\n");
                     xobjects_on_page.push((key, xid));
                 }
                 DrawOp::Line {
-                    x1, y1, x2, y2,
+                    x1,
+                    y1,
+                    x2,
+                    y2,
                     thickness,
                     color,
                     opacity,
@@ -1426,16 +1562,15 @@ fn emit_page_ops(
                     dash_phase,
                     page: _,
                 } => {
-                    let gs_key = alloc_opacity_gs(
-                        opacity,
-                        &mut gs_counter,
-                        &mut extgstates_on_page,
-                        inc,
-                    );
+                    let gs_key =
+                        alloc_opacity_gs(opacity, &mut gs_counter, &mut extgstates_on_page, inc);
                     emit_line(
                         &mut stream_content,
                         gs_key.as_deref(),
-                        *x1, *y1, *x2, *y2,
+                        *x1,
+                        *y1,
+                        *x2,
+                        *y2,
                         thickness.unwrap_or(1.0),
                         color.unwrap_or([0.0, 0.0, 0.0]),
                         dash,
@@ -1443,7 +1578,10 @@ fn emit_page_ops(
                     );
                 }
                 DrawOp::Rectangle {
-                    x, y, width, height,
+                    x,
+                    y,
+                    width,
+                    height,
                     color,
                     border_color,
                     border_width,
@@ -1452,16 +1590,15 @@ fn emit_page_ops(
                     dash_phase,
                     page: _,
                 } => {
-                    let gs_key = alloc_opacity_gs(
-                        opacity,
-                        &mut gs_counter,
-                        &mut extgstates_on_page,
-                        inc,
-                    );
+                    let gs_key =
+                        alloc_opacity_gs(opacity, &mut gs_counter, &mut extgstates_on_page, inc);
                     emit_rectangle(
                         &mut stream_content,
                         gs_key.as_deref(),
-                        *x, *y, *width, *height,
+                        *x,
+                        *y,
+                        *width,
+                        *height,
                         *color,
                         *border_color,
                         *border_width,
@@ -1470,7 +1607,10 @@ fn emit_page_ops(
                     );
                 }
                 DrawOp::Ellipse {
-                    x, y, x_scale, y_scale,
+                    x,
+                    y,
+                    x_scale,
+                    y_scale,
                     color,
                     border_color,
                     border_width,
@@ -1479,16 +1619,15 @@ fn emit_page_ops(
                     dash_phase,
                     page: _,
                 } => {
-                    let gs_key = alloc_opacity_gs(
-                        opacity,
-                        &mut gs_counter,
-                        &mut extgstates_on_page,
-                        inc,
-                    );
+                    let gs_key =
+                        alloc_opacity_gs(opacity, &mut gs_counter, &mut extgstates_on_page, inc);
                     emit_ellipse(
                         &mut stream_content,
                         gs_key.as_deref(),
-                        *x, *y, *x_scale, *y_scale,
+                        *x,
+                        *y,
+                        *x_scale,
+                        *y_scale,
                         *color,
                         *border_color,
                         *border_width,
@@ -1506,12 +1645,8 @@ fn emit_page_ops(
                     dash_phase,
                     page: _,
                 } => {
-                    let gs_key = alloc_opacity_gs(
-                        opacity,
-                        &mut gs_counter,
-                        &mut extgstates_on_page,
-                        inc,
-                    );
+                    let gs_key =
+                        alloc_opacity_gs(opacity, &mut gs_counter, &mut extgstates_on_page, inc);
                     emit_path(
                         &mut stream_content,
                         gs_key.as_deref(),
@@ -1525,9 +1660,7 @@ fn emit_page_ops(
                 }
                 // Mutation/annotation ops produce no content; applied to the
                 // page dict after clone.
-                DrawOp::SetRotation { .. }
-                | DrawOp::SetMediaBox { .. }
-                | DrawOp::Link { .. } => {}
+                DrawOp::SetRotation { .. } | DrawOp::SetMediaBox { .. } | DrawOp::Link { .. } => {}
             }
         }
 
@@ -1563,26 +1696,28 @@ fn emit_page_ops(
 
         // Append link annotations to the cloned page's /Annots.
         for op in page_op_list {
-            if let DrawOp::Link { rect, uri, go_to_page, .. } = op {
+            if let DrawOp::Link {
+                rect,
+                uri,
+                go_to_page,
+                ..
+            } = op
+            {
                 // Resolve the destination page id (for goToPage) the same way we
                 // resolve the current page id: from the prev doc's sorted pages.
-                let dest_page = match go_to_page {
-                    Some(target) => {
-                        let prev = inc.get_prev_documents();
-                        let mut sorted: Vec<(u32, ObjectId)> =
-                            prev.get_pages().into_iter().collect();
-                        sorted.sort_by_key(|(num, _)| *num);
-                        Some(
-                            sorted
-                                .get(*target)
-                                .map(|(_, id)| *id)
-                                .ok_or_else(|| {
-                                    format!("link goToPage index {target} out of range")
-                                })?,
-                        )
-                    }
-                    None => None,
-                };
+                let dest_page =
+                    match go_to_page {
+                        Some(target) => {
+                            let prev = inc.get_prev_documents();
+                            let mut sorted: Vec<(u32, ObjectId)> =
+                                prev.get_pages().into_iter().collect();
+                            sorted.sort_by_key(|(num, _)| *num);
+                            Some(sorted.get(*target).map(|(_, id)| *id).ok_or_else(|| {
+                                format!("link goToPage index {target} out of range")
+                            })?)
+                        }
+                        None => None,
+                    };
                 let annot = link_annot_dict(*rect, uri.as_deref(), dest_page);
                 let annot_id = inc.new_document.add_object(Object::Dictionary(annot));
                 append_annot_to_page(inc, page_id, annot_id)?;
@@ -1601,10 +1736,8 @@ fn emit_page_ops(
             // Build new Contents array: [q_ref, ...original, Q_ref, draw_ref...]
             // Read and clone the existing Contents value first so the borrow ends
             // before we mutate inc.new_document (needed for Issue 2 below).
-            let existing_contents: Option<Object> = dict_mut(inc, page_id)?
-                .get(b"Contents")
-                .ok()
-                .cloned();
+            let existing_contents: Option<Object> =
+                dict_mut(inc, page_id)?.get(b"Contents").ok().cloned();
 
             // Issue 3: missing /Contents is valid (blank page); treat as empty.
             // Issue 2: a direct Stream in /Contents must be made indirect —
@@ -1614,9 +1747,7 @@ fn emit_page_ops(
                 Some(Object::Array(a)) => a,
                 Some(Object::Stream(s)) => {
                     // Direct stream — make it indirect so the array only holds refs.
-                    let indirect_id = inc
-                        .new_document
-                        .add_object(Object::Stream(s));
+                    let indirect_id = inc.new_document.add_object(Object::Stream(s));
                     vec![Object::Reference(indirect_id)]
                 }
                 Some(single) => vec![single],
@@ -1703,7 +1834,13 @@ fn register_font(
                 .and_then(Object::as_dict_mut)
                 .ok()
                 .and_then(|res| res.get(b"Font").ok().cloned())
-                .and_then(|obj| if let Object::Reference(id) = obj { Some(id) } else { None });
+                .and_then(|obj| {
+                    if let Object::Reference(id) = obj {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                });
             if let Some(sub_id) = font_sub_ref {
                 // Clone the indirect Font dict and mutate it directly
                 inc.opt_clone_object_to_new_document(sub_id)
@@ -1801,7 +1938,9 @@ mod tests {
         };
         let draw_id = arr.last().unwrap().as_reference().unwrap();
         let stream = doc.get_object(draw_id).unwrap().as_stream().unwrap();
-        let content = stream.decompressed_content().unwrap_or_else(|_| stream.content.clone());
+        let content = stream
+            .decompressed_content()
+            .unwrap_or_else(|_| stream.content.clone());
         String::from_utf8_lossy(&content).into_owned()
     }
 
@@ -1817,7 +1956,9 @@ mod tests {
     }
 
     /// 1×1 RGBA PNG — explicit alias so new tests are self-documenting.
-    fn tiny_rgba_png() -> &'static [u8] { tiny_png() }
+    fn tiny_rgba_png() -> &'static [u8] {
+        tiny_png()
+    }
 
     /// 1×1 opaque RGB PNG (color_type=2) — no alpha channel.
     fn tiny_rgb_png() -> &'static [u8] {
@@ -1869,54 +2010,120 @@ mod tests {
             r#"[{{"op":"page","page":0,"x":0,"y":0,"width":300,"height":400,"imageOffset":0,"imageLength":{len},"srcPage":0}}]"#
         );
         let out = apply_draw_ops_json(FICHA, &json, src, &[], "[]").unwrap();
-        assert!(page0_has_form_xobject(&out), "page 0 must carry a Form XObject");
+        assert!(
+            page0_has_form_xobject(&out),
+            "page 0 must carry a Form XObject"
+        );
         let content = last_draw_stream_content(&out);
-        assert!(content.contains("/BPp0 Do"), "draw stream missing /BPp0 Do: {content}");
+        assert!(
+            content.contains("/BPp0 Do"),
+            "draw stream missing /BPp0 Do: {content}"
+        );
     }
 
     #[test]
     fn set_rotation_persists() {
-        let out = apply_draw_ops_json(FICHA, r#"[{"op":"setRotation","page":0,"degrees":90}]"#, &[], &[], "[]").unwrap();
+        let out = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"setRotation","page":0,"degrees":90}]"#,
+            &[],
+            &[],
+            "[]",
+        )
+        .unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
-        let rot = doc.get_dictionary(pid).unwrap().get(b"Rotate").unwrap().as_i64().unwrap();
+        let rot = doc
+            .get_dictionary(pid)
+            .unwrap()
+            .get(b"Rotate")
+            .unwrap()
+            .as_i64()
+            .unwrap();
         assert_eq!(rot, 90);
     }
 
     #[test]
     fn set_rotation_normalizes_negative() {
-        let out = apply_draw_ops_json(FICHA, r#"[{"op":"setRotation","page":0,"degrees":-90}]"#, &[], &[], "[]").unwrap();
+        let out = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"setRotation","page":0,"degrees":-90}]"#,
+            &[],
+            &[],
+            "[]",
+        )
+        .unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
-        assert_eq!(doc.get_dictionary(pid).unwrap().get(b"Rotate").unwrap().as_i64().unwrap(), 270);
+        assert_eq!(
+            doc.get_dictionary(pid)
+                .unwrap()
+                .get(b"Rotate")
+                .unwrap()
+                .as_i64()
+                .unwrap(),
+            270
+        );
     }
 
     #[test]
     fn set_rotation_rejects_non_multiple_of_90() {
-        let r = apply_draw_ops_json(FICHA, r#"[{"op":"setRotation","page":0,"degrees":45}]"#, &[], &[], "[]");
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"setRotation","page":0,"degrees":45}]"#,
+            &[],
+            &[],
+            "[]",
+        );
         assert!(r.unwrap_err().contains("90"));
     }
 
     #[test]
     fn set_media_box_changes_dimensions() {
-        let out = apply_draw_ops_json(FICHA, r#"[{"op":"setMediaBox","page":0,"box":[0,0,200,300]}]"#, &[], &[], "[]").unwrap();
+        let out = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"setMediaBox","page":0,"box":[0,0,200,300]}]"#,
+            &[],
+            &[],
+            "[]",
+        )
+        .unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
-        let mb = doc.get_dictionary(pid).unwrap().get(b"MediaBox").unwrap().as_array().unwrap();
+        let mb = doc
+            .get_dictionary(pid)
+            .unwrap()
+            .get(b"MediaBox")
+            .unwrap()
+            .as_array()
+            .unwrap();
         assert!((mb[2].as_float().unwrap() - 200.0).abs() < 0.5);
         assert!((mb[3].as_float().unwrap() - 300.0).abs() < 0.5);
     }
 
     #[test]
     fn set_media_box_rejects_inverted() {
-        let r = apply_draw_ops_json(FICHA, r#"[{"op":"setMediaBox","page":0,"box":[100,0,50,300]}]"#, &[], &[], "[]");
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"setMediaBox","page":0,"box":[100,0,50,300]}]"#,
+            &[],
+            &[],
+            "[]",
+        );
         assert!(r.is_err());
     }
 
     #[test]
     fn rotation_only_page_has_no_empty_draw_stream_corruption() {
         // a page with only a mutation op must still reload cleanly
-        let out = apply_draw_ops_json(FICHA, r#"[{"op":"setRotation","page":0,"degrees":180}]"#, &[], &[], "[]").unwrap();
+        let out = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"setRotation","page":0,"degrees":180}]"#,
+            &[],
+            &[],
+            "[]",
+        )
+        .unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental
         assert!(Document::load_mem(&out).is_ok());
     }
@@ -1925,11 +2132,24 @@ mod tests {
     fn cid_text_block_emits_hex_glyph_string() {
         let mut out = Vec::new();
         // two lines, gids per line
-        emit_text_block_cid(&mut out, "BPE0", 50.0, 700.0, 12.0, [0.0,0.0,0.0],
-            &[vec![0x0048u16, 0x00E9u16], vec![0x0041u16]], None, None, None);
+        emit_text_block_cid(
+            &mut out,
+            "BPE0",
+            50.0,
+            700.0,
+            12.0,
+            [0.0, 0.0, 0.0],
+            &[vec![0x0048u16, 0x00E9u16], vec![0x0041u16]],
+            None,
+            None,
+            None,
+        );
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("/BPE0 12 Tf"), "content: {s}");
-        assert!(s.contains("<0048 00E9>") || s.contains("<004800E9>"), "hex glyph string missing: {s}");
+        assert!(
+            s.contains("<0048 00E9>") || s.contains("<004800E9>"),
+            "hex glyph string missing: {s}"
+        );
         assert_eq!(s.matches(" Tj").count(), 2, "one Tj per line: {s}");
         assert!(s.contains("BT") && s.contains("ET"));
     }
@@ -1961,19 +2181,28 @@ mod tests {
         );
         let s = last_draw_stream_content(&out);
         assert!(s.contains("Tf") && s.contains(" Tj"));
-        assert!(s.contains('<') && s.contains('>'), "should emit hex glyph string: {s}");
+        assert!(
+            s.contains('<') && s.contains('>'),
+            "should emit hex glyph string: {s}"
+        );
     }
 
     #[test]
     fn output_is_incremental() {
-        let out = ops(r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#, &[]);
+        let out = ops(
+            r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#,
+            &[],
+        );
         assert_eq!(&out[..FICHA.len()], FICHA);
         assert!(out.len() > FICHA.len());
     }
 
     #[test]
     fn page_contents_grow_and_balance() {
-        let out = ops(r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#, &[]);
+        let out = ops(
+            r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#,
+            &[],
+        );
         let doc = Document::load_mem(&out).unwrap();
         let (_, first) = doc.get_pages().into_iter().next().unwrap();
         let dict = doc.get_dictionary(first).unwrap();
@@ -1990,7 +2219,10 @@ mod tests {
 
     #[test]
     fn font_registered_in_page_resources() {
-        let out = ops(r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Times-Bold","color":[0,0,0],"text":"x"}]"#, &[]);
+        let out = ops(
+            r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Times-Bold","color":[0,0,0],"text":"x"}]"#,
+            &[],
+        );
         let doc = Document::load_mem(&out).unwrap();
         let (_, first) = doc.get_pages().into_iter().next().unwrap();
         let dict = doc.get_dictionary(first).unwrap();
@@ -2009,33 +2241,58 @@ mod tests {
 
     #[test]
     fn errors_on_bad_page() {
-        let r = apply_draw_ops_json(FICHA, r#"[{"op":"text","page":999,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#, &[], &[], "[]");
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"text","page":999,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#,
+            &[],
+            &[],
+            "[]",
+        );
         assert!(r.unwrap_err().contains("page"));
     }
 
     #[test]
     fn errors_on_unknown_font() {
-        let r = apply_draw_ops_json(FICHA, r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#, &[], &[], "[]");
+        let r = apply_draw_ops_json(
+            FICHA,
+            r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#,
+            &[],
+            &[],
+            "[]",
+        );
         assert!(r.unwrap_err().contains("font"));
     }
 
     #[test]
     fn multiline_emits_multiple_tj() {
-        let out = ops(r#"[{"op":"text","page":0,"x":50,"y":700,"size":12,"font":"Helvetica","color":[0,0,0],"text":"a\nb"}]"#, &[]);
+        let out = ops(
+            r#"[{"op":"text","page":0,"x":50,"y":700,"size":12,"font":"Helvetica","color":[0,0,0],"text":"a\nb"}]"#,
+            &[],
+        );
         let s = last_draw_stream_content(&out);
         assert!(s.matches(" Tj").count() == 2, "content was: {s}");
     }
 
     #[test]
     fn ops_on_same_page_are_absolutely_positioned() {
-        let out = ops(r#"[
+        let out = ops(
+            r#"[
             {"op":"text","page":0,"x":50,"y":700,"size":12,"font":"Helvetica","color":[0,0,0],"text":"first"},
             {"op":"text","page":0,"x":200,"y":300,"size":12,"font":"Helvetica","color":[0,0,0],"text":"second"}
-        ]"#, &[]);
+        ]"#,
+            &[],
+        );
         let s = last_draw_stream_content(&out);
-        assert_eq!(s.matches("BT").count(), 2, "one BT/ET block per op, content: {s}");
+        assert_eq!(
+            s.matches("BT").count(),
+            2,
+            "one BT/ET block per op, content: {s}"
+        );
         assert!(s.contains("50 700 Td"));
-        assert!(s.contains("200 300 Td"), "second op must be absolutely positioned, content: {s}");
+        assert!(
+            s.contains("200 300 Td"),
+            "second op must be absolutely positioned, content: {s}"
+        );
     }
 
     #[test]
@@ -2062,7 +2319,10 @@ mod tests {
             _ => panic!("expected XObject dict"),
         };
         let bpi_entry = xobjs.iter().find(|(k, _)| k.starts_with(b"BPI"));
-        assert!(bpi_entry.is_some(), "expected a BPI* key in XObject resources");
+        assert!(
+            bpi_entry.is_some(),
+            "expected a BPI* key in XObject resources"
+        );
 
         // Verify the XObject itself is an Image
         let xobj_ref = bpi_entry.unwrap().1.as_reference().unwrap();
@@ -2072,7 +2332,10 @@ mod tests {
 
         // Verify the draw stream references /BPI0 Do
         let s = last_draw_stream_content(&out);
-        assert!(s.contains("/BPI0 Do"), "draw stream should contain '/BPI0 Do', got: {s}");
+        assert!(
+            s.contains("/BPI0 Do"),
+            "draw stream should contain '/BPI0 Do', got: {s}"
+        );
     }
 
     #[test]
@@ -2096,17 +2359,27 @@ mod tests {
             lopdf::Object::Dictionary(d) => d.clone(),
             _ => panic!("expected XObject dict"),
         };
-        let bpi_entry = xobjs.iter().find(|(k, _)| k.starts_with(b"BPI"))
+        let bpi_entry = xobjs
+            .iter()
+            .find(|(k, _)| k.starts_with(b"BPI"))
             .expect("expected a BPI* key in XObject resources");
         let xobj_id = bpi_entry.1.as_reference().unwrap();
         let xobj_stream = doc.get_object(xobj_id).unwrap().as_stream().unwrap();
-        let smask_val = xobj_stream.dict.get(b"SMask")
+        let smask_val = xobj_stream
+            .dict
+            .get(b"SMask")
             .expect("alpha PNG image XObject should have /SMask");
-        let smask_id = smask_val.as_reference()
+        let smask_id = smask_val
+            .as_reference()
             .expect("/SMask should be an indirect reference");
         let smask_stream = doc.get_object(smask_id).unwrap().as_stream().unwrap();
         assert_eq!(
-            smask_stream.dict.get(b"ColorSpace").unwrap().as_name().unwrap(),
+            smask_stream
+                .dict
+                .get(b"ColorSpace")
+                .unwrap()
+                .as_name()
+                .unwrap(),
             b"DeviceGray",
             "/SMask image should have DeviceGray color space"
         );
@@ -2133,7 +2406,9 @@ mod tests {
             lopdf::Object::Dictionary(d) => d.clone(),
             _ => panic!("expected XObject dict"),
         };
-        let bpi_entry = xobjs.iter().find(|(k, _)| k.starts_with(b"BPI"))
+        let bpi_entry = xobjs
+            .iter()
+            .find(|(k, _)| k.starts_with(b"BPI"))
             .expect("expected a BPI* key in XObject resources");
         let xobj_id = bpi_entry.1.as_reference().unwrap();
         let xobj_stream = doc.get_object(xobj_id).unwrap().as_stream().unwrap();
@@ -2204,7 +2479,10 @@ mod tests {
             s.split_whitespace().any(|w| w == "f"),
             "missing standalone f paint operator, content: {s}"
         );
-        assert!(!s.contains('B'), "should not have B when no border, content: {s}");
+        assert!(
+            !s.contains('B'),
+            "should not have B when no border, content: {s}"
+        );
     }
 
     #[test]
@@ -2276,7 +2554,10 @@ mod tests {
             "[]",
         );
         let err = r.unwrap_err();
-        assert!(err.contains("opacity"), "expected opacity error, got: {err}");
+        assert!(
+            err.contains("opacity"),
+            "expected opacity error, got: {err}"
+        );
     }
 
     #[test]
@@ -2302,7 +2583,7 @@ mod tests {
     // stored as an indirect reference (lopdf stores it inline by default, so we promote it).
     #[test]
     fn font_registered_when_resources_font_is_indirect() {
-        use lopdf::{dictionary, Dictionary, Document, Object, Stream};
+        use lopdf::{Dictionary, Document, Object, Stream, dictionary};
 
         // Build a minimal 1-page PDF with /Resources/Font as an indirect object
         let mut doc = Document::with_version("1.7");
@@ -2317,10 +2598,8 @@ mod tests {
         let mut resources = Dictionary::new();
         resources.set("Font", Object::Reference(font_res_id));
 
-        let content_id = doc.add_object(Object::Stream(Stream::new(
-            Dictionary::new(),
-            b"".to_vec(),
-        )));
+        let content_id =
+            doc.add_object(Object::Stream(Stream::new(Dictionary::new(), b"".to_vec())));
         let page_dict = dictionary! {
             "Type" => Object::Name(b"Page".to_vec()),
             "Parent" => Object::Reference(pages_id),
@@ -2376,7 +2655,10 @@ mod tests {
         assert!(
             fonts.iter().any(|(k, _)| k.starts_with(b"BPF")),
             "new BPF font not found; fonts: {:?}",
-            fonts.iter().map(|(k, _)| String::from_utf8_lossy(k).into_owned()).collect::<Vec<_>>()
+            fonts
+                .iter()
+                .map(|(k, _)| String::from_utf8_lossy(k).into_owned())
+                .collect::<Vec<_>>()
         );
         assert!(
             fonts.has(b"ExistingFont"),
@@ -2393,8 +2675,13 @@ mod tests {
         );
         let s = last_draw_stream_content(&out);
         // Find last 'c' curve and ensure 'h' appears before the paint op
-        let h_pos = s.find("\nh\n").expect("missing closepath 'h' in ellipse content");
-        let paint_pos = s.rfind('B').or_else(|| s.rfind('f')).or_else(|| s.rfind('S'))
+        let h_pos = s
+            .find("\nh\n")
+            .expect("missing closepath 'h' in ellipse content");
+        let paint_pos = s
+            .rfind('B')
+            .or_else(|| s.rfind('f'))
+            .or_else(|| s.rfind('S'))
             .expect("missing paint operator");
         assert!(
             h_pos < paint_pos,
@@ -2484,7 +2771,9 @@ mod tests {
         let annots = resolve_annots(&doc, page);
         let link = annots
             .iter()
-            .find(|a| a.get(b"Subtype").ok().and_then(|s| s.as_name().ok()) == Some(b"Link".as_ref()))
+            .find(|a| {
+                a.get(b"Subtype").ok().and_then(|s| s.as_name().ok()) == Some(b"Link".as_ref())
+            })
             .expect("a /Link annot");
         assert_eq!(link.get(b"Subtype").unwrap().as_name().unwrap(), b"Link");
         let a = link.get(b"A").unwrap().as_dict().unwrap();
@@ -2506,7 +2795,10 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let annots = resolve_annots(&doc, doc.get_dictionary(pid).unwrap());
-        let link = annots.iter().find(|a| a.has(b"Dest")).expect("a link with /Dest");
+        let link = annots
+            .iter()
+            .find(|a| a.has(b"Dest"))
+            .expect("a link with /Dest");
         assert!(link.get(b"Dest").unwrap().as_array().is_ok());
     }
 
@@ -2556,7 +2848,10 @@ mod tests {
         let json = r#"[{"op":"path","page":0,"segments":[{"t":"m","x":0,"y":0},{"t":"l","x":10,"y":0},{"t":"l","x":10,"y":10},{"t":"z"}],"fill":[0,0,1]}]"#;
         let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap();
         let s = last_draw_stream_content(&out);
-        assert!(s.split_whitespace().any(|w| w == "f"), "fill-only path should paint with f: {s}");
+        assert!(
+            s.split_whitespace().any(|w| w == "f"),
+            "fill-only path should paint with f: {s}"
+        );
     }
 
     #[test]
@@ -2564,7 +2859,10 @@ mod tests {
         let json = r#"[{"op":"path","page":0,"segments":[{"t":"m","x":0,"y":0},{"t":"l","x":10,"y":10}],"stroke":[0,0,0],"opacity":0.5}]"#;
         let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap();
         let s = last_draw_stream_content(&out);
-        assert!(s.contains("/BPG"), "opacity should reference an ExtGState: {s}");
+        assert!(
+            s.contains("/BPG"),
+            "opacity should reference an ExtGState: {s}"
+        );
     }
 
     #[test]
@@ -2578,7 +2876,10 @@ mod tests {
     fn path_rejects_empty_segments() {
         let json = r#"[{"op":"path","page":0,"segments":[],"stroke":[0,0,0]}]"#;
         let err = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap_err();
-        assert!(err.contains("segment"), "expected segment error, got: {err}");
+        assert!(
+            err.contains("segment"),
+            "expected segment error, got: {err}"
+        );
     }
 
     // ── M34: text rotation + opacity ─────────────────────────────────────────
@@ -2590,8 +2891,14 @@ mod tests {
             &[], &[], "[]").unwrap();
         let s = last_draw_stream_content(&out);
         assert!(s.contains(" cm"), "rotation must emit a cm matrix: {s}");
-        assert!(s.contains("q") && s.contains("Q"), "rotated text wrapped in q/Q: {s}");
-        assert!(s.contains("0 0 Td"), "rotated text uses Td 0 0 (cm positions): {s}");
+        assert!(
+            s.contains("q") && s.contains("Q"),
+            "rotated text wrapped in q/Q: {s}"
+        );
+        assert!(
+            s.contains("0 0 Td"),
+            "rotated text uses Td 0 0 (cm positions): {s}"
+        );
     }
 
     #[test]
@@ -2600,7 +2907,10 @@ mod tests {
             r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"wm","opacity":0.3}]"#,
             &[], &[], "[]").unwrap();
         let s = last_draw_stream_content(&out);
-        assert!(s.contains("/BPG"), "opacity text references an ExtGState: {s}");
+        assert!(
+            s.contains("/BPG"),
+            "opacity text references an ExtGState: {s}"
+        );
     }
 
     #[test]

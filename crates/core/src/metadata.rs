@@ -84,9 +84,7 @@ pub fn read_metadata_json(data: &[u8]) -> Result<String, String> {
     let doc = crate::doc_io::load_pdf(data)?;
 
     let info_dict: Option<Dictionary> = match doc.trailer.get(b"Info") {
-        Ok(Object::Reference(id)) => {
-            doc.get_dictionary(*id).ok().cloned()
-        }
+        Ok(Object::Reference(id)) => doc.get_dictionary(*id).ok().cloned(),
         Ok(Object::Dictionary(d)) => Some(d.clone()),
         _ => None,
     };
@@ -112,7 +110,8 @@ pub fn read_metadata_json(data: &[u8]) -> Result<String, String> {
 /// Apply metadata changes from a JSON string to `data` and return new PDF bytes
 /// (incremental update). Unspecified keys from the existing Info dict are preserved.
 pub fn set_metadata_json(data: &[u8], meta_json: &str) -> Result<Vec<u8>, String> {
-    let meta: Metadata = serde_json::from_str(meta_json).map_err(|e| format!("invalid metadata json: {e}"))?;
+    let meta: Metadata =
+        serde_json::from_str(meta_json).map_err(|e| format!("invalid metadata json: {e}"))?;
 
     let doc = crate::doc_io::load_pdf(data)?;
     let existing_info = read_existing_info(&doc);
@@ -167,7 +166,8 @@ mod tests {
 
     #[test]
     fn set_then_read_round_trips() {
-        let out = set_metadata_json(FICHA, r#"{"title":"Quarterly Report","author":"ACME"}"#).unwrap();
+        let out =
+            set_metadata_json(FICHA, r#"{"title":"Quarterly Report","author":"ACME"}"#).unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental: original preserved
         let json = read_metadata_json(&out).unwrap();
         assert!(json.contains("Quarterly Report"), "json was {json}");
@@ -176,7 +176,8 @@ mod tests {
 
     #[test]
     fn non_ascii_metadata_round_trips() {
-        let out = set_metadata_json(FICHA, r#"{"title":"日本語のタイトル","author":"Renée"}"#).unwrap();
+        let out =
+            set_metadata_json(FICHA, r#"{"title":"日本語のタイトル","author":"Renée"}"#).unwrap();
         let json = read_metadata_json(&out).unwrap();
         assert!(json.contains("日本語のタイトル"), "json: {json}");
         assert!(json.contains("Renée"), "json: {json}");
