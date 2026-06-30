@@ -915,6 +915,44 @@ pub(crate) fn draw_apply(
     fonts: &[u8],
     font_descs: &[FontDesc],
 ) -> Result<(), String> {
+    validate_draw_ops(inc, ops, images, fonts, font_descs)?;
+
+    // Group ops by page index (preserving op order within each page)
+    let mut page_ops: Vec<(usize, Vec<&DrawOp>)> = Vec::new();
+    for op in ops {
+        let page_idx = match op {
+            DrawOp::Text { page, .. } => *page,
+            DrawOp::Image { page, .. } => *page,
+            DrawOp::Line { page, .. } => *page,
+            DrawOp::Rectangle { page, .. } => *page,
+            DrawOp::Ellipse { page, .. } => *page,
+            DrawOp::Page { page, .. } => *page,
+            DrawOp::SetRotation { page, .. } => *page,
+            DrawOp::SetMediaBox { page, .. } => *page,
+            DrawOp::Link { page, .. } => *page,
+            DrawOp::Path { page, .. } => *page,
+        };
+        if let Some(entry) = page_ops.iter_mut().find(|(idx, _)| *idx == page_idx) {
+            entry.1.push(op);
+        } else {
+            page_ops.push((page_idx, vec![op]));
+        }
+    }
+
+    let embedded_fonts = embed_fonts(inc, ops, font_descs, fonts)?;
+    emit_page_ops(inc, &page_ops, &embedded_fonts, font_descs, fonts, images)?;
+    Ok(())
+}
+
+/// Validate every draw op (and font byte ranges) against the base page count
+/// before any mutation, so an invalid request fails without touching `inc`.
+fn validate_draw_ops(
+    inc: &IncrementalDocument,
+    ops: &[DrawOp],
+    images: &[u8],
+    fonts: &[u8],
+    font_descs: &[FontDesc],
+) -> Result<(), String> {
     let page_count = inc.get_prev_documents().get_pages().len();
 
     // Validate font descriptor byte ranges up front.
@@ -1127,29 +1165,56 @@ pub(crate) fn draw_apply(
             }
         }
     }
+    Ok(())
+}
 
-    // Group ops by page index (preserving op order within each page)
-    let mut page_ops: Vec<(usize, Vec<&DrawOp>)> = Vec::new();
+/// Build each embedded font once (subset + Type0 graph), keyed by font id, so
+/// the per-page emit loop can reference them without re-borrowing `inc`.
+fn embed_fonts(
+    inc: &mut IncrementalDocument,
+    ops: &[DrawOp],
+    font_descs: &[FontDesc],
+    fonts: &[u8],
+) -> Result<std::collections::HashMap<usize, (ObjectId, BuiltFont)>, String> {
+    let mut embedded_fonts: std::collections::HashMap<usize, (ObjectId, BuiltFont)> =
+        std::collections::HashMap::new();
+    // Gather used_chars across ALL text ops referencing each embedded font id.
+    let mut used_per_font: std::collections::HashMap<usize, std::collections::BTreeSet<char>> =
+        std::collections::HashMap::new();
     for op in ops {
-        let page_idx = match op {
-            DrawOp::Text { page, .. } => *page,
-            DrawOp::Image { page, .. } => *page,
-            DrawOp::Line { page, .. } => *page,
-            DrawOp::Rectangle { page, .. } => *page,
-            DrawOp::Ellipse { page, .. } => *page,
-            DrawOp::Page { page, .. } => *page,
-            DrawOp::SetRotation { page, .. } => *page,
-            DrawOp::SetMediaBox { page, .. } => *page,
-            DrawOp::Link { page, .. } => *page,
-            DrawOp::Path { page, .. } => *page,
-        };
-        if let Some(entry) = page_ops.iter_mut().find(|(idx, _)| *idx == page_idx) {
-            entry.1.push(op);
-        } else {
-            page_ops.push((page_idx, vec![op]));
+        if let DrawOp::Text { font_id: Some(i), text, .. } = op {
+            used_per_font.entry(*i).or_default().extend(text.chars());
         }
     }
+    // Deterministic build order by font id.
+    let mut ids: Vec<usize> = used_per_font.keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        let fd = &font_descs[id];
+        let bytes = &fonts[fd.offset..fd.offset + fd.length];
+        let input = EmbeddedFontInput {
+            data: bytes,
+            subset: fd.subset,
+            used_chars: used_per_font.remove(&id).unwrap_or_default(),
+        };
+        let mut add = |o: Object| inc.new_document.add_object(o);
+        let built = build_embedded_font(&mut add, &input)?;
+        embedded_fonts.insert(id, built);
+    }
+    Ok(embedded_fonts)
+}
 
+/// Emit one merged content stream per touched page (text/image/shape ops in
+/// order) and splice it into each page's `/Contents`, registering fonts,
+/// xobjects and ExtGStates as needed.
+fn emit_page_ops(
+    inc: &mut IncrementalDocument,
+    page_ops: &[(usize, Vec<&DrawOp>)],
+    embedded_fonts: &std::collections::HashMap<usize, (ObjectId, BuiltFont)>,
+    font_descs: &[FontDesc],
+    fonts: &[u8],
+    images: &[u8],
+) -> Result<(), String> {
     // Create q and Q streams once, shared across all touched pages
     let q_id = inc
         .new_document
@@ -1161,41 +1226,6 @@ pub(crate) fn draw_apply(
     // Pre-create font objects (one per unique font used, keyed by STANDARD_14 index)
     let mut font_cache: std::collections::HashMap<usize, ObjectId> =
         std::collections::HashMap::new();
-
-    // PRE-PASS: build each embedded font once, before the per-page mutation loop.
-    // This is required to avoid borrow-checker conflicts: `build_embedded_font`
-    // takes `&mut dyn FnMut(Object)->ObjectId` which borrows `inc.new_document`,
-    // and the page loop also mutates `inc`. Doing all embed work up front keeps
-    // the closure's borrow confined to this block. Cache `(type0_id, BuiltFont)`
-    // keyed by font id.
-    let mut embedded_fonts: std::collections::HashMap<usize, (ObjectId, BuiltFont)> =
-        std::collections::HashMap::new();
-    {
-        // Gather used_chars across ALL text ops referencing each embedded font id.
-        let mut used_per_font: std::collections::HashMap<usize, std::collections::BTreeSet<char>> =
-            std::collections::HashMap::new();
-        for op in ops {
-            if let DrawOp::Text { font_id: Some(i), text, .. } = op {
-                used_per_font.entry(*i).or_default().extend(text.chars());
-            }
-        }
-        // Deterministic build order by font id.
-        let mut ids: Vec<usize> = used_per_font.keys().copied().collect();
-        ids.sort_unstable();
-        for id in ids {
-            let fd = &font_descs[id];
-            let bytes = &fonts[fd.offset..fd.offset + fd.length];
-            let input = EmbeddedFontInput {
-                data: bytes,
-                subset: fd.subset,
-                used_chars: used_per_font.remove(&id).unwrap_or_default(),
-            };
-            let mut add = |o: Object| inc.new_document.add_object(o);
-            let built = build_embedded_font(&mut add, &input)?;
-            embedded_fonts.insert(id, built);
-        }
-    }
-
     // Global image counter for unique XObject keys across all pages
     let mut img_counter: usize = 0;
 
@@ -1206,7 +1236,7 @@ pub(crate) fn draw_apply(
     let mut gs_counter: usize = 0;
 
     // Process each touched page
-    for (page_idx, page_op_list) in &page_ops {
+    for (page_idx, page_op_list) in page_ops {
         // Build one stream containing a separate BT...ET block per text op
         // and q...cm...Do...Q block per image op.
         // Each BT resets the text matrix to identity, making each op's Td
@@ -1640,7 +1670,6 @@ pub(crate) fn draw_apply(
             register_extgstate(inc, page_id, key, *gs_id)?;
         }
     }
-
     Ok(())
 }
 
