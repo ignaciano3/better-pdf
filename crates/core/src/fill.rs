@@ -575,22 +575,22 @@ fn effective_da(doc: &Document, dict: &Dictionary, acro: &Dictionary) -> String 
 }
 
 /// Resolve `font` (from DA) to its indirect object id via AcroForm /DR/Font.
-fn font_ref(doc: &Document, acro: &Dictionary, font: &str) -> Option<ObjectId> {
+/// The raw `/DR/Font/<name>` entry (a reference or inline dict) for a DA font.
+fn dr_font_entry<'a>(doc: &'a Document, acro: &'a Dictionary, font: &str) -> Option<&'a Object> {
     let dr = forms::as_dict(doc, acro.get(b"DR").ok()?).ok()?;
     let fonts = forms::as_dict(doc, dr.get(b"Font").ok()?).ok()?;
-    fonts.get(font.as_bytes()).ok()?.as_reference().ok()
+    fonts.get(font.as_bytes()).ok()
+}
+
+fn font_ref(doc: &Document, acro: &Dictionary, font: &str) -> Option<ObjectId> {
+    dr_font_entry(doc, acro, font)?.as_reference().ok()
 }
 
 /// Collect a field's drawable widgets (id + /Rect). A field with no /Kids is
 /// its own widget.
 fn widget_boxes(doc: &Document, field_id: ObjectId, dict: &Dictionary) -> Vec<WidgetBox> {
-    let ids: Vec<ObjectId> = dict
-        .get(b"Kids")
-        .and_then(|o| o.as_array())
-        .map(|a| a.iter().filter_map(|k| k.as_reference().ok()).collect())
-        .unwrap_or_default();
-    let ids = if ids.is_empty() { vec![field_id] } else { ids };
-    ids.into_iter()
+    widget_ids(field_id, dict)
+        .into_iter()
         .filter_map(|id| {
             let d = doc.get_dictionary(id).ok()?;
             let r = d.get(b"Rect").ok()?.as_array().ok()?;
@@ -630,9 +630,7 @@ fn widget_ids(field_id: ObjectId, dict: &Dictionary) -> Vec<ObjectId> {
 
 /// The /DR/Font/<name> dictionary for a DA font name, if present.
 fn font_dict<'a>(doc: &'a Document, acro: &'a Dictionary, font: &str) -> Option<&'a Dictionary> {
-    let dr = forms::as_dict(doc, acro.get(b"DR").ok()?).ok()?;
-    let fonts = forms::as_dict(doc, dr.get(b"Font").ok()?).ok()?;
-    forms::as_dict(doc, fonts.get(font.as_bytes()).ok()?).ok()
+    forms::as_dict(doc, dr_font_entry(doc, acro, font)?).ok()
 }
 
 /// Width table for the DA font: standard-14 metrics by /BaseFont when

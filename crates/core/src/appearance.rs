@@ -69,6 +69,16 @@ pub fn string_width(bytes: &[u8], size: f32, widths: &FontWidths) -> f32 {
     units as f32 / 1000.0 * size
 }
 
+/// Horizontal offset of text of width `tw` within a `box_w`-wide field for the
+/// quadding `q` (0/left, 1/center, 2/right), clamped to at least `PAD`.
+pub(crate) fn quad_offset(q: i64, box_w: f32, tw: f32) -> f32 {
+    match q {
+        1 => ((box_w - tw) / 2.0).max(PAD), // center
+        2 => (box_w - PAD - tw).max(PAD),   // right
+        _ => PAD,                           // left
+    }
+}
+
 /// Word-wrap WinAnsi `text` so each returned line's `string_width <= avail_w`.
 /// Hard breaks (`\n`, with `\r\n` and lone `\r` normalized to `\n`) split first;
 /// each resulting paragraph is greedily wrapped on ASCII spaces. A single word
@@ -262,11 +272,7 @@ pub fn text_appearance_content(
     widths: &FontWidths,
 ) -> Vec<u8> {
     let tw = string_width(text, size, widths);
-    let tx = match q {
-        1 => ((box_w - tw) / 2.0).max(PAD), // center
-        2 => (box_w - PAD - tw).max(PAD),   // right
-        _ => PAD,                           // left
-    };
+    let tx = quad_offset(q, box_w, tw);
     let ty = ((box_h - size) / 2.0 + size * 0.2).max(PAD);
     let escaped = escape_pdf_literal(text);
     let mut out = Vec::new();
@@ -306,11 +312,7 @@ pub fn text_appearance_content_multiline(
     let mut ty = box_h - PAD - size;
     for line in lines {
         let tw = string_width(line, size, widths);
-        let tx = match q {
-            1 => ((box_w - tw) / 2.0).max(PAD), // center
-            2 => (box_w - PAD - tw).max(PAD),   // right
-            _ => PAD,                           // left
-        };
+        let tx = quad_offset(q, box_w, tw);
         let escaped = escape_pdf_literal(line);
         // Absolute text matrix per line keeps each line's quad offset and
         // baseline independent of the running text matrix.
