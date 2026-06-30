@@ -85,7 +85,7 @@ The 9-line `let gs_key = if let Some(o) = opacity { … extgstate_dict(*o) … }
 - **P4.** Split `create_document_json` (`create.rs:527-2034`) → `validate_ops`, `build_pages`, `build_fields_and_acroform` (`:1476-1979`), `build_outline`, `build_info`.
 - **P5.** Split `apply_draw_ops_json` (`draw.rs:885-1752`) → `validate_ops`, `embed_fonts`, `emit_page_ops`. Real fix: a `content`/`ops` module owning op structs + validators + emit primitives, shared by create & draw.
 - **P6.** Decompose `PdfDocumentBase` (`document.ts`): split create/load seam (`CreatedDocument` vs `LoadedDocument`); extract `MetadataState`, `PageStructure` (incl. `buildPageIndexResolver:396`), `ResourceEmbedder`; `save()` becomes a coordinator.
-- **P7.** Split `fill::resolve` (`fill.rs:192-459`, 6 independent branches) — one function per branch. Lowest-risk warm-up.
+- **P7.** ✅ **Done.** Split `fill::resolve` into a thin dispatcher + four branch functions (`resolve_flags`, `resolve_default_value`, `resolve_reset`, `resolve_value`), each owning one op kind. `resolve` now just locates/classifies the field and routes. No behavior change (logic moved verbatim); `fill.rs` made rustfmt-canonical in the same pass. Verified: cargo 284 / bun 261 / clippy green against fresh WASM.
 
 ## Tier 3 — Duplication cleanup (medium effort, independently shippable) — ✅ ALL DONE
 

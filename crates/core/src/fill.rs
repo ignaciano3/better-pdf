@@ -2,7 +2,9 @@
 
 use crate::appearance;
 use crate::forms::{self};
-use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, decode_text_string, text_string};
+use lopdf::{
+    Dictionary, Document, IncrementalDocument, Object, ObjectId, decode_text_string, text_string,
+};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -158,10 +160,7 @@ enum Apply {
     /// Set the field's default value /DV only. `as_name` is true for button
     /// fields (checkbox/radio), where /DV is a Name; false for text/choice,
     /// where it is a text string. Does not draw or change any appearance.
-    DefaultValue {
-        value: String,
-        as_name: bool,
-    },
+    DefaultValue { value: String, as_name: bool },
     /// Draw a visual-only signature image appearance on each widget.
     Signature {
         image: appearance::SignatureImage,
@@ -202,7 +201,8 @@ enum Apply {
     },
 }
 
-/// Locate the field for `op.name`, classify it, and build the mutation plan.
+/// Locate the field for `op.name`, classify it, and dispatch to the branch that
+/// handles this op's kind (flags / default-value / reset / value or image).
 fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, String> {
     let (field_id, dict) =
         find_field(doc, &op.name).ok_or_else(|| format!("no such field: {}", op.name))?;
@@ -210,189 +210,240 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
     let ff = forms::inherited_int(doc, dict, b"Ff").unwrap_or(0);
     let kind = forms::classify(&ft, ff);
 
-    // Changing flags is mutually exclusive with every value-bearing op kind.
     if let Some(flags) = &op.flags {
-        if op.value.is_some()
-            || op.values.is_some()
-            || op.default_value.is_some()
-            || op.reset == Some(true)
-            || op.image_offset.is_some()
+        return resolve_flags(doc, op, field_id, dict, kind, ff, flags);
+    }
+    if let Some(dv) = &op.default_value {
+        return resolve_default_value(op, field_id, dict, kind, dv);
+    }
+    if op.reset == Some(true) {
+        return resolve_reset(doc, op, field_id, dict, kind, ff);
+    }
+    resolve_value(doc, op, images, field_id, dict, kind, ff)
+}
+
+/// Branch: change a field's flags (`/Ff` bits + per-widget `/F` bits). Mutually
+/// exclusive with every value-bearing op kind. Appearance-affecting bits
+/// (multiline / comb / password) take the redraw path via `SetAppearanceFlags`.
+#[allow(clippy::too_many_arguments)]
+fn resolve_flags(
+    doc: &Document,
+    op: &FillOp,
+    field_id: ObjectId,
+    dict: &Dictionary,
+    kind: &str,
+    ff: i64,
+    flags: &FieldFlagOps,
+) -> Result<Resolved, String> {
+    // Changing flags is mutually exclusive with every value-bearing op kind.
+    if op.value.is_some()
+        || op.values.is_some()
+        || op.default_value.is_some()
+        || op.reset == Some(true)
+        || op.image_offset.is_some()
+    {
+        return Err(format!(
+            "field {} flags op cannot be combined with other mutations",
+            op.name
+        ));
+    }
+    let (mut field_set, mut field_clear) = (0i64, 0i64);
+    flag_masks(flags.read_only, 1 << 0, &mut field_set, &mut field_clear);
+    flag_masks(flags.required, 1 << 1, &mut field_set, &mut field_clear);
+    flag_masks(flags.no_export, 1 << 2, &mut field_set, &mut field_clear);
+
+    // Appearance-affecting flags (multiline/comb/password) require redrawing
+    // the value, so they take a different path that regenerates the /AP.
+    if flags.touches_appearance() {
+        if kind != "text" {
+            return Err(format!(
+                "field {} flags multiline/comb/password apply only to text fields, not {}",
+                op.name, kind
+            ));
+        }
+        flag_masks(flags.multiline, 1 << 12, &mut field_set, &mut field_clear);
+        flag_masks(flags.password, 1 << 13, &mut field_set, &mut field_clear);
+        flag_masks(flags.comb, 1 << 24, &mut field_set, &mut field_clear);
+        let new_ff = (ff & !field_clear) | field_set;
+
+        // Resolve the comb cell count: explicit arg wins, else existing
+        // /MaxLen. Turning comb on without either is an error.
+        let mut write_max_len = None;
+        if let Some(ml) = flags.comb_max_len {
+            if ml < 0 {
+                return Err(format!("field {} comb maxLen must be >= 0", op.name));
+            }
+            write_max_len = Some(ml);
+        }
+        if forms::is_comb(new_ff)
+            && write_max_len.is_none()
+            && forms::inherited_int(doc, dict, b"MaxLen").is_none()
         {
             return Err(format!(
-                "field {} flags op cannot be combined with other mutations",
+                "field {} comb requires a maxLen (no /MaxLen present)",
                 op.name
             ));
         }
-        let (mut field_set, mut field_clear) = (0i64, 0i64);
-        flag_masks(flags.read_only, 1 << 0, &mut field_set, &mut field_clear);
-        flag_masks(flags.required, 1 << 1, &mut field_set, &mut field_clear);
-        flag_masks(flags.no_export, 1 << 2, &mut field_set, &mut field_clear);
 
-        // Appearance-affecting flags (multiline/comb/password) require redrawing
-        // the value, so they take a different path that regenerates the /AP.
-        if flags.touches_appearance() {
-            if kind != "text" {
-                return Err(format!(
-                    "field {} flags multiline/comb/password apply only to text fields, not {}",
-                    op.name, kind
-                ));
-            }
-            flag_masks(flags.multiline, 1 << 12, &mut field_set, &mut field_clear);
-            flag_masks(flags.password, 1 << 13, &mut field_set, &mut field_clear);
-            flag_masks(flags.comb, 1 << 24, &mut field_set, &mut field_clear);
-            let new_ff = (ff & !field_clear) | field_set;
-
-            // Resolve the comb cell count: explicit arg wins, else existing
-            // /MaxLen. Turning comb on without either is an error.
-            let mut write_max_len = None;
-            if let Some(ml) = flags.comb_max_len {
-                if ml < 0 {
-                    return Err(format!("field {} comb maxLen must be >= 0", op.name));
-                }
-                write_max_len = Some(ml);
-            }
-            if forms::is_comb(new_ff)
-                && write_max_len.is_none()
-                && forms::inherited_int(doc, dict, b"MaxLen").is_none()
-            {
-                return Err(format!(
-                    "field {} comb requires a maxLen (no /MaxLen present)",
-                    op.name
-                ));
-            }
-
-            let value = read_v_string(dict).unwrap_or_default();
-            let mut ap = ap_inputs(doc, field_id, dict, &op.name, new_ff)?;
-            if let Some(ml) = write_max_len {
-                ap.max_len = ml;
-            }
-            return Ok(Resolved {
-                field_id,
-                apply: Apply::SetAppearanceFlags {
-                    field_ff_set: field_set,
-                    field_ff_clear: field_clear,
-                    field_ff_base: ff,
-                    max_len: write_max_len,
-                    value,
-                    ap,
-                },
-            });
+        let value = read_v_string(dict).unwrap_or_default();
+        let mut ap = ap_inputs(doc, field_id, dict, &op.name, new_ff)?;
+        if let Some(ml) = write_max_len {
+            ap.max_len = ml;
         }
-
-        let (mut widget_set, mut widget_clear) = (0i64, 0i64);
-        flag_masks(flags.hidden, 1 << 1, &mut widget_set, &mut widget_clear);
-        flag_masks(flags.print, 1 << 2, &mut widget_set, &mut widget_clear);
-        flag_masks(flags.no_view, 1 << 5, &mut widget_set, &mut widget_clear);
-        let widgets = if widget_set != 0 || widget_clear != 0 {
-            widget_ids(field_id, dict)
-        } else {
-            Vec::new()
-        };
         return Ok(Resolved {
             field_id,
-            apply: Apply::SetFlags {
+            apply: Apply::SetAppearanceFlags {
                 field_ff_set: field_set,
                 field_ff_clear: field_clear,
                 field_ff_base: ff,
-                widget_f_set: widget_set,
-                widget_f_clear: widget_clear,
-                widgets,
+                max_len: write_max_len,
+                value,
+                ap,
             },
         });
     }
 
-    // Setting the default value (/DV) is mutually exclusive with setting the
-    // current value/image, and only applies to value-bearing field types.
-    if let Some(dv) = &op.default_value {
-        if op.value.is_some() || op.values.is_some() || op.image_offset.is_some() {
+    let (mut widget_set, mut widget_clear) = (0i64, 0i64);
+    flag_masks(flags.hidden, 1 << 1, &mut widget_set, &mut widget_clear);
+    flag_masks(flags.print, 1 << 2, &mut widget_set, &mut widget_clear);
+    flag_masks(flags.no_view, 1 << 5, &mut widget_set, &mut widget_clear);
+    let widgets = if widget_set != 0 || widget_clear != 0 {
+        widget_ids(field_id, dict)
+    } else {
+        Vec::new()
+    };
+    Ok(Resolved {
+        field_id,
+        apply: Apply::SetFlags {
+            field_ff_set: field_set,
+            field_ff_clear: field_clear,
+            field_ff_base: ff,
+            widget_f_set: widget_set,
+            widget_f_clear: widget_clear,
+            widgets,
+        },
+    })
+}
+
+/// Branch: set a field's default value (`/DV`) only. Mutually exclusive with
+/// setting the current value/image, and only valid on value-bearing field types.
+/// Does not draw or change any appearance.
+fn resolve_default_value(
+    op: &FillOp,
+    field_id: ObjectId,
+    dict: &Dictionary,
+    kind: &str,
+    dv: &str,
+) -> Result<Resolved, String> {
+    if op.value.is_some() || op.values.is_some() || op.image_offset.is_some() {
+        return Err(format!(
+            "field {} op cannot combine defaultValue with value/values/image",
+            op.name
+        ));
+    }
+    let as_name = match kind {
+        "text" | "dropdown" | "listbox" => {
+            if (kind == "dropdown" || kind == "listbox")
+                && dv != "Off"
+                && has_opt(dict)
+                && dropdown_index(dict, dv).is_none()
+            {
+                return Err(format!("'{}' is not a valid option for {}", dv, op.name));
+            }
+            false
+        }
+        "checkbox" | "radio" => true,
+        other => {
             return Err(format!(
-                "field {} op cannot combine defaultValue with value/values/image",
-                op.name
+                "cannot set default value on field {} of type {}",
+                op.name, other
             ));
         }
-        let as_name = match kind {
-            "text" | "dropdown" | "listbox" => {
-                if (kind == "dropdown" || kind == "listbox")
-                    && dv != "Off"
-                    && has_opt(dict)
-                    && dropdown_index(dict, dv).is_none()
-                {
-                    return Err(format!("'{}' is not a valid option for {}", dv, op.name));
-                }
-                false
+    };
+    Ok(Resolved {
+        field_id,
+        apply: Apply::DefaultValue {
+            value: dv.to_string(),
+            as_name,
+        },
+    })
+}
+
+/// Branch: reset a field — set `/V` to the field's own `/DV` (or clear it when
+/// there is none), redrawing the appearance. Trusts `/DV`, so option validation
+/// is skipped.
+fn resolve_reset(
+    doc: &Document,
+    op: &FillOp,
+    field_id: ObjectId,
+    dict: &Dictionary,
+    kind: &str,
+    ff: i64,
+) -> Result<Resolved, String> {
+    if op.value.is_some()
+        || op.values.is_some()
+        || op.default_value.is_some()
+        || op.image_offset.is_some()
+    {
+        return Err(format!(
+            "field {} reset op cannot be combined with other mutations",
+            op.name
+        ));
+    }
+    // Multi-select list boxes reset to their /DV array (or clear).
+    if kind == "listbox" && forms::is_multiselect(ff) {
+        let dv_values: Vec<String> = dict
+            .get(b"DV")
+            .ok()
+            .and_then(|o| match o {
+                Object::Array(a) => Some(a.iter().filter_map(read_object_string).collect()),
+                s @ Object::String(..) => decode_text_string(s).ok().map(|v| vec![v]),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let options: Vec<String> = dict
+            .get(b"Opt")
+            .and_then(|o| o.as_array())
+            .map(|a| a.iter().map(forms::opt_export).collect())
+            .unwrap_or_default();
+        let mut pairs: Vec<(i64, String)> = Vec::new();
+        for v in &dv_values {
+            if let Some(i) = dropdown_index(dict, v) {
+                pairs.push((i, v.clone()));
             }
-            "checkbox" | "radio" => true,
-            other => {
-                return Err(format!(
-                    "cannot set default value on field {} of type {}",
-                    op.name, other
-                ));
-            }
-        };
+        }
+        pairs.sort_unstable_by_key(|(i, _)| *i);
+        let (indices, values): (Vec<i64>, Vec<String>) = pairs.into_iter().unzip();
         return Ok(Resolved {
             field_id,
-            apply: Apply::DefaultValue {
-                value: dv.clone(),
-                as_name,
+            apply: Apply::ListBoxMulti {
+                values,
+                indices,
+                options,
+                ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
             },
         });
     }
+    let value = read_dv_string(dict).unwrap_or_else(|| match kind {
+        "checkbox" | "radio" => "Off".to_string(),
+        _ => String::new(),
+    });
+    let apply = value_apply(doc, field_id, dict, kind, ff, &op.name, &value, false)?;
+    Ok(Resolved { field_id, apply })
+}
 
-    // Reset: set /V to the field's own /DV (or clear it when there is none),
-    // redrawing the appearance. Trusts /DV, so option validation is skipped.
-    if op.reset == Some(true) {
-        if op.value.is_some()
-            || op.values.is_some()
-            || op.default_value.is_some()
-            || op.image_offset.is_some()
-        {
-            return Err(format!(
-                "field {} reset op cannot be combined with other mutations",
-                op.name
-            ));
-        }
-        // Multi-select list boxes reset to their /DV array (or clear).
-        if kind == "listbox" && forms::is_multiselect(ff) {
-            let dv_values: Vec<String> = dict
-                .get(b"DV")
-                .ok()
-                .and_then(|o| match o {
-                    Object::Array(a) => Some(a.iter().filter_map(read_object_string).collect()),
-                    s @ Object::String(..) => decode_text_string(s).ok().map(|v| vec![v]),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            let options: Vec<String> = dict
-                .get(b"Opt")
-                .and_then(|o| o.as_array())
-                .map(|a| a.iter().map(forms::opt_export).collect())
-                .unwrap_or_default();
-            let mut pairs: Vec<(i64, String)> = Vec::new();
-            for v in &dv_values {
-                if let Some(i) = dropdown_index(dict, v) {
-                    pairs.push((i, v.clone()));
-                }
-            }
-            pairs.sort_unstable_by_key(|(i, _)| *i);
-            let (indices, values): (Vec<i64>, Vec<String>) = pairs.into_iter().unzip();
-            return Ok(Resolved {
-                field_id,
-                apply: Apply::ListBoxMulti {
-                    values,
-                    indices,
-                    options,
-                    ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
-                },
-            });
-        }
-        let value = read_dv_string(dict).unwrap_or_else(|| match kind {
-            "checkbox" | "radio" => "Off".to_string(),
-            _ => String::new(),
-        });
-        let apply = value_apply(doc, field_id, dict, kind, ff, &op.name, &value, false)?;
-        return Ok(Resolved { field_id, apply });
-    }
-
+/// Branch: set a field's current value (`/V`) from a single string, an array of
+/// strings (multi-select list box), or a signature image.
+#[allow(clippy::too_many_arguments)]
+fn resolve_value(
+    doc: &Document,
+    op: &FillOp,
+    images: &[u8],
+    field_id: ObjectId,
+    dict: &Dictionary,
+    kind: &str,
+    ff: i64,
+) -> Result<Resolved, String> {
     let image_bytes = match (op.image_offset, op.image_length) {
         (Some(off), Some(len)) => Some(
             off.checked_add(len)
@@ -842,7 +893,11 @@ fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
                 // Prefer the field's own /Ff (which may already reflect an
                 // earlier op this run); fall back to the inherited base so we
                 // don't drop inherited bits when the field has no /Ff of its own.
-                let current = d.get(b"Ff").ok().and_then(|o| o.as_i64().ok()).unwrap_or(*field_ff_base);
+                let current = d
+                    .get(b"Ff")
+                    .ok()
+                    .and_then(|o| o.as_i64().ok())
+                    .unwrap_or(*field_ff_base);
                 let next = (current & !*field_ff_clear) | *field_ff_set;
                 d.set("Ff", Object::Integer(next));
             }
@@ -906,7 +961,14 @@ fn draw_appearances(
         } else if ap.comb {
             let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h, &ap.widths);
             appearance::text_appearance_content_comb(
-                &text, size, w, h, ap.max_len, &ap.da.color, &ap.font, &ap.widths,
+                &text,
+                size,
+                w,
+                h,
+                ap.max_len,
+                &ap.da.color,
+                &ap.font,
+                &ap.widths,
             )
         } else if ap.multiline {
             // Multiline: do not shrink-to-fit width (we wrap instead). Honor an
@@ -920,7 +982,14 @@ fn draw_appearances(
             let avail_w = (w - 4.0).max(1.0);
             let lines = appearance::wrap_lines(&text, size, avail_w, &ap.widths);
             appearance::text_appearance_content_multiline(
-                &lines, size, w, h, ap.q, &ap.da.color, &ap.font, &ap.widths,
+                &lines,
+                size,
+                w,
+                h,
+                ap.q,
+                &ap.da.color,
+                &ap.font,
+                &ap.widths,
             )
         } else {
             let size = appearance::auto_size(ap.da.size, &text, (w - 4.0).max(1.0), h, &ap.widths);
@@ -955,7 +1024,10 @@ fn draw_listbox_multi_appearances(
     indices: &[i64],
     ap: &ApInputs,
 ) -> Result<(), String> {
-    let encoded: Vec<Vec<u8>> = options.iter().map(|s| appearance::encode_winansi(s)).collect();
+    let encoded: Vec<Vec<u8>> = options
+        .iter()
+        .map(|s| appearance::encode_winansi(s))
+        .collect();
     let selected: Vec<bool> = (0..options.len() as i64)
         .map(|i| indices.contains(&i))
         .collect();
@@ -1089,8 +1161,7 @@ mod tests {
 
     #[test]
     fn sets_default_value_on_text_field_without_touching_value() {
-        let ops =
-            r#"[{"name":"beneficiario.apellidos_nombres","defaultValue":"DEFAULT"}]"#;
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","defaultValue":"DEFAULT"}]"#;
         let out = fill_fields_json(FICHA, ops, &[]).unwrap();
         assert_eq!(
             reparse_default_value(&out, "beneficiario.apellidos_nombres").as_deref(),
@@ -1126,8 +1197,7 @@ mod tests {
 
     #[test]
     fn rejects_value_and_default_value_in_same_op() {
-        let ops =
-            r#"[{"name":"beneficiario.apellidos_nombres","value":"X","defaultValue":"Y"}]"#;
+        let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"X","defaultValue":"Y"}]"#;
         let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
         assert!(err.contains("cannot combine defaultValue"), "got: {err}");
     }
@@ -1143,15 +1213,25 @@ mod tests {
     fn reset_restores_text_value_to_default() {
         let name = "beneficiario.apellidos_nombres";
         // Give the field a /DV, then a different /V, then reset.
-        let with_dv =
-            fill_fields_json(FICHA, &format!(r#"[{{"name":"{name}","defaultValue":"DEF"}}]"#), &[])
-                .unwrap();
-        let filled =
-            fill_fields_json(&with_dv, &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#), &[])
-                .unwrap();
+        let with_dv = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{name}","defaultValue":"DEF"}}]"#),
+            &[],
+        )
+        .unwrap();
+        let filled = fill_fields_json(
+            &with_dv,
+            &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#),
+            &[],
+        )
+        .unwrap();
         assert_eq!(reparse_value(&filled, name).as_deref(), Some("OTHER"));
-        let reset = fill_fields_json(&filled, &format!(r#"[{{"name":"{name}","reset":true}}]"#), &[])
-            .unwrap();
+        let reset = fill_fields_json(
+            &filled,
+            &format!(r#"[{{"name":"{name}","reset":true}}]"#),
+            &[],
+        )
+        .unwrap();
         assert_eq!(reparse_value(&reset, name).as_deref(), Some("DEF"));
         Document::load_mem(&reset).unwrap();
     }
@@ -1159,23 +1239,40 @@ mod tests {
     #[test]
     fn reset_clears_text_value_when_no_default() {
         let name = "beneficiario.apellidos_nombres";
-        let filled =
-            fill_fields_json(FICHA, &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#), &[])
-                .unwrap();
-        let reset = fill_fields_json(&filled, &format!(r#"[{{"name":"{name}","reset":true}}]"#), &[])
-            .unwrap();
+        let filled = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#),
+            &[],
+        )
+        .unwrap();
+        let reset = fill_fields_json(
+            &filled,
+            &format!(r#"[{{"name":"{name}","reset":true}}]"#),
+            &[],
+        )
+        .unwrap();
         let v = reparse_value(&reset, name);
-        assert!(v.is_none() || v.as_deref() == Some(""), "expected cleared, got {v:?}");
+        assert!(
+            v.is_none() || v.as_deref() == Some(""),
+            "expected cleared, got {v:?}"
+        );
     }
 
     #[test]
     fn reset_restores_radio_default_as_name() {
         let name = "beneficiario.tipo_beneficiario";
-        let with_dv =
-            fill_fields_json(FICHA, &format!(r#"[{{"name":"{name}","defaultValue":"Titular"}}]"#), &[])
-                .unwrap();
-        let reset = fill_fields_json(&with_dv, &format!(r#"[{{"name":"{name}","reset":true}}]"#), &[])
-            .unwrap();
+        let with_dv = fill_fields_json(
+            FICHA,
+            &format!(r#"[{{"name":"{name}","defaultValue":"Titular"}}]"#),
+            &[],
+        )
+        .unwrap();
+        let reset = fill_fields_json(
+            &with_dv,
+            &format!(r#"[{{"name":"{name}","reset":true}}]"#),
+            &[],
+        )
+        .unwrap();
         assert_eq!(reparse_value(&reset, name).as_deref(), Some("Titular"));
         let doc = Document::load_mem(&reset).unwrap();
         let (_, field) = find_field(&doc, name).unwrap();
@@ -1515,7 +1612,10 @@ mod tests {
 
         let ops = r#"[{"name":"beneficiario.estado_civil","values":["Casado","Viudo"]}]"#;
         let err = fill_fields_json(&base, ops, &[]).unwrap_err();
-        assert!(err.contains("does not accept multiple values"), "got: {err}");
+        assert!(
+            err.contains("does not accept multiple values"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -1642,7 +1742,10 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert_eq!(reparse_widget_flag(&hidden, TEXT_FIELD, "hidden"), Some(true));
+        assert_eq!(
+            reparse_widget_flag(&hidden, TEXT_FIELD, "hidden"),
+            Some(true)
+        );
 
         let shown = fill_fields_json(
             &hidden,
@@ -1650,7 +1753,10 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert_eq!(reparse_widget_flag(&shown, TEXT_FIELD, "hidden"), Some(false));
+        assert_eq!(
+            reparse_widget_flag(&shown, TEXT_FIELD, "hidden"),
+            Some(false)
+        );
     }
 
     #[test]
@@ -1686,7 +1792,10 @@ mod tests {
         assert_eq!(reparse_flag(&on, TEXT_FIELD, "multiline"), Some(true));
         let doc = Document::load_mem(&on).unwrap();
         let ap = ap_content(&doc, TEXT_FIELD).expect("AP/N present");
-        assert!(ap.contains(" TL "), "multiline AP must emit a leading: {ap}");
+        assert!(
+            ap.contains(" TL "),
+            "multiline AP must emit a leading: {ap}"
+        );
         // Value survives the flag toggle.
         assert_eq!(reparse_value(&on, TEXT_FIELD).as_deref(), Some("GARCIA"));
 
@@ -1700,14 +1809,19 @@ mod tests {
         assert_eq!(reparse_flag(&off, TEXT_FIELD, "multiline"), Some(false));
         let doc = Document::load_mem(&off).unwrap();
         let ap = ap_content(&doc, TEXT_FIELD).expect("AP/N present");
-        assert!(!ap.contains(" TL "), "single-line AP must not emit a leading: {ap}");
+        assert!(
+            !ap.contains(" TL "),
+            "single-line AP must not emit a leading: {ap}"
+        );
     }
 
     #[test]
     fn set_comb_flag_writes_maxlen_and_draws_cells() {
         let on = fill_fields_json(
             FICHA,
-            &format!(r#"[{{"name":"{TEXT_FIELD}","value":"AB","flags":{{"comb":true,"combMaxLen":5}}}}]"#),
+            &format!(
+                r#"[{{"name":"{TEXT_FIELD}","value":"AB","flags":{{"comb":true,"combMaxLen":5}}}}]"#
+            ),
             &[],
         );
         // A flags op cannot carry a value, so set value first, then toggle comb.
@@ -1732,7 +1846,11 @@ mod tests {
         assert_eq!(field.get(b"MaxLen").unwrap().as_i64().unwrap(), 5);
         // Comb draws one Tj per character (two cells for "AB").
         let ap = ap_content(&doc, TEXT_FIELD).expect("AP/N present");
-        assert_eq!(ap.matches(") Tj").count(), 2, "comb must place each glyph: {ap}");
+        assert_eq!(
+            ap.matches(") Tj").count(),
+            2,
+            "comb must place each glyph: {ap}"
+        );
     }
 
     #[test]
@@ -1764,7 +1882,10 @@ mod tests {
         let doc = Document::load_mem(&on).unwrap();
         let ap = ap_content(&doc, TEXT_FIELD).expect("AP/N present");
         // The value must not leak into the appearance stream.
-        assert!(!ap.contains("SECRET"), "password value leaked into AP: {ap}");
+        assert!(
+            !ap.contains("SECRET"),
+            "password value leaked into AP: {ap}"
+        );
         assert!(!ap.contains(") Tj"), "password AP must draw nothing: {ap}");
         // The /V itself is preserved (only the rendering is suppressed).
         assert_eq!(reparse_value(&on, TEXT_FIELD).as_deref(), Some("SECRET"));
