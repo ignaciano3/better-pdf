@@ -87,15 +87,17 @@ The 9-line `let gs_key = if let Some(o) = opacity { … extgstate_dict(*o) … }
 - **P6.** Decompose `PdfDocumentBase` (`document.ts`): split create/load seam (`CreatedDocument` vs `LoadedDocument`); extract `MetadataState`, `PageStructure` (incl. `buildPageIndexResolver:396`), `ResourceEmbedder`; `save()` becomes a coordinator.
 - **P7.** Split `fill::resolve` (`fill.rs:192-459`, 6 independent branches) — one function per branch. Lowest-risk warm-up.
 
-## Tier 3 — Duplication cleanup (medium effort, independently shippable)
+## Tier 3 — Duplication cleanup (medium effort, independently shippable) — ✅ ALL DONE
 
-- **P8.** `makeBindings(raw, {guard})` factory to collapse `wasm.ts` ≈ `wasm-browser.ts` (~200 lines, 3-place change surface incl. `CoreWasm` interface `document.ts:24`).
-- **P9.** Share `load`/`create` body + export barrel between `index.ts`/`index.browser.ts` — **fixes the existing drift: browser is missing `assemble()`/`merge()`.**
-- **P10.** `callJson<T>()` / `callBytes()` helper for the ~16 `toPdfError` + `JSON.parse(wasm…)` boilerplate sites; centralize the `PageInfo` wire type.
-- **P11.** `page.ts` draw methods: `validatePoints()` + `strokeStyleToWire()/fillStyleToWire()`; pick ONE layer (page vs `draw-queue.ts`) to own optional-field normalization.
-- **P12.** `ChoiceField` base with `selectFrom(valid, label, value, {default})` for the 6 duplicated bodies in `fields.ts` (`:374,397,446,469,520,543`).
-- **P13.** Smaller Rust dups: DR/Font lookup chain (`fill.rs:586`+`:640`), widget-collection prologue (`fill.rs:594`+`:630`), appearance content-prologue + `quad_offset` (3× in `appearance.rs:222,266,…`).
-- **P14.** Reconcile `FormBuilder` schema literal (6×) with `FieldMeta` (`schema.ts:12`) and typegen (`typegen.ts:80`) — `multiSelect`/`required`/`maxLength` mismatch — via one generic `DeclaredField<…>` type.
+- **P8.** ✅ `makeBindings(raw, guard?)` factory (`src/core/wasm-bindings.ts`) builds the `CoreWasm` surface once; `wasm.ts`/`wasm-browser.ts` just init + destructure.
+- **P9.** ✅ Shared `loadBytes`/`assembleImpl`/`mergeImpl` on `PdfDocumentBase` + `src/exports-common.ts` barrel; **fixed the drift — browser now has `assemble()`/`merge()` and the missing type exports.**
+- **P10.** ✅ `callJson<T>()` / `callBytes()` helpers replaced ~8 `try/catch → toPdfError` + `JSON.parse` sites; one shared `PageInfo` type.
+- **P11.** ✅ `validatePoints()` for the 7 finite-coordinate loops. (Stroke/fill style-to-wire left: op-specific field names → needs a wire-type restructure for little gain.)
+- **P12.** ✅ `PdfField.applyChoice(valid, label, value, asDefault, allowUnlisted)` for the 6 radio/dropdown/listbox bodies.
+- **P13.** ✅ `fill::dr_font_entry` (DR/Font chain), `widget_boxes` reuses `widget_ids`, `appearance::quad_offset`.
+- **P14.** ✅ Generic `DeclaredField<T, St, Opt>` in `schema.ts`; `FieldMeta` is its widened alias; FormBuilder's 12 literals use it — fixes the latent `multiSelect` omission. (typegen's extra fields are a compatible superset, left as-is.)
+
+**Tier 3 verification:** cargo 284 / bun 261 / tsc / clippy all green; browser-entry smoke passes end-to-end (real build + browser WASM init path).
 
 ## Explicitly NOT problems (do not "fix")
 
