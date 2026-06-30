@@ -718,6 +718,60 @@ pub(crate) fn extgstate_dict(opacity: f32) -> Dictionary {
     d
 }
 
+/// Validate that a 0-based page index is within `page_count`.
+pub(crate) fn check_page(page: usize, page_count: usize) -> Result<(), String> {
+    if page >= page_count {
+        return Err(format!("page {page} out of range ({page_count} pages)"));
+    }
+    Ok(())
+}
+
+/// Validate an optional opacity is finite and in `0..=1`.
+pub(crate) fn check_opacity(opacity: &Option<f32>) -> Result<(), String> {
+    if let Some(o) = opacity
+        && (!o.is_finite() || *o < 0.0 || *o > 1.0)
+    {
+        return Err("opacity must be in 0..1".to_string());
+    }
+    Ok(())
+}
+
+/// Validate every value in `values` is finite, returning `err` otherwise.
+pub(crate) fn check_finite(values: &[f32], err: &str) -> Result<(), String> {
+    for &v in values {
+        if !v.is_finite() {
+            return Err(err.to_string());
+        }
+    }
+    Ok(())
+}
+
+/// Validate an optional RGB color's components are all finite.
+pub(crate) fn check_color(color: &Option<[f32; 3]>) -> Result<(), String> {
+    match color {
+        Some(c) => check_finite(c, "invalid color"),
+        None => Ok(()),
+    }
+}
+
+/// Register an opacity `/ExtGState` for `opacity` (if any), returning its page
+/// resource key (`BPGn`). `gs_counter` keeps keys unique across all pages.
+fn alloc_opacity_gs(
+    opacity: &Option<f32>,
+    gs_counter: &mut usize,
+    extgstates_on_page: &mut Vec<(String, ObjectId)>,
+    inc: &mut IncrementalDocument,
+) -> Option<String> {
+    let o = (*opacity)?;
+    let key = format!("BPG{gs_counter}");
+    *gs_counter += 1;
+    let gs_id = inc
+        .new_document
+        .add_object(Object::Dictionary(extgstate_dict(o)));
+    extgstates_on_page.push((key.clone(), gs_id));
+    Some(key)
+}
+
 pub(crate) fn register_extgstate(
     inc: &mut IncrementalDocument,
     page_id: ObjectId,
@@ -913,11 +967,7 @@ pub fn apply_draw_ops_json(
     for op in &ops {
         match op {
             DrawOp::Text { page, font, font_id, opacity, rotate, .. } => {
-                if *page >= page_count {
-                    return Err(format!(
-                        "page {page} out of range ({page_count} pages)"
-                    ));
-                }
+                check_page(*page, page_count)?;
                 if let Some(i) = font_id {
                     if *i >= font_descs.len() {
                         return Err(format!("font id {i} out of range"));
@@ -925,10 +975,7 @@ pub fn apply_draw_ops_json(
                 } else if !STANDARD_14.contains(&font.as_str()) {
                     return Err(format!("unknown font: {font}"));
                 }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_opacity(opacity)?;
                 if let Some(deg) = rotate
                     && !deg.is_finite() {
                         return Err("invalid rotation".to_string());
@@ -941,15 +988,8 @@ pub fn apply_draw_ops_json(
                 opacity,
                 ..
             } => {
-                if *page >= page_count {
-                    return Err(format!(
-                        "page {page} out of range ({page_count} pages)"
-                    ));
-                }
-                if let Some(o) = opacity
-                    && !(0.0..=1.0).contains(o) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_page(*page, page_count)?;
+                check_opacity(opacity)?;
                 let end = image_offset
                     .checked_add(*image_length)
                     .ok_or_else(|| "image range out of bounds".to_string())?;
@@ -968,11 +1008,7 @@ pub fn apply_draw_ops_json(
                 opacity,
                 ..
             } => {
-                if *page >= page_count {
-                    return Err(format!(
-                        "page {page} out of range ({page_count} pages)"
-                    ));
-                }
+                check_page(*page, page_count)?;
                 let end = image_offset
                     .checked_add(*image_length)
                     .ok_or_else(|| "page source range out of bounds".to_string())?;
@@ -985,10 +1021,7 @@ pub fn apply_draw_ops_json(
                 if !height.is_finite() || *height <= 0.0 {
                     return Err("height must be finite and > 0".to_string());
                 }
-                if let Some(o) = opacity
-                    && !(0.0..=1.0).contains(o) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_opacity(opacity)?;
             }
             DrawOp::Line {
                 page,
@@ -998,29 +1031,14 @@ pub fn apply_draw_ops_json(
                 x1, y1, x2, y2,
                 ..
             } => {
-                if *page >= page_count {
-                    return Err(format!("page {page} out of range ({page_count} pages)"));
-                }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_page(*page, page_count)?;
+                check_opacity(opacity)?;
                 if let Some(t) = thickness
                     && (!t.is_finite() || *t < 0.0) {
                         return Err("thickness must be >= 0".to_string());
                     }
-                for &v in &[*x1, *y1, *x2, *y2] {
-                    if !v.is_finite() {
-                        return Err("invalid coordinate".to_string());
-                    }
-                }
-                if let Some(c) = color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
+                check_finite(&[*x1, *y1, *x2, *y2], "invalid coordinate")?;
+                check_color(color)?;
             }
             DrawOp::Rectangle {
                 page,
@@ -1031,42 +1049,21 @@ pub fn apply_draw_ops_json(
                 x, y, width, height,
                 ..
             } => {
-                if *page >= page_count {
-                    return Err(format!("page {page} out of range ({page_count} pages)"));
-                }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_page(*page, page_count)?;
+                check_opacity(opacity)?;
                 if let Some(bw) = border_width
                     && (!bw.is_finite() || *bw < 0.0) {
                         return Err("borderWidth must be >= 0".to_string());
                     }
-                for &v in &[*x, *y, *width, *height] {
-                    if !v.is_finite() {
-                        return Err("invalid coordinate".to_string());
-                    }
-                }
+                check_finite(&[*x, *y, *width, *height], "invalid coordinate")?;
                 if *width <= 0.0 {
                     return Err("width must be > 0".to_string());
                 }
                 if *height <= 0.0 {
                     return Err("height must be > 0".to_string());
                 }
-                if let Some(c) = color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
-                if let Some(c) = border_color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
+                check_color(color)?;
+                check_color(border_color)?;
             }
             DrawOp::Ellipse {
                 page,
@@ -1077,68 +1074,37 @@ pub fn apply_draw_ops_json(
                 x, y, x_scale, y_scale,
                 ..
             } => {
-                if *page >= page_count {
-                    return Err(format!("page {page} out of range ({page_count} pages)"));
-                }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_page(*page, page_count)?;
+                check_opacity(opacity)?;
                 if let Some(bw) = border_width
                     && (!bw.is_finite() || *bw < 0.0) {
                         return Err("borderWidth must be >= 0".to_string());
                     }
-                for &v in &[*x, *y, *x_scale, *y_scale] {
-                    if !v.is_finite() {
-                        return Err("invalid coordinate".to_string());
-                    }
-                }
+                check_finite(&[*x, *y, *x_scale, *y_scale], "invalid coordinate")?;
                 if *x_scale <= 0.0 {
                     return Err("xScale must be > 0".to_string());
                 }
                 if *y_scale <= 0.0 {
                     return Err("yScale must be > 0".to_string());
                 }
-                if let Some(c) = color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
-                if let Some(c) = border_color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
+                check_color(color)?;
+                check_color(border_color)?;
             }
             DrawOp::SetRotation { page, degrees } => {
-                if *page >= page_count {
-                    return Err(format!("page {page} out of range ({page_count} pages)"));
-                }
+                check_page(*page, page_count)?;
                 if degrees.rem_euclid(90) != 0 {
                     return Err("rotation degrees must be a multiple of 90".to_string());
                 }
             }
             DrawOp::SetMediaBox { page, media_box } => {
-                if *page >= page_count {
-                    return Err(format!("page {page} out of range ({page_count} pages)"));
-                }
-                for &v in media_box.iter() {
-                    if !v.is_finite() {
-                        return Err("invalid media box".to_string());
-                    }
-                }
+                check_page(*page, page_count)?;
+                check_finite(media_box, "invalid media box")?;
                 if media_box[2] <= media_box[0] || media_box[3] <= media_box[1] {
                     return Err("invalid media box".to_string());
                 }
             }
             DrawOp::Link { page, rect, uri, go_to_page } => {
-                if *page >= page_count {
-                    return Err(format!("page {page} out of range ({page_count} pages)"));
-                }
+                check_page(*page, page_count)?;
                 match (uri.is_some(), go_to_page.is_some()) {
                     (true, true) => {
                         return Err("link must have exactly one of uri or goToPage".to_string());
@@ -1148,11 +1114,7 @@ pub fn apply_draw_ops_json(
                     }
                     _ => {}
                 }
-                for &v in rect.iter() {
-                    if !v.is_finite() {
-                        return Err("invalid link rect".to_string());
-                    }
-                }
+                check_finite(rect, "invalid link rect")?;
                 if rect[2] <= rect[0] || rect[3] <= rect[1] {
                     return Err("invalid link rect".to_string());
                 }
@@ -1170,16 +1132,11 @@ pub fn apply_draw_ops_json(
                 opacity,
                 ..
             } => {
-                if *page >= page_count {
-                    return Err(format!("page {page} out of range ({page_count} pages)"));
-                }
+                check_page(*page, page_count)?;
                 if segments.is_empty() {
                     return Err("path must have at least one segment".to_string());
                 }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_opacity(opacity)?;
                 if let Some(sw) = stroke_width
                     && (!sw.is_finite() || *sw < 0.0) {
                         return Err("strokeWidth must be >= 0".to_string());
@@ -1196,20 +1153,8 @@ pub fn apply_draw_ops_json(
                         }
                     }
                 }
-                if let Some(c) = fill {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
-                if let Some(c) = stroke {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
+                check_color(fill)?;
+                check_color(stroke)?;
             }
         }
     }
@@ -1323,17 +1268,12 @@ pub fn apply_draw_ops_json(
                     page: _,
                 } => {
                     // Register ExtGState for opacity if present
-                    let gs_key = if let Some(o) = opacity {
-                        let key = format!("BPG{gs_counter}");
-                        gs_counter += 1;
-                        let gs_id = inc.new_document.add_object(
-                            Object::Dictionary(extgstate_dict(*o))
-                        );
-                        extgstates_on_page.push((key.clone(), gs_id));
-                        Some(key)
-                    } else {
-                        None
-                    };
+                    let gs_key = alloc_opacity_gs(
+                        opacity,
+                        &mut gs_counter,
+                        &mut extgstates_on_page,
+                        &mut inc,
+                    );
 
                     if let Some(id) = font_id {
                         // Embedded font: emit a Type0/Identity-H hex glyph string.
@@ -1400,17 +1340,12 @@ pub fn apply_draw_ops_json(
                     y_skew,
                     page: _,
                 } => {
-                    let gs_key = if let Some(o) = opacity {
-                        let key = format!("BPG{gs_counter}");
-                        gs_counter += 1;
-                        let gs_id = inc.new_document.add_object(
-                            Object::Dictionary(extgstate_dict(*o))
-                        );
-                        extgstates_on_page.push((key.clone(), gs_id));
-                        Some(key)
-                    } else {
-                        None
-                    };
+                    let gs_key = alloc_opacity_gs(
+                        opacity,
+                        &mut gs_counter,
+                        &mut extgstates_on_page,
+                        &mut inc,
+                    );
                     let end = image_offset + image_length;
                     let bytes = &images[*image_offset..end];
                     let img = crate::appearance::signature_image(bytes)?;
@@ -1440,17 +1375,12 @@ pub fn apply_draw_ops_json(
                     y_skew,
                     page: _,
                 } => {
-                    let gs_key = if let Some(o) = opacity {
-                        let key = format!("BPG{gs_counter}");
-                        gs_counter += 1;
-                        let gs_id = inc.new_document.add_object(
-                            Object::Dictionary(extgstate_dict(*o))
-                        );
-                        extgstates_on_page.push((key.clone(), gs_id));
-                        Some(key)
-                    } else {
-                        None
-                    };
+                    let gs_key = alloc_opacity_gs(
+                        opacity,
+                        &mut gs_counter,
+                        &mut extgstates_on_page,
+                        &mut inc,
+                    );
                     let end = image_offset + image_length;
                     let src = &images[*image_offset..end];
                     // embed_page_as_xobject borrows new_document mutably; the draw
@@ -1481,17 +1411,12 @@ pub fn apply_draw_ops_json(
                     dash_phase,
                     page: _,
                 } => {
-                    let gs_key = if let Some(o) = opacity {
-                        let key = format!("BPG{gs_counter}");
-                        gs_counter += 1;
-                        let gs_id = inc.new_document.add_object(
-                            Object::Dictionary(extgstate_dict(*o))
-                        );
-                        extgstates_on_page.push((key.clone(), gs_id));
-                        Some(key)
-                    } else {
-                        None
-                    };
+                    let gs_key = alloc_opacity_gs(
+                        opacity,
+                        &mut gs_counter,
+                        &mut extgstates_on_page,
+                        &mut inc,
+                    );
                     emit_line(
                         &mut stream_content,
                         gs_key.as_deref(),
@@ -1512,17 +1437,12 @@ pub fn apply_draw_ops_json(
                     dash_phase,
                     page: _,
                 } => {
-                    let gs_key = if let Some(o) = opacity {
-                        let key = format!("BPG{gs_counter}");
-                        gs_counter += 1;
-                        let gs_id = inc.new_document.add_object(
-                            Object::Dictionary(extgstate_dict(*o))
-                        );
-                        extgstates_on_page.push((key.clone(), gs_id));
-                        Some(key)
-                    } else {
-                        None
-                    };
+                    let gs_key = alloc_opacity_gs(
+                        opacity,
+                        &mut gs_counter,
+                        &mut extgstates_on_page,
+                        &mut inc,
+                    );
                     emit_rectangle(
                         &mut stream_content,
                         gs_key.as_deref(),
@@ -1544,17 +1464,12 @@ pub fn apply_draw_ops_json(
                     dash_phase,
                     page: _,
                 } => {
-                    let gs_key = if let Some(o) = opacity {
-                        let key = format!("BPG{gs_counter}");
-                        gs_counter += 1;
-                        let gs_id = inc.new_document.add_object(
-                            Object::Dictionary(extgstate_dict(*o))
-                        );
-                        extgstates_on_page.push((key.clone(), gs_id));
-                        Some(key)
-                    } else {
-                        None
-                    };
+                    let gs_key = alloc_opacity_gs(
+                        opacity,
+                        &mut gs_counter,
+                        &mut extgstates_on_page,
+                        &mut inc,
+                    );
                     emit_ellipse(
                         &mut stream_content,
                         gs_key.as_deref(),
@@ -1576,17 +1491,12 @@ pub fn apply_draw_ops_json(
                     dash_phase,
                     page: _,
                 } => {
-                    let gs_key = if let Some(o) = opacity {
-                        let key = format!("BPG{gs_counter}");
-                        gs_counter += 1;
-                        let gs_id = inc.new_document.add_object(
-                            Object::Dictionary(extgstate_dict(*o))
-                        );
-                        extgstates_on_page.push((key.clone(), gs_id));
-                        Some(key)
-                    } else {
-                        None
-                    };
+                    let gs_key = alloc_opacity_gs(
+                        opacity,
+                        &mut gs_counter,
+                        &mut extgstates_on_page,
+                        &mut inc,
+                    );
                     emit_path(
                         &mut stream_content,
                         gs_key.as_deref(),

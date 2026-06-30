@@ -551,35 +551,13 @@ fn read_v_string(dict: &Dictionary) -> Option<String> {
 
 /// Effective /DA: field's own, else inherited, else AcroForm's, else default.
 fn effective_da(doc: &Document, dict: &Dictionary, acro: &Dictionary) -> String {
-    if let Some(s) = inherited_str(doc, dict, b"DA") {
+    if let Some(s) = forms::inherited_str(doc, dict, b"DA") {
         return s;
     }
     acro.get(b"DA")
         .ok()
-        .and_then(da_string)
+        .and_then(forms::da_string)
         .unwrap_or_else(|| "/Helv 0 Tf 0 g".to_string())
-}
-
-/// A string value on the field or any ancestor (for inheritable keys like /DA).
-fn inherited_str(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<String> {
-    if let Some(s) = dict.get(key).ok().and_then(da_string) {
-        return Some(s);
-    }
-    let mut cur = dict;
-    for _ in 0..forms::MAX_PARENT_DEPTH {
-        let parent = forms::parent_of(doc, cur)?;
-        if let Some(s) = parent.get(key).ok().and_then(da_string) {
-            return Some(s);
-        }
-        cur = parent;
-    }
-    None
-}
-
-fn da_string(o: &Object) -> Option<String> {
-    o.as_str()
-        .ok()
-        .map(|b| String::from_utf8_lossy(b).into_owned())
 }
 
 /// Resolve `font` (from DA) to its indirect object id via AcroForm /DR/Font.

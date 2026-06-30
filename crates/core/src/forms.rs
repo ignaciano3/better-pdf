@@ -281,10 +281,15 @@ fn effective_da(doc: &Document, d: &Dictionary) -> Option<String> {
     acroform(doc).and_then(|a| a.get(b"DA").ok()).and_then(da_string)
 }
 
-fn da_string(o: &Object) -> Option<String> {
+pub(crate) fn da_string(o: &Object) -> Option<String> {
     o.as_str()
         .ok()
         .map(|b| String::from_utf8_lossy(b).into_owned())
+}
+
+/// A string value on the field or any ancestor (for inheritable keys like /DA).
+pub(crate) fn inherited_str(doc: &Document, d: &Dictionary, key: &[u8]) -> Option<String> {
+    inherited(doc, d, key).and_then(da_string)
 }
 
 /// The document's AcroForm dictionary (inline in the catalog or via reference).

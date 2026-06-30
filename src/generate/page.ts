@@ -1,5 +1,5 @@
 import { StandardFonts } from "./fonts.js";
-import { rgb, type Color } from "./color.js";
+import { rgb, colorToTuple, type Color } from "./color.js";
 import type { DrawQueue, LineOp, RectangleOp, EllipseOp, LinkOp, PathOp } from "./draw-queue.js";
 import { PdfImage, kImageBytes } from "./image.js";
 import { EmbeddedPdfPage, kEmbeddedBytes } from "./embedded-page.js";
@@ -205,10 +205,6 @@ function validateDash(dash: number[] | undefined, dashPhase: number | undefined)
   validateFinite(dashPhase, "dashPhase");
 }
 
-function tuple(c: Color): [number, number, number] {
-  return [c.red, c.green, c.blue];
-}
-
 /**
  * A page of a PdfDocument. Drawing methods queue operations that are
  * applied when the document is saved.
@@ -401,7 +397,7 @@ export class PdfPage {
       x2: end.x,
       y2: end.y,
       ...(strokeWidth !== undefined ? { thickness: strokeWidth } : {}),
-      ...(stroke !== undefined ? { color: tuple(stroke) } : {}),
+      ...(stroke !== undefined ? { color: colorToTuple(stroke) } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
       ...(dash !== undefined ? { dash } : {}),
       ...(dashPhase !== undefined ? { dashPhase } : {}),
@@ -435,8 +431,8 @@ export class PdfPage {
       y,
       width,
       height,
-      ...(fill !== undefined ? { color: tuple(fill) } : {}),
-      ...(stroke !== undefined ? { borderColor: tuple(stroke) } : {}),
+      ...(fill !== undefined ? { color: colorToTuple(fill) } : {}),
+      ...(stroke !== undefined ? { borderColor: colorToTuple(stroke) } : {}),
       ...(strokeWidth !== undefined ? { borderWidth: strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
       ...(dash !== undefined ? { dash } : {}),
@@ -515,8 +511,8 @@ export class PdfPage {
       y,
       xScale: radiusX,
       yScale: radiusY,
-      ...(fill !== undefined ? { color: tuple(fill) } : {}),
-      ...(stroke !== undefined ? { borderColor: tuple(stroke) } : {}),
+      ...(fill !== undefined ? { color: colorToTuple(fill) } : {}),
+      ...(stroke !== undefined ? { borderColor: colorToTuple(stroke) } : {}),
       ...(strokeWidth !== undefined ? { borderWidth: strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
       ...(dash !== undefined ? { dash } : {}),
@@ -543,8 +539,8 @@ export class PdfPage {
       op: "path",
       page: this._slot,
       segments,
-      ...(fill !== undefined ? { fill: tuple(fill) } : {}),
-      ...(stroke !== undefined ? { stroke: tuple(stroke) } : {}),
+      ...(fill !== undefined ? { fill: colorToTuple(fill) } : {}),
+      ...(stroke !== undefined ? { stroke: colorToTuple(stroke) } : {}),
       ...(strokeWidth !== undefined ? { strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
       ...(dash !== undefined ? { dash } : {}),
@@ -584,8 +580,8 @@ export class PdfPage {
       op: "path",
       page: this._slot,
       segments,
-      ...(fill !== undefined ? { fill: tuple(fill) } : {}),
-      ...(stroke !== undefined ? { stroke: tuple(stroke) } : {}),
+      ...(fill !== undefined ? { fill: colorToTuple(fill) } : {}),
+      ...(stroke !== undefined ? { stroke: colorToTuple(stroke) } : {}),
       ...(strokeWidth !== undefined ? { strokeWidth } : {}),
       ...(opacity !== undefined ? { opacity } : {}),
       ...(dash !== undefined ? { dash } : {}),

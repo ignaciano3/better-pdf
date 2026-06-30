@@ -477,18 +477,22 @@ fn is_sof_marker(marker: u8) -> bool {
     )
 }
 
-pub fn build_jpeg_image_xobject(data: Vec<u8>, info: &JpegInfo) -> Stream {
+/// Dictionary common to every image XObject: an 8-bit `/Image` of the given
+/// dimensions, color space, and decode filter (e.g. `DCTDecode`, `FlateDecode`).
+fn image_xobject_dict(width: i64, height: i64, color_space: &str, filter: &[u8]) -> Dictionary {
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"XObject".to_vec()));
     dict.set("Subtype", Object::Name(b"Image".to_vec()));
-    dict.set("Width", Object::Integer(info.width));
-    dict.set("Height", Object::Integer(info.height));
-    dict.set(
-        "ColorSpace",
-        Object::Name(info.color_space.as_bytes().to_vec()),
-    );
+    dict.set("Width", Object::Integer(width));
+    dict.set("Height", Object::Integer(height));
+    dict.set("ColorSpace", Object::Name(color_space.as_bytes().to_vec()));
     dict.set("BitsPerComponent", Object::Integer(8));
-    dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
+    dict.set("Filter", Object::Name(filter.to_vec()));
+    dict
+}
+
+pub fn build_jpeg_image_xobject(data: Vec<u8>, info: &JpegInfo) -> Stream {
+    let dict = image_xobject_dict(info.width, info.height, &info.color_space, b"DCTDecode");
     Stream::new(dict, data).with_compression(false)
 }
 
@@ -557,17 +561,7 @@ fn build_raw_image_xobject(data: Vec<u8>, info: &ImageInfo) -> Stream {
     encoder.write_all(&data).expect("Vec writes cannot fail");
     let compressed = encoder.finish().expect("zlib finish cannot fail for Vec");
 
-    let mut dict = Dictionary::new();
-    dict.set("Type", Object::Name(b"XObject".to_vec()));
-    dict.set("Subtype", Object::Name(b"Image".to_vec()));
-    dict.set("Width", Object::Integer(info.width));
-    dict.set("Height", Object::Integer(info.height));
-    dict.set(
-        "ColorSpace",
-        Object::Name(info.color_space.as_bytes().to_vec()),
-    );
-    dict.set("BitsPerComponent", Object::Integer(8));
-    dict.set("Filter", Object::Name(b"FlateDecode".to_vec()));
+    let dict = image_xobject_dict(info.width, info.height, info.color_space, b"FlateDecode");
     Stream::new(dict, compressed).with_compression(false)
 }
 

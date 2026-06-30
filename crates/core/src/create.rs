@@ -6,9 +6,9 @@ use serde::Deserialize;
 use std::collections::HashSet;
 
 use crate::draw::{
-    emit_ellipse, emit_image_op, emit_line, emit_path, emit_rectangle, emit_text_block,
-    emit_text_block_cid, extgstate_dict, font_dict, link_annot_dict, standard_14_index, Seg,
-    STANDARD_14,
+    check_color, check_finite, check_opacity, check_page, emit_ellipse, emit_image_op, emit_line,
+    emit_path, emit_rectangle, emit_text_block, emit_text_block_cid, extgstate_dict, font_dict,
+    link_annot_dict, standard_14_index, Seg, STANDARD_14,
 };
 use crate::fonts::{build_embedded_font, BuiltFont, EmbeddedFontInput};
 use lopdf::ObjectId;
@@ -567,9 +567,7 @@ pub fn create_document_json(
     for op in &ops {
         match op {
             CreateOp::Text { page, font, font_id, opacity, rotate, .. } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
+                check_page(*page, pages.len())?;
                 if let Some(i) = font_id {
                     if *i >= font_descs.len() {
                         return Err(format!("font id {i} out of range"));
@@ -577,10 +575,7 @@ pub fn create_document_json(
                 } else if standard_14_index(font).is_none() {
                     return Err(format!("unknown font: {font}"));
                 }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_opacity(opacity)?;
                 if let Some(deg) = rotate
                     && !deg.is_finite() {
                         return Err("invalid rotation".to_string());
@@ -593,13 +588,8 @@ pub fn create_document_json(
                 opacity,
                 ..
             } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
-                if let Some(o) = opacity
-                    && !(0.0..=1.0).contains(o) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_page(*page, pages.len())?;
+                check_opacity(opacity)?;
                 let end = image_offset
                     .checked_add(*image_length)
                     .ok_or_else(|| "image range out of bounds".to_string())?;
@@ -617,9 +607,7 @@ pub fn create_document_json(
                 opacity,
                 ..
             } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
+                check_page(*page, pages.len())?;
                 let end = image_offset
                     .checked_add(*image_length)
                     .ok_or_else(|| "page source range out of bounds".to_string())?;
@@ -632,10 +620,7 @@ pub fn create_document_json(
                 if !height.is_finite() || *height <= 0.0 {
                     return Err("height must be finite and > 0".to_string());
                 }
-                if let Some(o) = opacity
-                    && !(0.0..=1.0).contains(o) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_opacity(opacity)?;
             }
             CreateOp::Line {
                 page,
@@ -648,29 +633,14 @@ pub fn create_document_json(
                 opacity,
                 ..
             } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_page(*page, pages.len())?;
+                check_opacity(opacity)?;
                 if let Some(t) = thickness
                     && (!t.is_finite() || *t < 0.0) {
                         return Err("thickness must be >= 0".to_string());
                     }
-                for &v in &[*x1, *y1, *x2, *y2] {
-                    if !v.is_finite() {
-                        return Err("invalid coordinate".to_string());
-                    }
-                }
-                if let Some(c) = color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
+                check_finite(&[*x1, *y1, *x2, *y2], "invalid coordinate")?;
+                check_color(color)?;
             }
             CreateOp::Rectangle {
                 page,
@@ -684,42 +654,21 @@ pub fn create_document_json(
                 opacity,
                 ..
             } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_page(*page, pages.len())?;
+                check_opacity(opacity)?;
                 if let Some(bw) = border_width
                     && (!bw.is_finite() || *bw < 0.0) {
                         return Err("borderWidth must be >= 0".to_string());
                     }
-                for &v in &[*x, *y, *width, *height] {
-                    if !v.is_finite() {
-                        return Err("invalid coordinate".to_string());
-                    }
-                }
+                check_finite(&[*x, *y, *width, *height], "invalid coordinate")?;
                 if *width <= 0.0 {
                     return Err("width must be > 0".to_string());
                 }
                 if *height <= 0.0 {
                     return Err("height must be > 0".to_string());
                 }
-                if let Some(c) = color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
-                if let Some(c) = border_color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
+                check_color(color)?;
+                check_color(border_color)?;
             }
             CreateOp::Ellipse {
                 page,
@@ -733,79 +682,44 @@ pub fn create_document_json(
                 opacity,
                 ..
             } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_page(*page, pages.len())?;
+                check_opacity(opacity)?;
                 if let Some(bw) = border_width
                     && (!bw.is_finite() || *bw < 0.0) {
                         return Err("borderWidth must be >= 0".to_string());
                     }
-                for &v in &[*x, *y, *x_scale, *y_scale] {
-                    if !v.is_finite() {
-                        return Err("invalid coordinate".to_string());
-                    }
-                }
+                check_finite(&[*x, *y, *x_scale, *y_scale], "invalid coordinate")?;
                 if *x_scale <= 0.0 {
                     return Err("xScale must be > 0".to_string());
                 }
                 if *y_scale <= 0.0 {
                     return Err("yScale must be > 0".to_string());
                 }
-                if let Some(c) = color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
-                if let Some(c) = border_color {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
+                check_color(color)?;
+                check_color(border_color)?;
             }
             CreateOp::SetRotation { page, degrees } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
+                check_page(*page, pages.len())?;
                 if degrees.rem_euclid(90) != 0 {
                     return Err("degrees must be a multiple of 90".to_string());
                 }
             }
             CreateOp::SetMediaBox { page, media_box } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
-                for &v in media_box.iter() {
-                    if !v.is_finite() {
-                        return Err("invalid media box".to_string());
-                    }
-                }
+                check_page(*page, pages.len())?;
+                check_finite(media_box, "invalid media box")?;
                 if media_box[2] <= media_box[0] || media_box[3] <= media_box[1] {
                     return Err("invalid media box".to_string());
                 }
             }
             CreateOp::Link { page, rect, uri, go_to_page } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
+                check_page(*page, pages.len())?;
                 match (uri.is_some(), go_to_page.is_some()) {
                     (true, true) | (false, false) => {
                         return Err("link must have exactly one of uri or goToPage".to_string());
                     }
                     _ => {}
                 }
-                for &v in rect.iter() {
-                    if !v.is_finite() {
-                        return Err("invalid link rect".to_string());
-                    }
-                }
+                check_finite(rect, "invalid link rect")?;
                 if rect[2] <= rect[0] || rect[3] <= rect[1] {
                     return Err("invalid link rect".to_string());
                 }
@@ -828,16 +742,11 @@ pub fn create_document_json(
                 opacity,
                 ..
             } => {
-                if *page >= pages.len() {
-                    return Err(format!("page {page} out of range ({} pages)", pages.len()));
-                }
+                check_page(*page, pages.len())?;
                 if segments.is_empty() {
                     return Err("path must have at least one segment".to_string());
                 }
-                if let Some(o) = opacity
-                    && (!o.is_finite() || *o < 0.0 || *o > 1.0) {
-                        return Err("opacity must be in 0..1".to_string());
-                    }
+                check_opacity(opacity)?;
                 if let Some(sw) = stroke_width
                     && (!sw.is_finite() || *sw < 0.0) {
                         return Err("strokeWidth must be >= 0".to_string());
@@ -854,20 +763,8 @@ pub fn create_document_json(
                         }
                     }
                 }
-                if let Some(c) = fill {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
-                if let Some(c) = stroke {
-                    for &v in c.iter() {
-                        if !v.is_finite() {
-                            return Err("invalid color".to_string());
-                        }
-                    }
-                }
+                check_color(fill)?;
+                check_color(stroke)?;
             }
         }
     }

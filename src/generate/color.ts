@@ -26,3 +26,8 @@ export function grayscale(level: number): Color {
   const v = clamp01(level, "level");
   return { red: v, green: v, blue: v };
 }
+
+/** Convert a {@link Color} to the `[r, g, b]` tuple used on the WASM wire. */
+export function colorToTuple(c: Color): [number, number, number] {
+  return [c.red, c.green, c.blue];
+}

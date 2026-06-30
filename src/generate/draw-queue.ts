@@ -1,4 +1,4 @@
-import type { Color } from "./color.js";
+import { colorToTuple, type Color } from "./color.js";
 import type { Segment } from "./svg-path.js";
 import type { OutlineItem } from "./outline.js";
 
@@ -176,7 +176,7 @@ export class DrawQueue {
       y: opts.y,
       size: opts.size,
       font: opts.font,
-      color: [opts.color.red, opts.color.green, opts.color.blue],
+      color: colorToTuple(opts.color),
       text,
       ...(opts.lineHeight !== undefined ? { lineHeight: opts.lineHeight } : {}),
       ...(opts.fontId !== undefined ? { fontId: opts.fontId } : {}),

@@ -1,4 +1,4 @@
-import type { Color } from "./color.js";
+import { colorToTuple, type Color } from "./color.js";
 import type { FieldNameOf, FormSchema } from "../forms/schema.js";
 import { StandardFonts } from "./fonts.js";
 
@@ -226,14 +226,10 @@ export type FieldDef =
 // Helpers
 // ---------------------------------------------------------------------------
 
-function colorToRgb(c: Color): [number, number, number] {
-  return [c.red, c.green, c.blue];
-}
-
 function borderToWire(b: FieldBorder, label: string): WireBorder {
   const width = b.width ?? 1;
   assertFinite(width, `${label}.border.width`);
-  return { color: colorToRgb(b.color), width };
+  return { color: colorToTuple(b.color), width };
 }
 
 function assertFinite(v: number, name: string): void {
@@ -287,8 +283,8 @@ function buildBase(name: string, opts: BaseFieldOptions, names: Set<string>): Wi
   if (opts.readOnly !== undefined) base.readOnly = opts.readOnly;
   if (opts.tooltip !== undefined) base.tooltip = opts.tooltip;
   if (opts.border !== undefined) base.border = borderToWire(opts.border, name);
-  if (opts.background !== undefined) base.background = colorToRgb(opts.background);
-  if (opts.textColor !== undefined) base.textColor = colorToRgb(opts.textColor);
+  if (opts.background !== undefined) base.background = colorToTuple(opts.background);
+  if (opts.textColor !== undefined) base.textColor = colorToTuple(opts.textColor);
   return base;
 }
 
