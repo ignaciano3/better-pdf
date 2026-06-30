@@ -10,7 +10,8 @@ import { PdfFont } from "../generate/font.js";
 import { StandardFonts } from "../generate/fonts.js";
 import { FormBuilder } from "../generate/form-builder.js";
 import type { FieldDef } from "../generate/form-builder.js";
-import { toPdfDate, fromPdfDate, type DocumentMetadata } from "../generate/metadata.js";
+import { type DocumentMetadata } from "../generate/metadata.js";
+import { MetadataState } from "./metadata-state.js";
 import type { OutlineItem } from "../generate/outline.js";
 
 /** @internal Page descriptor returned by the core's `readPages`. */
@@ -48,6 +49,56 @@ type PageStructureOp =
   | { op: "insertBlank"; index: number; width: number; height: number }
   | { op: "removePage"; index: number }
   | { op: "movePage"; from: number; to: number };
+
+/**
+ * Map each page's stable slot id to its final zero-based index after applying
+ * `structureOps` (in order) to a document with `loadedCount` original pages.
+ * Loaded pages use their original index as slot id; appended pages use a
+ * negative sentinel `-(k+1)`; inserted blanks have no handle (`null`). The
+ * returned resolver throws if a drawn-on page was removed before save.
+ * @internal
+ */
+function buildPageIndexResolver(
+  structureOps: PageStructureOp[],
+  loadedCount: number,
+): (slot: number) => number {
+  // slots[i] holds the slot id occupying final position i; null = a blank
+  // inserted page (no handle, never resolved).
+  const slots: (number | null)[] = [];
+  for (let i = 0; i < loadedCount; i++) slots.push(i);
+  let appendSeq = 0;
+  for (const op of structureOps) {
+    switch (op.op) {
+      case "appendBlank":
+        slots.push(-(++appendSeq));
+        break;
+      case "insertBlank":
+        slots.splice(op.index, 0, null);
+        break;
+      case "removePage":
+        slots.splice(op.index, 1);
+        break;
+      case "movePage": {
+        const [moved] = slots.splice(op.from, 1);
+        slots.splice(op.to, 0, moved ?? null);
+        break;
+      }
+    }
+  }
+  const map = new Map<number, number>();
+  slots.forEach((s, i) => {
+    if (s !== null) map.set(s, i);
+  });
+  return (slot) => {
+    const idx = map.get(slot);
+    if (idx === undefined) {
+      throw new PdfError(
+        "cannot draw on a page that was removed before save(); the page handle no longer maps to a page in the document",
+      );
+    }
+    return idx;
+  };
+}
 
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
@@ -94,8 +145,7 @@ export class PdfDocumentBase {
   private readonly drawQueue = new DrawQueue();
   private readonly fieldDefs: FieldDef[] = [];
   private readonly fieldNames = new Set<string>();
-  private metadata: Record<string, string> = {};
-  private metadataDirty = false;
+  private readonly meta = new MetadataState();
   private outlineItems?: OutlineItem[];
   private readonly structureOps: PageStructureOp[] = [];
   private readonly appendedPages: PdfPage[] = [];
@@ -132,8 +182,8 @@ export class PdfDocumentBase {
   async save(): Promise<Uint8Array> {
     if (this.mode === "create") {
       try {
-        if (this.metadataDirty) {
-          this.drawQueue.pushMetadata(this.metadata);
+        if (this.meta.dirty) {
+          this.drawQueue.pushMetadata(this.meta.wire);
         }
         if (this.outlineItems !== undefined) {
           this.drawQueue.pushOutline(this.outlineItems);
@@ -182,8 +232,8 @@ export class PdfDocumentBase {
       drawImages = images;
       fonts = f;
     }
-    if (this.metadataDirty) {
-      plan["metadata"] = this.metadata;
+    if (this.meta.dirty) {
+      plan["metadata"] = this.meta.wire;
     }
     if (this.outlineItems !== undefined) {
       plan["outline"] = this.outlineItems;
@@ -221,8 +271,8 @@ export class PdfDocumentBase {
         const { opsJson, images, fonts, fontsJson } = this.drawQueue.toDrawPayload(resolve);
         bytes = this.wasm.applyDrawOps(bytes, opsJson, images, fonts, fontsJson);
       }
-      if (this.metadataDirty) {
-        bytes = this.wasm.setMetadata(bytes, JSON.stringify(this.metadata));
+      if (this.meta.dirty) {
+        bytes = this.wasm.setMetadata(bytes, JSON.stringify(this.meta.wire));
       }
       if (this.outlineItems !== undefined) {
         bytes = this.wasm.setOutline(bytes, JSON.stringify(this.outlineItems));
@@ -238,50 +288,42 @@ export class PdfDocumentBase {
 
   /** Set the document title metadata. */
   setTitle(value: string): void {
-    this.metadata["title"] = value;
-    this.metadataDirty = true;
+    this.meta.setTitle(value);
   }
 
   /** Set the document author metadata. */
   setAuthor(value: string): void {
-    this.metadata["author"] = value;
-    this.metadataDirty = true;
+    this.meta.setAuthor(value);
   }
 
   /** Set the document subject metadata. */
   setSubject(value: string): void {
-    this.metadata["subject"] = value;
-    this.metadataDirty = true;
+    this.meta.setSubject(value);
   }
 
   /** Set the document keywords metadata. The array is joined with ", ". */
   setKeywords(values: string[]): void {
-    this.metadata["keywords"] = values.join(", ");
-    this.metadataDirty = true;
+    this.meta.setKeywords(values);
   }
 
   /** Set the document creator metadata. */
   setCreator(value: string): void {
-    this.metadata["creator"] = value;
-    this.metadataDirty = true;
+    this.meta.setCreator(value);
   }
 
   /** Set the document producer metadata. */
   setProducer(value: string): void {
-    this.metadata["producer"] = value;
-    this.metadataDirty = true;
+    this.meta.setProducer(value);
   }
 
   /** Set the document creation date metadata. */
   setCreationDate(date: Date): void {
-    this.metadata["creationDate"] = toPdfDate(date);
-    this.metadataDirty = true;
+    this.meta.setCreationDate(date);
   }
 
   /** Set the document modification date metadata. */
   setModificationDate(date: Date): void {
-    this.metadata["modDate"] = toPdfDate(date);
-    this.metadataDirty = true;
+    this.meta.setModificationDate(date);
   }
 
   /**
@@ -318,27 +360,8 @@ export class PdfDocumentBase {
       }
     }
 
-    // Locally-set values win
-    const merged = { ...wire, ...this.metadata };
-
-    const result: DocumentMetadata = {};
-    if (merged["title"] !== undefined) result.title = merged["title"];
-    if (merged["author"] !== undefined) result.author = merged["author"];
-    if (merged["subject"] !== undefined) result.subject = merged["subject"];
-    if (merged["keywords"] !== undefined) {
-      result.keywords = merged["keywords"].split(/,\s*/);
-    }
-    if (merged["creator"] !== undefined) result.creator = merged["creator"];
-    if (merged["producer"] !== undefined) result.producer = merged["producer"];
-    if (merged["creationDate"] !== undefined) {
-      const d = fromPdfDate(merged["creationDate"]);
-      if (d !== undefined) result.creationDate = d;
-    }
-    if (merged["modDate"] !== undefined) {
-      const d = fromPdfDate(merged["modDate"]);
-      if (d !== undefined) result.modificationDate = d;
-    }
-    return result;
+    // Locally-set values win.
+    return this.meta.merge(wire);
   }
 
   /** Number of pages in the document. */
@@ -467,43 +490,7 @@ export class PdfDocumentBase {
    */
   private buildPageIndexResolver(): (slot: number) => number {
     if (this.mode === "create") return (slot) => slot;
-    const loadedCount = this.loadPages().length;
-    // slots[i] holds the slot id occupying final position i; null = a blank
-    // inserted page (no handle, never resolved).
-    const slots: (number | null)[] = [];
-    for (let i = 0; i < loadedCount; i++) slots.push(i);
-    let appendSeq = 0;
-    for (const op of this.structureOps) {
-      switch (op.op) {
-        case "appendBlank":
-          slots.push(-(++appendSeq));
-          break;
-        case "insertBlank":
-          slots.splice(op.index, 0, null);
-          break;
-        case "removePage":
-          slots.splice(op.index, 1);
-          break;
-        case "movePage": {
-          const [moved] = slots.splice(op.from, 1);
-          slots.splice(op.to, 0, moved ?? null);
-          break;
-        }
-      }
-    }
-    const map = new Map<number, number>();
-    slots.forEach((s, i) => {
-      if (s !== null) map.set(s, i);
-    });
-    return (slot) => {
-      const idx = map.get(slot);
-      if (idx === undefined) {
-        throw new PdfError(
-          "cannot draw on a page that was removed before save(); the page handle no longer maps to a page in the document",
-        );
-      }
-      return idx;
-    };
+    return buildPageIndexResolver(this.structureOps, this.loadPages().length);
   }
 
   /**
