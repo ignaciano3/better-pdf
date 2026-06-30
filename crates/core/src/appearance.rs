@@ -121,6 +121,49 @@ pub fn wrap_lines(text: &[u8], size: f32, avail_w: f32, widths: &FontWidths) -> 
     out
 }
 
+/// Word-wrap `text` into `\n`-separated lines, each measuring `<= avail_w` via
+/// `measure`. Same algorithm as [`wrap_lines`] but operates on `&str` (Unicode
+/// chars) instead of WinAnsi bytes, so it serves both standard-14 and embedded
+/// fonts at draw time. Hard breaks (`\n`, with `\r\n`/`\r` normalized to `\n`)
+/// split first; each paragraph is greedily wrapped on ASCII spaces; a word
+/// wider than `avail_w` gets its own line (overflow, no mid-word break); a blank
+/// paragraph yields an empty line so blank lines survive.
+pub fn wrap_str(text: &str, avail_w: f32, mut measure: impl FnMut(&str) -> f32) -> String {
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut lines: Vec<String> = Vec::new();
+    for para in normalized.split('\n') {
+        let words: Vec<&str> = para.split(' ').filter(|w| !w.is_empty()).collect();
+        if words.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let mut current = String::new();
+        for word in words {
+            if current.is_empty() {
+                current.push_str(word);
+                continue;
+            }
+            let candidate = format!("{current} {word}");
+            if measure(&candidate) <= avail_w {
+                current = candidate;
+            } else {
+                lines.push(std::mem::take(&mut current));
+                current.push_str(word);
+            }
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        }
+    }
+    lines.join("\n")
+}
+
+/// Wrap `text` for a standard-14 `font` at `size` so each line fits `avail_w`.
+pub fn wrap_standard14(text: &str, font: &str, size: f32, avail_w: f32) -> String {
+    let widths = standard_14_widths(font).unwrap_or_else(helvetica_widths);
+    wrap_str(text, avail_w, |s| string_width(&encode_winansi(s), size, &widths))
+}
+
 /// Width in points of `text` rendered in standard-14 `font` at `size`.
 /// Errors if `font` is not a standard-14 base name.
 pub fn measure_text_width(font: &str, size: f32, text: &str) -> Result<f32, String> {
@@ -976,6 +1019,48 @@ mod tests {
             lines,
             vec![b"alpha".to_vec(), b"beta".to_vec(), b"gamma".to_vec()]
         );
+    }
+
+    // wrap_str: width = byte length (each char counts 1) makes assertions exact.
+    fn char_len(s: &str) -> f32 {
+        s.chars().count() as f32
+    }
+
+    #[test]
+    fn wrap_str_greedy_wraps_on_spaces() {
+        assert_eq!(wrap_str("aaa bbb ccc", 7.0, char_len), "aaa bbb\nccc");
+    }
+
+    #[test]
+    fn wrap_str_keeps_hard_breaks() {
+        assert_eq!(wrap_str("aa\nbb cc", 3.0, char_len), "aa\nbb\ncc");
+    }
+
+    #[test]
+    fn wrap_str_overlong_word_gets_own_line() {
+        assert_eq!(wrap_str("aaaaaa bb", 3.0, char_len), "aaaaaa\nbb");
+    }
+
+    #[test]
+    fn wrap_str_fits_on_one_line() {
+        assert_eq!(wrap_str("hi there", 100.0, char_len), "hi there");
+    }
+
+    #[test]
+    fn wrap_str_collapses_space_runs() {
+        assert_eq!(wrap_str("aa   bb", 100.0, char_len), "aa bb");
+    }
+
+    #[test]
+    fn wrap_str_normalizes_crlf() {
+        // The drift this fixes: the old TS wrapText only split on "\n".
+        assert_eq!(wrap_str("a\r\nb\rc", 100.0, char_len), "a\nb\nc");
+    }
+
+    #[test]
+    fn wrap_standard14_wraps_long_line() {
+        let out = wrap_standard14("the quick brown fox jumps", "Helvetica", 12.0, 80.0);
+        assert!(out.contains('\n'), "expected wrapping, got {out:?}");
     }
 
     #[test]

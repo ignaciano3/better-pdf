@@ -97,6 +97,21 @@ test("maxWidth wraps a long line into multiple Tj lines (standard font)", async 
   expect(tjCount).toBeGreaterThan(1);
 });
 
+test("maxWidth wraps in a created document (create path)", async () => {
+  const doc = await PdfDocument.create();
+  doc.addPage();
+  doc.getPage(0).drawText("the quick brown fox jumps over the lazy dog", {
+    x: 40,
+    y: 650,
+    size: 12,
+    maxWidth: 80,
+  });
+  const out = await doc.save();
+  const s = new TextDecoder("latin1").decode(out);
+  const tjCount = (s.match(/\) Tj/g) ?? []).length;
+  expect(tjCount).toBeGreaterThan(1);
+});
+
 test("maxWidth respects explicit newlines as hard breaks", async () => {
   const doc = await load();
   doc.getPage(0).drawText("alpha beta\ngamma delta", {

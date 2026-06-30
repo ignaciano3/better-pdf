@@ -6,7 +6,6 @@ import { EmbeddedPdfPage, kEmbeddedBytes } from "./embedded-page.js";
 import { PdfFont, kFontId } from "./font.js";
 import { InvalidRotationError } from "../core/errors.js";
 import { parseSvgPath, type Segment } from "./svg-path.js";
-import { wrapText } from "./wrap-text.js";
 
 /** Options for {@link PdfPage.drawText}. Coordinates use the PDF convention: origin bottom-left. */
 export interface DrawTextOptions {
@@ -219,9 +218,6 @@ export class PdfPage {
    */
   private readonly _slot: number;
 
-  /** @internal Measures standard-14 text width; injected by PdfDocument. */
-  private readonly measureStd?: (font: string, size: number, text: string) => number;
-
   /** @internal */
   constructor(
     /** Zero-based page index. */
@@ -234,10 +230,8 @@ export class PdfPage {
     readonly rotation: number,
     private readonly queue: DrawQueue,
     slot?: number,
-    measureStd?: (font: string, size: number, text: string) => number,
   ) {
     this._slot = slot ?? index;
-    this.measureStd = measureStd;
   }
 
   /**
@@ -262,26 +256,8 @@ export class PdfPage {
       throw new RangeError(`rotate must be a finite number, got ${options.rotate}`);
     }
     validateOpacity(options.opacity);
-    let text2 = text;
-    if (options.maxWidth !== undefined) {
-      if (!Number.isFinite(options.maxWidth) || options.maxWidth <= 0) {
-        throw new RangeError(`maxWidth must be > 0, got ${options.maxWidth}`);
-      }
-      const size = options.size;
-      const measure =
-        options.font instanceof PdfFont
-          ? (s: string) => (options.font as PdfFont).widthOfTextAtSize(s, size)
-          : (s: string) => {
-              if (!this.measureStd) {
-                throw new Error(
-                  "text measurement is unavailable on this page; cannot wrap text",
-                );
-              }
-              const name =
-                (options.font as StandardFonts | undefined) ?? StandardFonts.Helvetica;
-              return this.measureStd(name, size, s);
-            };
-      text2 = wrapText(text, options.maxWidth, measure);
+    if (options.maxWidth !== undefined && (!Number.isFinite(options.maxWidth) || options.maxWidth <= 0)) {
+      throw new RangeError(`maxWidth must be > 0, got ${options.maxWidth}`);
     }
     const embeddedId =
       options.font instanceof PdfFont && options.font[kFontId] !== undefined
@@ -293,7 +269,7 @@ export class PdfPage {
         : options.font instanceof PdfFont
           ? options.font.name
           : (options.font ?? StandardFonts.Helvetica);
-    this.queue.pushText(this._slot, text2, {
+    this.queue.pushText(this._slot, text, {
       x: options.x,
       y: options.y,
       size: options.size,
@@ -303,6 +279,7 @@ export class PdfPage {
       ...(embeddedId !== undefined ? { fontId: embeddedId } : {}),
       ...(options.rotate !== undefined ? { rotate: options.rotate } : {}),
       ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
+      ...(options.maxWidth !== undefined ? { maxWidth: options.maxWidth } : {}),
     });
   }
 

@@ -181,6 +181,29 @@ pub fn measure_embedded(font: &[u8], size: f32, text: &str) -> Result<f32, Strin
     Ok(units as f32 * size / upem)
 }
 
+/// Word-wrap `text` for embedded `font` at `size` so each line fits `avail_w`.
+/// Parses the face once and measures candidate runs locally (no per-word WASM
+/// crossing), mirroring `measure_embedded`'s glyph-advance metric.
+pub fn wrap_embedded(font: &[u8], size: f32, avail_w: f32, text: &str) -> Result<String, String> {
+    let face = Face::parse(font, 0).map_err(|e| format!("invalid font: {e}"))?;
+    let upem = face.units_per_em() as f32;
+    if upem == 0.0 {
+        return Err("font has zero unitsPerEm".to_string());
+    }
+    let measure = |s: &str| -> f32 {
+        let units: u32 = s
+            .chars()
+            .map(|ch| {
+                face.glyph_index(ch)
+                    .and_then(|gid| face.glyph_hor_advance(gid))
+                    .unwrap_or(0) as u32
+            })
+            .sum();
+        units as f32 * size / upem
+    };
+    Ok(crate::appearance::wrap_str(text, avail_w, measure))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

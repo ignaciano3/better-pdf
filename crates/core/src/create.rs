@@ -48,6 +48,8 @@ enum CreateOp {
         rotate: Option<f32>,
         #[serde(default)]
         opacity: Option<f32>,
+        #[serde(default, rename = "maxWidth")]
+        max_width: Option<f32>,
     },
     Image {
         page: usize,
@@ -566,7 +568,7 @@ pub fn create_document_json(
     // Validation pass: check all ops before building anything
     for op in &ops {
         match op {
-            CreateOp::Text { page, font, font_id, opacity, rotate, .. } => {
+            CreateOp::Text { page, font, font_id, opacity, rotate, max_width, .. } => {
                 check_page(*page, pages.len())?;
                 if let Some(i) = font_id {
                     if *i >= font_descs.len() {
@@ -579,6 +581,10 @@ pub fn create_document_json(
                 if let Some(deg) = rotate
                     && !deg.is_finite() {
                         return Err("invalid rotation".to_string());
+                    }
+                if let Some(mw) = max_width
+                    && (!mw.is_finite() || *mw <= 0.0) {
+                        return Err("maxWidth must be > 0".to_string());
                     }
             }
             CreateOp::Image {
@@ -1006,6 +1012,7 @@ pub fn create_document_json(
                     line_height,
                     rotate,
                     opacity,
+                    max_width,
                 } if *page == page_index => {
                     // Register ExtGState for opacity if present
                     let gs_key = if let Some(o) = opacity {
@@ -1018,6 +1025,22 @@ pub fn create_document_json(
                     } else {
                         None
                     };
+
+                    // Word-wrap server-side when maxWidth is set (one source of
+                    // truth, shared with the loaded-doc draw path).
+                    let wrapped: String = match max_width {
+                        Some(mw) => {
+                            if let Some(id) = font_id {
+                                let fd = &font_descs[*id];
+                                let fbytes = &fonts[fd.offset..fd.offset + fd.length];
+                                crate::fonts::wrap_embedded(fbytes, *size, *mw, text)?
+                            } else {
+                                crate::appearance::wrap_standard14(text, font, *size, *mw)
+                            }
+                        }
+                        None => text.clone(),
+                    };
+                    let text = &wrapped;
 
                     if let Some(id) = font_id {
                         // Embedded font: emit a Type0/Identity-H hex glyph string.

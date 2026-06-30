@@ -16,6 +16,7 @@ export type TextOp = {
   fontId?: number;
   rotate?: number;
   opacity?: number;
+  maxWidth?: number;
 };
 
 export type ImageOp = {
@@ -167,6 +168,7 @@ export class DrawQueue {
       fontId?: number;
       rotate?: number;
       opacity?: number;
+      maxWidth?: number;
     },
   ): void {
     this.drawOps.push({
@@ -182,6 +184,7 @@ export class DrawQueue {
       ...(opts.fontId !== undefined ? { fontId: opts.fontId } : {}),
       ...(opts.rotate !== undefined ? { rotate: opts.rotate } : {}),
       ...(opts.opacity !== undefined ? { opacity: opts.opacity } : {}),
+      ...(opts.maxWidth !== undefined ? { maxWidth: opts.maxWidth } : {}),
     });
   }
 
