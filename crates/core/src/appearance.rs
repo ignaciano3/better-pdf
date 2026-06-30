@@ -271,8 +271,8 @@ pub fn text_appearance_content(
     let escaped = escape_pdf_literal(text);
     let mut out = Vec::new();
     out.extend_from_slice(b"/Tx BMC q BT ");
-    out.extend_from_slice(format!("/{font} {size:.2} Tf {color} ").as_bytes());
-    out.extend_from_slice(format!("{tx:.2} {ty:.2} Td (").as_bytes());
+    write!(out, "/{font} {size:.2} Tf {color} ").unwrap();
+    write!(out, "{tx:.2} {ty:.2} Td (").unwrap();
     out.extend_from_slice(&escaped);
     out.extend_from_slice(b") Tj ET Q EMC");
     out
@@ -299,8 +299,8 @@ pub fn text_appearance_content_multiline(
     let leading = size * 1.15;
     let mut out = Vec::new();
     out.extend_from_slice(b"/Tx BMC q BT ");
-    out.extend_from_slice(format!("/{font} {size:.2} Tf {color} ").as_bytes());
-    out.extend_from_slice(format!("{leading:.2} TL ").as_bytes());
+    write!(out, "/{font} {size:.2} Tf {color} ").unwrap();
+    write!(out, "{leading:.2} TL ").unwrap();
 
     // First baseline near the top of the box; step down by the leading per line.
     let mut ty = box_h - PAD - size;
@@ -314,7 +314,7 @@ pub fn text_appearance_content_multiline(
         let escaped = escape_pdf_literal(line);
         // Absolute text matrix per line keeps each line's quad offset and
         // baseline independent of the running text matrix.
-        out.extend_from_slice(format!("1 0 0 1 {tx:.2} {ty:.2} Tm (").as_bytes());
+        write!(out, "1 0 0 1 {tx:.2} {ty:.2} Tm (").unwrap();
         out.extend_from_slice(&escaped);
         out.extend_from_slice(b") Tj ");
         ty -= leading;
@@ -350,7 +350,7 @@ pub fn text_appearance_content_comb(
     let ty = ((box_h - size) / 2.0 + size * 0.2).max(PAD);
     let mut out = Vec::new();
     out.extend_from_slice(b"/Tx BMC q BT ");
-    out.extend_from_slice(format!("/{font} {size:.2} Tf {color} ").as_bytes());
+    write!(out, "/{font} {size:.2} Tf {color} ").unwrap();
     for (i, &b) in text.iter().take(max_len.max(0) as usize).enumerate() {
         let cw = string_width(&[b], size, widths);
         let cx = cell_w * (i as f32 + 0.5);
@@ -358,7 +358,7 @@ pub fn text_appearance_content_comb(
         let escaped = escape_pdf_literal(&[b]);
         // Absolute text matrix per glyph centers it in its cell, independent of
         // the running text position.
-        out.extend_from_slice(format!("1 0 0 1 {tx:.2} {ty:.2} Tm (").as_bytes());
+        write!(out, "1 0 0 1 {tx:.2} {ty:.2} Tm (").unwrap();
         out.extend_from_slice(&escaped);
         out.extend_from_slice(b") Tj ");
     }
@@ -535,7 +535,7 @@ fn image_xobject_dict(width: i64, height: i64, color_space: &str, filter: &[u8])
 }
 
 pub fn build_jpeg_image_xobject(data: Vec<u8>, info: &JpegInfo) -> Stream {
-    let dict = image_xobject_dict(info.width, info.height, &info.color_space, b"DCTDecode");
+    let dict = image_xobject_dict(info.width, info.height, info.color_space, b"DCTDecode");
     Stream::new(dict, data).with_compression(false)
 }
 
@@ -950,25 +950,22 @@ pub fn listbox_multi_content(
         }
         // Top-aligned: row 0 sits just under the top edge.
         let y = box_h - row_h * (i as f32 + 1.0);
-        out.extend_from_slice(
-            format!(
+        write!(out, 
                 "0.60 0.75 0.85 rg {:.2} {:.2} {:.2} {:.2} re f ",
                 PAD,
                 y,
                 (box_w - 2.0 * PAD).max(0.0),
                 row_h
-            )
-            .as_bytes(),
-        );
+            ).unwrap();
     }
 
     // 2) Text for every option, top to bottom.
     out.extend_from_slice(b"BT ");
-    out.extend_from_slice(format!("/{font} {line:.2} Tf {color} ").as_bytes());
+    write!(out, "/{font} {line:.2} Tf {color} ").unwrap();
     for (i, opt) in options.iter().enumerate() {
         let baseline = box_h - row_h * (i as f32) - line;
         let escaped = escape_pdf_literal(opt);
-        out.extend_from_slice(format!("1 0 0 1 {PAD:.2} {baseline:.2} Tm (").as_bytes());
+        write!(out, "1 0 0 1 {PAD:.2} {baseline:.2} Tm (").unwrap();
         out.extend_from_slice(&escaped);
         out.extend_from_slice(b") Tj ");
     }

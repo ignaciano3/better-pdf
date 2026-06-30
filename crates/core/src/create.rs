@@ -4,6 +4,7 @@
 use lopdf::{dictionary, Dictionary, Document, Object, Stream};
 use serde::Deserialize;
 use std::collections::HashSet;
+use std::io::Write;
 
 use crate::draw::{
     check_color, check_finite, check_opacity, check_page, emit_ellipse, emit_image_op, emit_line,
@@ -1162,13 +1163,13 @@ pub fn create_document_json(
                     // Form BBox is [0 0 bw bh], so scale by width/bw, height/bh.
                     content.extend_from_slice(b"q\n");
                     if let Some(k) = gs_key.as_deref() {
-                        content.extend_from_slice(format!("/{k} gs\n").as_bytes());
+                        writeln!(content, "/{k} gs").unwrap();
                     }
                     crate::draw::emit_placement(
                         &mut content, *x, *y, *width / bw, *height / bh,
                         *rotate, *x_skew, *y_skew,
                     );
-                    content.extend_from_slice(format!("/{key} Do\n").as_bytes());
+                    writeln!(content, "/{key} Do").unwrap();
                     content.extend_from_slice(b"Q\n");
                 }
                 CreateOp::Line {

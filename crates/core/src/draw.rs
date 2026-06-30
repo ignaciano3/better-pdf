@@ -5,6 +5,7 @@ use lopdf::{dictionary, Dictionary, IncrementalDocument, Object, ObjectId, Strea
 use serde::Deserialize;
 
 use crate::appearance::{encode_winansi, escape_pdf_literal};
+use std::io::Write;
 use crate::fonts::{build_embedded_font, BuiltFont, EmbeddedFontInput};
 
 fn default_true() -> bool {
@@ -291,36 +292,33 @@ pub(crate) fn emit_text_block(
         out.extend_from_slice(b"q\n");
     }
     if let Some(k) = gs_key {
-        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+        writeln!(out, "/{k} gs").unwrap();
     }
     if let Some(deg) = rotate {
         let t = deg.to_radians();
         let (sin_, cos_) = (t.sin(), t.cos());
-        out.extend_from_slice(
-            format!(
-                "{} {} {} {} {} {} cm\n",
+        writeln!(out, 
+                "{} {} {} {} {} {} cm",
                 fmt_num(cos_), fmt_num(sin_), fmt_num(-sin_), fmt_num(cos_),
                 fmt_num(x), fmt_num(y)
-            )
-            .as_bytes(),
-        );
+            ).unwrap();
     }
     out.extend_from_slice(b"BT\n");
-    out.extend_from_slice(format!("/{font_key} {} Tf\n", fmt_num(size)).as_bytes());
-    out.extend_from_slice(format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes());
-    out.extend_from_slice(format!("{} TL\n", fmt_num(leading)).as_bytes());
+    writeln!(out, "/{font_key} {} Tf", fmt_num(size)).unwrap();
+    writeln!(out, "{} {} {} rg", fmt_num(r), fmt_num(g), fmt_num(b)).unwrap();
+    writeln!(out, "{} TL", fmt_num(leading)).unwrap();
     if rotate.is_some() {
         out.extend_from_slice(b"0 0 Td\n");
     } else {
-        out.extend_from_slice(format!("{} {} Td\n", fmt_num(x), fmt_num(y)).as_bytes());
+        writeln!(out, "{} {} Td", fmt_num(x), fmt_num(y)).unwrap();
     }
     for (i, line) in text.split('\n').enumerate() {
         let escaped = escape_pdf_literal(&encode_winansi(line));
         let escaped_str = String::from_utf8_lossy(&escaped).into_owned();
         if i == 0 {
-            out.extend_from_slice(format!("({escaped_str}) Tj\n").as_bytes());
+            writeln!(out, "({escaped_str}) Tj").unwrap();
         } else {
-            out.extend_from_slice(format!("T*\n({escaped_str}) Tj\n").as_bytes());
+            write!(out, "T*\n({escaped_str}) Tj\n").unwrap();
         }
     }
     out.extend_from_slice(b"ET\n");
@@ -353,36 +351,33 @@ pub(crate) fn emit_text_block_cid(
         out.extend_from_slice(b"q\n");
     }
     if let Some(k) = gs_key {
-        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+        writeln!(out, "/{k} gs").unwrap();
     }
     if let Some(deg) = rotate {
         let t = deg.to_radians();
         let (sin_, cos_) = (t.sin(), t.cos());
-        out.extend_from_slice(
-            format!(
-                "{} {} {} {} {} {} cm\n",
+        writeln!(out, 
+                "{} {} {} {} {} {} cm",
                 fmt_num(cos_), fmt_num(sin_), fmt_num(-sin_), fmt_num(cos_),
                 fmt_num(x), fmt_num(y)
-            )
-            .as_bytes(),
-        );
+            ).unwrap();
     }
     out.extend_from_slice(b"BT\n");
-    out.extend_from_slice(format!("/{font_key} {} Tf\n", fmt_num(size)).as_bytes());
-    out.extend_from_slice(format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes());
-    out.extend_from_slice(format!("{} TL\n", fmt_num(leading)).as_bytes());
+    writeln!(out, "/{font_key} {} Tf", fmt_num(size)).unwrap();
+    writeln!(out, "{} {} {} rg", fmt_num(r), fmt_num(g), fmt_num(b)).unwrap();
+    writeln!(out, "{} TL", fmt_num(leading)).unwrap();
     if rotate.is_some() {
         out.extend_from_slice(b"0 0 Td\n");
     } else {
-        out.extend_from_slice(format!("{} {} Td\n", fmt_num(x), fmt_num(y)).as_bytes());
+        writeln!(out, "{} {} Td", fmt_num(x), fmt_num(y)).unwrap();
     }
     for (i, line) in gids_per_line.iter().enumerate() {
         let mut hex = String::with_capacity(line.len() * 4);
         for gid in line { hex.push_str(&format!("{gid:04X}")); }
         if i == 0 {
-            out.extend_from_slice(format!("<{hex}> Tj\n").as_bytes());
+            writeln!(out, "<{hex}> Tj").unwrap();
         } else {
-            out.extend_from_slice(format!("T*\n<{hex}> Tj\n").as_bytes());
+            write!(out, "T*\n<{hex}> Tj\n").unwrap();
         }
     }
     out.extend_from_slice(b"ET\n");
@@ -408,44 +403,31 @@ pub(crate) fn emit_placement(
     y_skew: f32,
 ) {
     if rotate == 0.0 && x_skew == 0.0 && y_skew == 0.0 {
-        out.extend_from_slice(
-            format!("{} 0 0 {} {} {} cm\n", fmt_num(sx), fmt_num(sy), fmt_num(x), fmt_num(y))
-                .as_bytes(),
-        );
+        writeln!(out, "{} 0 0 {} {} {} cm", fmt_num(sx), fmt_num(sy), fmt_num(x), fmt_num(y)).unwrap();
         return;
     }
     // translate to the placement point
-    out.extend_from_slice(
-        format!("1 0 0 1 {} {} cm\n", fmt_num(x), fmt_num(y)).as_bytes(),
-    );
+    writeln!(out, "1 0 0 1 {} {} cm", fmt_num(x), fmt_num(y)).unwrap();
     // rotate about that point
     if rotate != 0.0 {
         let r = rotate.to_radians();
-        out.extend_from_slice(
-            format!(
-                "{} {} {} {} 0 0 cm\n",
+        writeln!(out, 
+                "{} {} {} {} 0 0 cm",
                 fmt_num(r.cos()),
                 fmt_num(r.sin()),
                 fmt_num(-r.sin()),
                 fmt_num(r.cos())
-            )
-            .as_bytes(),
-        );
+            ).unwrap();
     }
     // scale to the target box
-    out.extend_from_slice(
-        format!("{} 0 0 {} 0 0 cm\n", fmt_num(sx), fmt_num(sy)).as_bytes(),
-    );
+    writeln!(out, "{} 0 0 {} 0 0 cm", fmt_num(sx), fmt_num(sy)).unwrap();
     // skew (pdf-lib: [1, tan(yskew), tan(xskew), 1])
     if x_skew != 0.0 || y_skew != 0.0 {
-        out.extend_from_slice(
-            format!(
-                "1 {} {} 1 0 0 cm\n",
+        writeln!(out, 
+                "1 {} {} 1 0 0 cm",
                 fmt_num(y_skew.to_radians().tan()),
                 fmt_num(x_skew.to_radians().tan())
-            )
-            .as_bytes(),
-        );
+            ).unwrap();
     }
 }
 
@@ -466,10 +448,10 @@ pub(crate) fn emit_image_op(
 ) {
     out.extend_from_slice(b"q\n");
     if let Some(k) = gs_key {
-        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+        writeln!(out, "/{k} gs").unwrap();
     }
     emit_placement(out, x, y, width, height, rotate, x_skew, y_skew);
-    out.extend_from_slice(format!("/{xobj_key} Do\n").as_bytes());
+    writeln!(out, "/{xobj_key} Do").unwrap();
     out.extend_from_slice(b"Q\n");
 }
 
@@ -486,7 +468,7 @@ fn emit_dash(out: &mut Vec<u8>, dash: &[f32], phase: f32) {
         }
         out.extend_from_slice(fmt_num(*v).as_bytes());
     }
-    out.extend_from_slice(format!("] {} d\n", fmt_num(phase)).as_bytes());
+    writeln!(out, "] {} d", fmt_num(phase)).unwrap();
 }
 
 fn paint_op(has_fill: bool, has_stroke: bool) -> &'static str {
@@ -514,15 +496,13 @@ pub(crate) fn emit_line(
     let [r, g, b] = color;
     out.extend_from_slice(b"q\n");
     if let Some(k) = gs_key {
-        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+        writeln!(out, "/{k} gs").unwrap();
     }
-    out.extend_from_slice(format!("{} w\n", fmt_num(thickness)).as_bytes());
+    writeln!(out, "{} w", fmt_num(thickness)).unwrap();
     emit_dash(out, dash, dash_phase);
-    out.extend_from_slice(
-        format!("{} {} {} RG\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
-    );
-    out.extend_from_slice(format!("{} {} m\n", fmt_num(x1), fmt_num(y1)).as_bytes());
-    out.extend_from_slice(format!("{} {} l\n", fmt_num(x2), fmt_num(y2)).as_bytes());
+    writeln!(out, "{} {} {} RG", fmt_num(r), fmt_num(g), fmt_num(b)).unwrap();
+    writeln!(out, "{} {} m", fmt_num(x1), fmt_num(y1)).unwrap();
+    writeln!(out, "{} {} l", fmt_num(x2), fmt_num(y2)).unwrap();
     out.extend_from_slice(b"S\nQ\n");
 }
 
@@ -542,25 +522,17 @@ pub(crate) fn emit_rectangle(
 ) {
     out.extend_from_slice(b"q\n");
     if let Some(k) = gs_key {
-        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+        writeln!(out, "/{k} gs").unwrap();
     }
     if let Some([r, g, b]) = fill {
-        out.extend_from_slice(
-            format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
-        );
+        writeln!(out, "{} {} {} rg", fmt_num(r), fmt_num(g), fmt_num(b)).unwrap();
     }
     if let Some([r, g, b]) = border {
-        out.extend_from_slice(
-            format!("{} {} {} RG\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
-        );
-        out.extend_from_slice(
-            format!("{} w\n", fmt_num(border_width.unwrap_or(1.0))).as_bytes(),
-        );
+        writeln!(out, "{} {} {} RG", fmt_num(r), fmt_num(g), fmt_num(b)).unwrap();
+        writeln!(out, "{} w", fmt_num(border_width.unwrap_or(1.0))).unwrap();
         emit_dash(out, dash, dash_phase);
     }
-    out.extend_from_slice(
-        format!("{} {} {} {} re\n", fmt_num(x), fmt_num(y), fmt_num(w), fmt_num(h)).as_bytes(),
-    );
+    writeln!(out, "{} {} {} {} re", fmt_num(x), fmt_num(y), fmt_num(w), fmt_num(h)).unwrap();
     out.extend_from_slice(paint_op(fill.is_some(), border.is_some()).as_bytes());
     out.extend_from_slice(b"\nQ\n");
 }
@@ -584,72 +556,54 @@ pub(crate) fn emit_ellipse(
     let (ox, oy) = (rx * k, ry * k);
     out.extend_from_slice(b"q\n");
     if let Some(key) = gs_key {
-        out.extend_from_slice(format!("/{key} gs\n").as_bytes());
+        writeln!(out, "/{key} gs").unwrap();
     }
     if let Some([r, g, b]) = fill {
-        out.extend_from_slice(
-            format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
-        );
+        writeln!(out, "{} {} {} rg", fmt_num(r), fmt_num(g), fmt_num(b)).unwrap();
     }
     if let Some([r, g, b]) = border {
-        out.extend_from_slice(
-            format!("{} {} {} RG\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
-        );
-        out.extend_from_slice(
-            format!("{} w\n", fmt_num(border_width.unwrap_or(1.0))).as_bytes(),
-        );
+        writeln!(out, "{} {} {} RG", fmt_num(r), fmt_num(g), fmt_num(b)).unwrap();
+        writeln!(out, "{} w", fmt_num(border_width.unwrap_or(1.0))).unwrap();
         emit_dash(out, dash, dash_phase);
     }
     // Start at right vertex, go counter-clockwise.
-    out.extend_from_slice(format!("{} {} m\n", fmt_num(cx + rx), fmt_num(cy)).as_bytes());
-    out.extend_from_slice(
-        format!(
-            "{} {} {} {} {} {} c\n",
+    writeln!(out, "{} {} m", fmt_num(cx + rx), fmt_num(cy)).unwrap();
+    writeln!(out, 
+            "{} {} {} {} {} {} c",
             fmt_num(cx + rx),
             fmt_num(cy + oy),
             fmt_num(cx + ox),
             fmt_num(cy + ry),
             fmt_num(cx),
             fmt_num(cy + ry)
-        )
-        .as_bytes(),
-    );
-    out.extend_from_slice(
-        format!(
-            "{} {} {} {} {} {} c\n",
+        ).unwrap();
+    writeln!(out, 
+            "{} {} {} {} {} {} c",
             fmt_num(cx - ox),
             fmt_num(cy + ry),
             fmt_num(cx - rx),
             fmt_num(cy + oy),
             fmt_num(cx - rx),
             fmt_num(cy)
-        )
-        .as_bytes(),
-    );
-    out.extend_from_slice(
-        format!(
-            "{} {} {} {} {} {} c\n",
+        ).unwrap();
+    writeln!(out, 
+            "{} {} {} {} {} {} c",
             fmt_num(cx - rx),
             fmt_num(cy - oy),
             fmt_num(cx - ox),
             fmt_num(cy - ry),
             fmt_num(cx),
             fmt_num(cy - ry)
-        )
-        .as_bytes(),
-    );
-    out.extend_from_slice(
-        format!(
-            "{} {} {} {} {} {} c\n",
+        ).unwrap();
+    writeln!(out, 
+            "{} {} {} {} {} {} c",
             fmt_num(cx + ox),
             fmt_num(cy - ry),
             fmt_num(cx + rx),
             fmt_num(cy - oy),
             fmt_num(cx + rx),
             fmt_num(cy)
-        )
-        .as_bytes(),
-    );
+        ).unwrap();
     out.extend_from_slice(b"h\n");
     out.extend_from_slice(paint_op(fill.is_some(), border.is_some()).as_bytes());
     out.extend_from_slice(b"\nQ\n");
@@ -668,40 +622,31 @@ pub(crate) fn emit_path(
 ) {
     out.extend_from_slice(b"q\n");
     if let Some(k) = gs_key {
-        out.extend_from_slice(format!("/{k} gs\n").as_bytes());
+        writeln!(out, "/{k} gs").unwrap();
     }
     if let Some([r, g, b]) = fill {
-        out.extend_from_slice(
-            format!("{} {} {} rg\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
-        );
+        writeln!(out, "{} {} {} rg", fmt_num(r), fmt_num(g), fmt_num(b)).unwrap();
     }
     if let Some([r, g, b]) = stroke {
-        out.extend_from_slice(
-            format!("{} {} {} RG\n", fmt_num(r), fmt_num(g), fmt_num(b)).as_bytes(),
-        );
-        out.extend_from_slice(
-            format!("{} w\n", fmt_num(stroke_width.unwrap_or(1.0))).as_bytes(),
-        );
+        writeln!(out, "{} {} {} RG", fmt_num(r), fmt_num(g), fmt_num(b)).unwrap();
+        writeln!(out, "{} w", fmt_num(stroke_width.unwrap_or(1.0))).unwrap();
         emit_dash(out, dash, dash_phase);
     }
     for seg in segments {
         match seg {
             Seg::M { x, y } => {
-                out.extend_from_slice(format!("{} {} m\n", fmt_num(*x), fmt_num(*y)).as_bytes());
+                writeln!(out, "{} {} m", fmt_num(*x), fmt_num(*y)).unwrap();
             }
             Seg::L { x, y } => {
-                out.extend_from_slice(format!("{} {} l\n", fmt_num(*x), fmt_num(*y)).as_bytes());
+                writeln!(out, "{} {} l", fmt_num(*x), fmt_num(*y)).unwrap();
             }
             Seg::C { x1, y1, x2, y2, x, y } => {
-                out.extend_from_slice(
-                    format!(
-                        "{} {} {} {} {} {} c\n",
+                writeln!(out, 
+                        "{} {} {} {} {} {} c",
                         fmt_num(*x1), fmt_num(*y1),
                         fmt_num(*x2), fmt_num(*y2),
                         fmt_num(*x),  fmt_num(*y)
-                    )
-                    .as_bytes(),
-                );
+                    ).unwrap();
             }
             Seg::Z => {
                 out.extend_from_slice(b"h\n");
@@ -1432,13 +1377,13 @@ pub(crate) fn draw_apply(
                     // Form BBox is [0 0 bw bh], so scale by width/bw, height/bh.
                     stream_content.extend_from_slice(b"q\n");
                     if let Some(k) = gs_key.as_deref() {
-                        stream_content.extend_from_slice(format!("/{k} gs\n").as_bytes());
+                        writeln!(stream_content, "/{k} gs").unwrap();
                     }
                     emit_placement(
                         &mut stream_content, *x, *y, *width / bw, *height / bh,
                         *rotate, *x_skew, *y_skew,
                     );
-                    stream_content.extend_from_slice(format!("/{key} Do\n").as_bytes());
+                    writeln!(stream_content, "/{key} Do").unwrap();
                     stream_content.extend_from_slice(b"Q\n");
                     xobjects_on_page.push((key, xid));
                 }
