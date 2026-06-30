@@ -129,39 +129,63 @@ pub fn set_outline_json(data: &[u8], json: &str) -> Result<Vec<u8>, String> {
         serde_json::from_str(json).map_err(|e| format!("invalid outline json: {e}"))?;
 
     let doc = crate::doc_io::load_pdf(data)?;
-    let page_count = doc.get_pages().len();
-    validate_pages(&items, page_count)?;
+    let prep = outline_prep(&doc, &items)?;
 
-    // The Root reference in the trailer is the catalog object id.
+    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
+    outline_apply(&mut inc, &items, &prep)?;
+
+    let mut out = Vec::new();
+    inc.save_to(&mut out).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Page-resolution data computed from the immutable `doc` before it is moved
+/// into the incremental document.
+pub(crate) struct OutlinePrep {
+    root_catalog_id: ObjectId,
+    /// Page object ids sorted by page number; index = zero-based page index.
+    sorted_pages: Vec<ObjectId>,
+}
+
+/// Phase A: validate page references and capture the catalog id + page ids.
+pub(crate) fn outline_prep(doc: &Document, items: &[OutlineItem]) -> Result<OutlinePrep, String> {
+    validate_pages(items, doc.get_pages().len())?;
+
     let root_catalog_id = doc
         .trailer
         .get(b"Root")
         .and_then(Object::as_reference)
         .map_err(|e| e.to_string())?;
 
-    // Sorted-by-page-number page object ids of the previous document.
-    let mut sorted_pages: Vec<(u32, ObjectId)> = doc.get_pages().into_iter().collect();
-    sorted_pages.sort_by_key(|(num, _)| *num);
+    let mut by_num: Vec<(u32, ObjectId)> = doc.get_pages().into_iter().collect();
+    by_num.sort_by_key(|(num, _)| *num);
+    let sorted_pages = by_num.into_iter().map(|(_, id)| id).collect();
 
-    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
+    Ok(OutlinePrep {
+        root_catalog_id,
+        sorted_pages,
+    })
+}
 
-    let page_ref = |i: usize| -> Option<ObjectId> { sorted_pages.get(i).map(|(_, id)| *id) };
+/// Phase B: build the outline tree and set `/Outlines` on the catalog.
+pub(crate) fn outline_apply(
+    inc: &mut IncrementalDocument,
+    items: &[OutlineItem],
+    prep: &OutlinePrep,
+) -> Result<(), String> {
+    let page_ref = |i: usize| -> Option<ObjectId> { prep.sorted_pages.get(i).copied() };
 
-    let root = build_outline(&mut inc.new_document, &items, &page_ref)?;
+    let root = build_outline(&mut inc.new_document, items, &page_ref)?;
 
-    // Clone the catalog into the new document and set /Outlines on it.
-    inc.opt_clone_object_to_new_document(root_catalog_id)
+    inc.opt_clone_object_to_new_document(prep.root_catalog_id)
         .map_err(|e| e.to_string())?;
     let catalog = inc
         .new_document
-        .get_object_mut(root_catalog_id)
+        .get_object_mut(prep.root_catalog_id)
         .and_then(Object::as_dict_mut)
         .map_err(|e| e.to_string())?;
     catalog.set("Outlines", Object::Reference(root));
-
-    let mut out = Vec::new();
-    inc.save_to(&mut out).map_err(|e| e.to_string())?;
-    Ok(out)
+    Ok(())
 }
 
 #[cfg(test)]

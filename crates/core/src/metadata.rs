@@ -1,6 +1,6 @@
 //! Metadata module: read and incrementally write the PDF Info dictionary.
 
-use lopdf::{Dictionary, IncrementalDocument, Object, StringFormat};
+use lopdf::{Dictionary, Document, IncrementalDocument, Object, StringFormat};
 use serde::{Deserialize, Serialize};
 
 /// Representation of the PDF Info dictionary entries.
@@ -115,32 +115,42 @@ pub fn set_metadata_json(data: &[u8], meta_json: &str) -> Result<Vec<u8>, String
     let meta: Metadata = serde_json::from_str(meta_json).map_err(|e| format!("invalid metadata json: {e}"))?;
 
     let doc = crate::doc_io::load_pdf(data)?;
-
-    // Clone any existing Info dict so unspecified keys survive.
-    let existing_info: Dictionary = match doc.trailer.get(b"Info") {
-        Ok(Object::Reference(id)) => {
-            doc.get_dictionary(*id).ok().cloned().unwrap_or_default()
-        }
-        Ok(Object::Dictionary(d)) => d.clone(),
-        _ => Dictionary::new(),
-    };
+    let existing_info = read_existing_info(&doc);
 
     let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
-
-    // Build merged Info dict: start with existing, overlay provided keys.
-    let mut merged = existing_info;
-    let overlay = build_info_dict(&meta);
-    for (key, val) in overlay.iter() {
-        merged.set(key.clone(), val.clone());
-    }
-
-    // Add the Info object to new_document and wire up the trailer reference.
-    let info_id = inc.new_document.add_object(Object::Dictionary(merged));
-    inc.new_document.trailer.set("Info", Object::Reference(info_id));
+    metadata_apply(&mut inc, existing_info, &meta);
 
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
+}
+
+/// Phase A: clone any existing Info dict so unspecified keys survive the merge.
+pub(crate) fn read_existing_info(doc: &Document) -> Dictionary {
+    match doc.trailer.get(b"Info") {
+        Ok(Object::Reference(id)) => doc.get_dictionary(*id).ok().cloned().unwrap_or_default(),
+        Ok(Object::Dictionary(d)) => d.clone(),
+        _ => Dictionary::new(),
+    }
+}
+
+/// Phase B: merge `meta` over `existing_info` and wire the Info dict into the
+/// incremental document's trailer.
+pub(crate) fn metadata_apply(
+    inc: &mut IncrementalDocument,
+    existing_info: Dictionary,
+    meta: &Metadata,
+) {
+    let mut merged = existing_info;
+    let overlay = build_info_dict(meta);
+    for (key, val) in overlay.iter() {
+        merged.set(key.clone(), val.clone());
+    }
+
+    let info_id = inc.new_document.add_object(Object::Dictionary(merged));
+    inc.new_document
+        .trailer
+        .set("Info", Object::Reference(info_id));
 }
 
 #[cfg(test)]

@@ -7,7 +7,7 @@ use crate::forms;
 use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream};
 
 /// One widget to flatten: where it is and what appearance to stamp.
-struct WidgetStamp {
+pub(crate) struct WidgetStamp {
     widget_id: ObjectId,
     page_id: ObjectId,
     rect: [f32; 4],
@@ -25,36 +25,53 @@ pub(crate) struct RawWidget {
 pub fn flatten_fields_json(data: &[u8], names_json: &str) -> Result<Vec<u8>, String> {
     let names: Vec<String> = serde_json::from_str(names_json).map_err(|e| e.to_string())?;
     let doc = crate::doc_io::load_pdf(data)?;
-    if forms::has_xfa(&doc) {
+    let (field_ids, stamps) = flatten_resolve(&doc, &names)?;
+
+    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
+    flatten_apply(&mut inc, &field_ids, &stamps)?;
+
+    let mut out = Vec::new();
+    inc.save_to(&mut out).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Phase A: resolve fields + widget stamps against the immutable `doc`. Rejects XFA.
+pub(crate) fn flatten_resolve(
+    doc: &Document,
+    names: &[String],
+) -> Result<(Vec<ObjectId>, Vec<WidgetStamp>), String> {
+    if forms::has_xfa(doc) {
         return Err(
             "XFA form detected: flattening is not supported because viewers render the XFA data, not the AcroForm values"
                 .to_string(),
         );
     }
-
-    // Resolve everything against the immutable doc first.
     let mut field_ids: Vec<ObjectId> = Vec::new();
     let mut stamps: Vec<WidgetStamp> = Vec::new();
-    for name in &names {
+    for name in names {
         let (field_id, dict) =
-            find_field(&doc, name).ok_or_else(|| format!("no such field: {name}"))?;
+            find_field(doc, name).ok_or_else(|| format!("no such field: {name}"))?;
         field_ids.push(field_id);
-        for w in field_widgets(&doc, field_id, dict) {
-            stamps.push(resolve_stamp(&doc, w));
+        for w in field_widgets(doc, field_id, dict) {
+            stamps.push(resolve_stamp(doc, w));
         }
     }
+    Ok((field_ids, stamps))
+}
 
-    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
+/// Phase B: stamp widget appearances into page content and remove the fields.
+pub(crate) fn flatten_apply(
+    inc: &mut IncrementalDocument,
+    field_ids: &[ObjectId],
+    stamps: &[WidgetStamp],
+) -> Result<(), String> {
     let mut counter = 0usize;
-    for s in &stamps {
-        stamp_widget(&mut inc, s, &mut counter)?;
-        remove_annot(&mut inc, s.page_id, s.widget_id)?;
+    for s in stamps {
+        stamp_widget(inc, s, &mut counter)?;
+        remove_annot(inc, s.page_id, s.widget_id)?;
     }
-    remove_fields(&mut inc, &field_ids)?;
-
-    let mut out = Vec::new();
-    inc.save_to(&mut out).map_err(|e| e.to_string())?;
-    Ok(out)
+    remove_fields(inc, field_ids)?;
+    Ok(())
 }
 
 /// A field's widgets (id + page + rect). A field with no /Kids is its own widget.

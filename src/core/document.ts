@@ -49,6 +49,13 @@ export interface CoreWasm {
   manipulatePages(docsBlob: Uint8Array, docsJson: string, planJson: string): Uint8Array;
   setOutline(data: Uint8Array, json: string): Uint8Array;
   insertPages(data: Uint8Array, opsJson: string): Uint8Array;
+  applyAll(
+    data: Uint8Array,
+    planJson: string,
+    fillImages: Uint8Array,
+    drawImages: Uint8Array,
+    fonts: Uint8Array,
+  ): Uint8Array;
 }
 
 export class PdfDocumentBase {
@@ -116,6 +123,60 @@ export class PdfDocumentBase {
     }
 
     const form = this.form;
+
+    // Structural page ops (insert/remove/move) rebuild the page tree, which the
+    // single-pass applyAll cannot compose with draw's page-index resolution.
+    // Fall back to the chained pipeline (one WASM call per operation) only then.
+    if (this.structureOps.length > 0) {
+      return this.saveChained(form);
+    }
+
+    // Fast path: apply every queued operation in one parse → mutate → save pass.
+    const empty = new Uint8Array(0);
+    const plan: Record<string, unknown> = {};
+    let fillImages: Uint8Array = empty;
+    let drawImages: Uint8Array = empty;
+    let fonts: Uint8Array = empty;
+
+    if (form && form[kFormQueue].length > 0) {
+      const { opsJson, images } = form[kFormQueue].toPayload();
+      plan["fill"] = JSON.parse(opsJson);
+      fillImages = images;
+    }
+    if (form && form[kFlattenQueue].length > 0) {
+      plan["flatten"] = form[kFlattenQueue];
+    }
+    if (this.drawQueue.length > 0) {
+      const resolve = this.buildPageIndexResolver();
+      const { opsJson, images, fonts: f, fontsJson } = this.drawQueue.toDrawPayload(resolve);
+      plan["draw"] = { ops: JSON.parse(opsJson), fonts: JSON.parse(fontsJson) };
+      drawImages = images;
+      fonts = f;
+    }
+    if (this.metadataDirty) {
+      plan["metadata"] = this.metadata;
+    }
+    if (this.outlineItems !== undefined) {
+      plan["outline"] = this.outlineItems;
+    }
+
+    if (Object.keys(plan).length === 0) {
+      return this.bytes.slice();
+    }
+
+    try {
+      return this.wasm.applyAll(this.bytes, JSON.stringify(plan), fillImages, drawImages, fonts);
+    } catch (e) {
+      throw toPdfError(e);
+    }
+  }
+
+  /**
+   * Legacy chained save: one WASM round-trip per operation. Used only when
+   * page-structure ops are queued (see `save()`), since those cannot be merged
+   * into the single-pass `applyAll`.
+   */
+  private async saveChained(form: PdfForm | undefined): Promise<Uint8Array> {
     let bytes = this.bytes;
     try {
       if (form && form[kFormQueue].length > 0) {

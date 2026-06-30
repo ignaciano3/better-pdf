@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 mod appearance;
+mod apply;
 pub mod create;
 mod fonts;
 mod doc_io;
@@ -54,6 +55,24 @@ pub fn apply_draw_ops(
     fonts_json: &str,
 ) -> Result<Vec<u8>, JsError> {
     draw::apply_draw_ops_json(data, ops_json, images, fonts, fonts_json).map_err(|e| JsError::new(&e))
+}
+
+/// Apply fill, flatten, draw, metadata, and outline operations to a loaded PDF
+/// in a single parse → mutate → serialize pass. `plan_json` is an object with
+/// optional `fill`, `flatten`, `draw` ({ ops, fonts }), `metadata`, and
+/// `outline` keys. `fill_images` / `draw_images` / `fonts` are the binary blobs
+/// referenced by fill ops, draw ops, and embedded fonts respectively (pass
+/// `&[]` for none). Page-structure ops are NOT handled here.
+#[wasm_bindgen]
+pub fn apply_all(
+    data: &[u8],
+    plan_json: &str,
+    fill_images: &[u8],
+    draw_images: &[u8],
+    fonts: &[u8],
+) -> Result<Vec<u8>, JsError> {
+    apply::apply_all_json(data, plan_json, fill_images, draw_images, fonts)
+        .map_err(|e| JsError::new(&e))
 }
 
 /// Build a new PDF document from scratch using a JSON array of create ops

@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import {
   initSync,
+  apply_all,
   apply_draw_ops,
   create_document,
   decrypt_pdf,
@@ -53,6 +54,16 @@ export function applyDrawOps(
   fontsJson = "[]",
 ): Uint8Array {
   return apply_draw_ops(data, opsJson, images, fonts, fontsJson);
+}
+
+export function applyAll(
+  data: Uint8Array,
+  planJson: string,
+  fillImages: Uint8Array = new Uint8Array(),
+  drawImages: Uint8Array = new Uint8Array(),
+  fonts: Uint8Array = new Uint8Array(),
+): Uint8Array {
+  return apply_all(data, planJson, fillImages, drawImages, fonts);
 }
 
 export function createDocument(

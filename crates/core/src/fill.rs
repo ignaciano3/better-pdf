@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct FillOp {
+pub(crate) struct FillOp {
     name: String,
     value: Option<String>,
     values: Option<Vec<String>>,
@@ -59,20 +59,38 @@ impl FieldFlagOps {
 pub fn fill_fields_json(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, String> {
     let ops: Vec<FillOp> = serde_json::from_str(ops_json).map_err(|e| e.to_string())?;
     let doc = crate::doc_io::load_pdf(data)?;
-    if forms::has_xfa(&doc) {
+    let plan = fill_resolve(&doc, &ops, images)?;
+
+    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
+    fill_apply(&mut inc, &plan)?;
+
+    let mut out = Vec::new();
+    inc.save_to(&mut out).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Phase A: resolve every fill op against the immutable `doc` into a plan, so
+/// `doc` can be moved into the `IncrementalDocument` afterwards. Rejects XFA.
+pub(crate) fn fill_resolve(
+    doc: &Document,
+    ops: &[FillOp],
+    images: &[u8],
+) -> Result<Vec<Resolved>, String> {
+    if forms::has_xfa(doc) {
         return Err(
             "XFA form detected: filling is not supported because viewers render the XFA data, not the AcroForm values"
                 .to_string(),
         );
     }
-
-    // Resolve every op against the immutable doc first, so we can move `doc`
-    // into the IncrementalDocument afterwards.
     let mut plan: Vec<Resolved> = Vec::with_capacity(ops.len());
-    for op in &ops {
-        plan.push(resolve(&doc, op, images)?);
+    for op in ops {
+        plan.push(resolve(doc, op, images)?);
     }
+    Ok(plan)
+}
 
+/// Phase B: apply a resolved fill plan to the incremental document.
+pub(crate) fn fill_apply(inc: &mut IncrementalDocument, plan: &[Resolved]) -> Result<(), String> {
     let touched_appearance = plan.iter().any(|r| {
         matches!(
             r.apply,
@@ -84,21 +102,17 @@ pub fn fill_fields_json(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Ve
         )
     });
 
-    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
-    for r in &plan {
-        apply(&mut inc, r)?;
+    for r in plan {
+        apply(inc, r)?;
     }
     if touched_appearance {
-        clear_need_appearances(&mut inc)?;
+        clear_need_appearances(inc)?;
     }
-
-    let mut out = Vec::new();
-    inc.save_to(&mut out).map_err(|e| e.to_string())?;
-    Ok(out)
+    Ok(())
 }
 
 /// What to do to one field, pre-computed from the immutable document.
-struct Resolved {
+pub(crate) struct Resolved {
     field_id: ObjectId,
     apply: Apply,
 }

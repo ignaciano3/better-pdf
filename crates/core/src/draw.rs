@@ -14,7 +14,7 @@ fn default_true() -> bool {
 /// One embedded font descriptor in the `fonts_json` payload. `offset`/`length`
 /// index into the concatenated `fonts` blob; `subset` controls glyph subsetting.
 #[derive(Deserialize)]
-struct FontDesc {
+pub(crate) struct FontDesc {
     offset: usize,
     length: usize,
     #[serde(default = "default_true")]
@@ -23,7 +23,7 @@ struct FontDesc {
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
-enum DrawOp {
+pub(crate) enum DrawOp {
     Text {
         page: usize,
         x: f32,
@@ -945,12 +945,33 @@ pub fn apply_draw_ops_json(
 ) -> Result<Vec<u8>, String> {
     let ops: Vec<DrawOp> =
         serde_json::from_str(ops_json).map_err(|e| format!("invalid draw ops: {e}"))?;
-
     let font_descs: Vec<FontDesc> =
         serde_json::from_str(fonts_json).map_err(|e| format!("invalid fonts: {e}"))?;
 
+    let doc = crate::doc_io::load_pdf(data)?;
+    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
+    draw_apply(&mut inc, &ops, images, fonts, &font_descs)?;
+
+    let mut out = Vec::new();
+    inc.save_to(&mut out).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Validate draw ops and apply them to the incremental document: font-embedding
+/// pre-pass followed by per-page content emission. Reads the base page list from
+/// `inc.get_prev_documents()`, so it composes correctly after other mutators
+/// (fill/flatten) on the same `inc`.
+pub(crate) fn draw_apply(
+    inc: &mut IncrementalDocument,
+    ops: &[DrawOp],
+    images: &[u8],
+    fonts: &[u8],
+    font_descs: &[FontDesc],
+) -> Result<(), String> {
+    let page_count = inc.get_prev_documents().get_pages().len();
+
     // Validate font descriptor byte ranges up front.
-    for fd in &font_descs {
+    for fd in font_descs {
         let end = fd
             .offset
             .checked_add(fd.length)
@@ -960,11 +981,8 @@ pub fn apply_draw_ops_json(
         }
     }
 
-    let doc = crate::doc_io::load_pdf(data)?;
-    let page_count = doc.get_pages().len();
-
     // Validate ALL ops before mutating anything
-    for op in &ops {
+    for op in ops {
         match op {
             DrawOp::Text { page, font, font_id, opacity, rotate, .. } => {
                 check_page(*page, page_count)?;
@@ -1161,7 +1179,7 @@ pub fn apply_draw_ops_json(
 
     // Group ops by page index (preserving op order within each page)
     let mut page_ops: Vec<(usize, Vec<&DrawOp>)> = Vec::new();
-    for op in &ops {
+    for op in ops {
         let page_idx = match op {
             DrawOp::Text { page, .. } => *page,
             DrawOp::Image { page, .. } => *page,
@@ -1180,8 +1198,6 @@ pub fn apply_draw_ops_json(
             page_ops.push((page_idx, vec![op]));
         }
     }
-
-    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
 
     // Create q and Q streams once, shared across all touched pages
     let q_id = inc
@@ -1207,7 +1223,7 @@ pub fn apply_draw_ops_json(
         // Gather used_chars across ALL text ops referencing each embedded font id.
         let mut used_per_font: std::collections::HashMap<usize, std::collections::BTreeSet<char>> =
             std::collections::HashMap::new();
-        for op in &ops {
+        for op in ops {
             if let DrawOp::Text { font_id: Some(i), text, .. } = op {
                 used_per_font.entry(*i).or_default().extend(text.chars());
             }
@@ -1272,7 +1288,7 @@ pub fn apply_draw_ops_json(
                         opacity,
                         &mut gs_counter,
                         &mut extgstates_on_page,
-                        &mut inc,
+                        inc,
                     );
 
                     if let Some(id) = font_id {
@@ -1344,7 +1360,7 @@ pub fn apply_draw_ops_json(
                         opacity,
                         &mut gs_counter,
                         &mut extgstates_on_page,
-                        &mut inc,
+                        inc,
                     );
                     let end = image_offset + image_length;
                     let bytes = &images[*image_offset..end];
@@ -1379,7 +1395,7 @@ pub fn apply_draw_ops_json(
                         opacity,
                         &mut gs_counter,
                         &mut extgstates_on_page,
-                        &mut inc,
+                        inc,
                     );
                     let end = image_offset + image_length;
                     let src = &images[*image_offset..end];
@@ -1415,7 +1431,7 @@ pub fn apply_draw_ops_json(
                         opacity,
                         &mut gs_counter,
                         &mut extgstates_on_page,
-                        &mut inc,
+                        inc,
                     );
                     emit_line(
                         &mut stream_content,
@@ -1441,7 +1457,7 @@ pub fn apply_draw_ops_json(
                         opacity,
                         &mut gs_counter,
                         &mut extgstates_on_page,
-                        &mut inc,
+                        inc,
                     );
                     emit_rectangle(
                         &mut stream_content,
@@ -1468,7 +1484,7 @@ pub fn apply_draw_ops_json(
                         opacity,
                         &mut gs_counter,
                         &mut extgstates_on_page,
-                        &mut inc,
+                        inc,
                     );
                     emit_ellipse(
                         &mut stream_content,
@@ -1495,7 +1511,7 @@ pub fn apply_draw_ops_json(
                         opacity,
                         &mut gs_counter,
                         &mut extgstates_on_page,
-                        &mut inc,
+                        inc,
                     );
                     emit_path(
                         &mut stream_content,
@@ -1536,11 +1552,11 @@ pub fn apply_draw_ops_json(
             match op {
                 DrawOp::SetRotation { degrees, .. } => {
                     let norm = ((degrees % 360) + 360) % 360;
-                    dict_mut(&mut inc, page_id)?.set("Rotate", Object::Integer(norm));
+                    dict_mut(inc, page_id)?.set("Rotate", Object::Integer(norm));
                 }
                 DrawOp::SetMediaBox { media_box, .. } => {
                     let arr: Vec<Object> = media_box.iter().map(|v| Object::Real(*v)).collect();
-                    dict_mut(&mut inc, page_id)?.set("MediaBox", Object::Array(arr));
+                    dict_mut(inc, page_id)?.set("MediaBox", Object::Array(arr));
                 }
                 _ => {}
             }
@@ -1570,7 +1586,7 @@ pub fn apply_draw_ops_json(
                 };
                 let annot = link_annot_dict(*rect, uri.as_deref(), dest_page);
                 let annot_id = inc.new_document.add_object(Object::Dictionary(annot));
-                append_annot_to_page(&mut inc, page_id, annot_id)?;
+                append_annot_to_page(inc, page_id, annot_id)?;
             }
         }
 
@@ -1586,7 +1602,7 @@ pub fn apply_draw_ops_json(
             // Build new Contents array: [q_ref, ...original, Q_ref, draw_ref...]
             // Read and clone the existing Contents value first so the borrow ends
             // before we mutate inc.new_document (needed for Issue 2 below).
-            let existing_contents: Option<Object> = dict_mut(&mut inc, page_id)?
+            let existing_contents: Option<Object> = dict_mut(inc, page_id)?
                 .get(b"Contents")
                 .ok()
                 .cloned();
@@ -1611,7 +1627,7 @@ pub fn apply_draw_ops_json(
             arr.insert(0, Object::Reference(q_id));
             arr.push(Object::Reference(q_ref_id));
             arr.push(Object::Reference(draw_id));
-            dict_mut(&mut inc, page_id)?.set("Contents", Object::Array(arr));
+            dict_mut(inc, page_id)?.set("Contents", Object::Array(arr));
         }
 
         // Collect unique fonts used on this page (standard-14 vs embedded)
@@ -1635,30 +1651,28 @@ pub fn apply_draw_ops_json(
         for (font_idx, _font_name) in &fonts_on_page {
             let font_obj_id = *font_cache.get(font_idx).unwrap();
             let key = format!("BPF{font_idx}");
-            register_font(&mut inc, page_id, &key, font_obj_id)?;
+            register_font(inc, page_id, &key, font_obj_id)?;
         }
 
         // Register embedded Type0 fonts in the page's /Font subdict (key BPE{id}).
         for id in &embedded_on_page {
             let (type0_id, _) = embedded_fonts.get(id).unwrap();
             let key = format!("BPE{id}");
-            register_font(&mut inc, page_id, &key, *type0_id)?;
+            register_font(inc, page_id, &key, *type0_id)?;
         }
 
         // Register XObjects for image ops on this page
         for (key, xid) in &xobjects_on_page {
-            register_xobject(&mut inc, page_id, key, *xid)?;
+            register_xobject(inc, page_id, key, *xid)?;
         }
 
         // Register ExtGState entries for shape ops with opacity on this page
         for (key, gs_id) in &extgstates_on_page {
-            register_extgstate(&mut inc, page_id, key, *gs_id)?;
+            register_extgstate(inc, page_id, key, *gs_id)?;
         }
     }
 
-    let mut out = Vec::new();
-    inc.save_to(&mut out).map_err(|e| e.to_string())?;
-    Ok(out)
+    Ok(())
 }
 
 /// Register `key -> font_id` under the page's /Resources/Font.

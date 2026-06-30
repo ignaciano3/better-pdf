@@ -1,6 +1,7 @@
 // Browser import point for the generated WASM bindings.
 // Built with `wasm-pack --target web`, so callers must initialize before use.
 import initCore, {
+  apply_all,
   apply_draw_ops,
   create_document,
   decrypt_pdf,
@@ -75,6 +76,17 @@ export function applyDrawOps(
 ): Uint8Array {
   ensureInitialized();
   return apply_draw_ops(data, opsJson, images, fonts, fontsJson);
+}
+
+export function applyAll(
+  data: Uint8Array,
+  planJson: string,
+  fillImages: Uint8Array = new Uint8Array(),
+  drawImages: Uint8Array = new Uint8Array(),
+  fonts: Uint8Array = new Uint8Array(),
+): Uint8Array {
+  ensureInitialized();
+  return apply_all(data, planJson, fillImages, drawImages, fonts);
 }
 
 export function createDocument(

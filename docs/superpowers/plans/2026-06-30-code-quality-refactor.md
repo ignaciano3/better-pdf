@@ -76,7 +76,7 @@ The 9-line `let gs_key = if let Some(o) = opacity { … extgstate_dict(*o) … }
 
 ## Tier 1 — Hot-path performance (benchmark levers; schedule after Tier 0)
 
-- **P1.** Batch `save()` into one Rust `apply(bytes, planJson, blobs)` entry point — replaces the 6 sequential full-document round-trips at `document.ts:118-141`. Biggest hot-path win. *Effort med-high.*
+- **P1.** ✅ **Done.** Added Rust `apply_all_json` (new `apply.rs`) that loads once, sequences the fill/flatten/draw/metadata/outline mutation cores on one `IncrementalDocument`, and saves once. Each mutator was split into Phase-A (read immutable `doc`) + `*_apply(&mut inc, …)` cores; existing per-op exports kept as thin wrappers. TS `save()` builds a combined plan and calls `wasm.applyAll` on the common path, falling back to the chained pipeline (`saveChained`) only when structural page ops are queued. Verified: cargo 277 / bun 266 green; micro-bench fill+draw+metadata+outline **3.85× faster** (1.26 ms → 0.33 ms, 4 passes → 1).
 - **P2.** Pass `maxWidth` through to Rust and wrap at draw time using existing `appearance.rs:78 wrap_lines`; delete TS `wrap-text.ts` per-word measurement (`page.ts:275-288`). Fixes drift + per-word WASM crossings. *Effort med.*
 - **P3.** Convert `format!(…).as_bytes()` (~57 sites, many in per-glyph/per-line/per-op loops) and `fmt_num` (`draw.rs:194`) to `write!(out, …)` — `Vec<u8>: io::Write`. Perf + WASM size. *Effort low-med.*
 
