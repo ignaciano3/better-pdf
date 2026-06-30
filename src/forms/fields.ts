@@ -1,4 +1,4 @@
-import type { FieldInfo, FieldWidget } from "./form.js";
+import type { FieldInfo, FieldType, FieldWidget } from "./form.js";
 import {
   InvalidOptionError,
   MaxLengthExceededError,
@@ -83,6 +83,34 @@ export class FillQueue {
 export abstract class PdfField {
   /** @internal */
   constructor(protected readonly info: FieldInfo, protected readonly queue: FillQueue) {}
+
+  /**
+   * Shared body for the choice fields' `select` / `setDefaultSelected`: validate
+   * `value` against `valid`, queue the change, and mirror it onto `info`.
+   *
+   * When `allowUnlisted` is true (dropdown/list box), a value is accepted with
+   * no validation if the field declares no options; radio groups pass `false`,
+   * so the value must always be one of the declared states.
+   * @internal
+   */
+  protected applyChoice(
+    valid: readonly string[],
+    label: FieldType,
+    value: string,
+    asDefault: boolean,
+    allowUnlisted: boolean,
+  ): void {
+    if ((!allowUnlisted || valid.length > 0) && !valid.includes(value)) {
+      throw new InvalidOptionError(this.info.name, label, value, valid);
+    }
+    if (asDefault) {
+      this.queue.push({ name: this.info.name, defaultValue: value });
+      this.info.defaultValue = value;
+    } else {
+      this.queue.push({ name: this.info.name, value });
+      this.info.value = value;
+    }
+  }
 
   /**
    * Set or clear this field's ReadOnly flag (`/Ff` bit 1). A read-only field is
@@ -372,11 +400,7 @@ export class PdfRadioGroup<Opt extends string = string> extends PdfField {
    * ```
    */
   select(value: Opt): void {
-    if (!this.info.states.includes(value)) {
-      throw new InvalidOptionError(this.info.name, "radio", value, this.info.states);
-    }
-    this.queue.push({ name: this.info.name, value });
-    this.info.value = value;
+    this.applyChoice(this.info.states, "radio", value, false, false);
   }
 
   /**
@@ -395,11 +419,7 @@ export class PdfRadioGroup<Opt extends string = string> extends PdfField {
    * ```
    */
   setDefaultSelected(value: Opt): void {
-    if (!this.info.states.includes(value)) {
-      throw new InvalidOptionError(this.info.name, "radio", value, this.info.states);
-    }
-    this.queue.push({ name: this.info.name, defaultValue: value });
-    this.info.defaultValue = value;
+    this.applyChoice(this.info.states, "radio", value, true, false);
   }
 }
 
@@ -444,11 +464,7 @@ export class PdfDropdown<Opt extends string = string> extends PdfField {
    * ```
    */
   select(value: Opt): void {
-    if (this.info.options.length && !this.info.options.includes(value)) {
-      throw new InvalidOptionError(this.info.name, "dropdown", value, this.info.options);
-    }
-    this.queue.push({ name: this.info.name, value });
-    this.info.value = value;
+    this.applyChoice(this.info.options, "dropdown", value, false, true);
   }
 
   /**
@@ -467,11 +483,7 @@ export class PdfDropdown<Opt extends string = string> extends PdfField {
    * ```
    */
   setDefaultSelected(value: Opt): void {
-    if (this.info.options.length && !this.info.options.includes(value)) {
-      throw new InvalidOptionError(this.info.name, "dropdown", value, this.info.options);
-    }
-    this.queue.push({ name: this.info.name, defaultValue: value });
-    this.info.defaultValue = value;
+    this.applyChoice(this.info.options, "dropdown", value, true, true);
   }
 }
 
@@ -518,11 +530,7 @@ export class PdfListBox<Opt extends string = string> extends PdfField {
    * ```
    */
   select(value: Opt): void {
-    if (this.info.options.length && !this.info.options.includes(value)) {
-      throw new InvalidOptionError(this.info.name, "listbox", value, this.info.options);
-    }
-    this.queue.push({ name: this.info.name, value });
-    this.info.value = value;
+    this.applyChoice(this.info.options, "listbox", value, false, true);
   }
 
   /**
@@ -541,11 +549,7 @@ export class PdfListBox<Opt extends string = string> extends PdfField {
    * ```
    */
   setDefaultSelected(value: Opt): void {
-    if (this.info.options.length && !this.info.options.includes(value)) {
-      throw new InvalidOptionError(this.info.name, "listbox", value, this.info.options);
-    }
-    this.queue.push({ name: this.info.name, defaultValue: value });
-    this.info.defaultValue = value;
+    this.applyChoice(this.info.options, "listbox", value, true, true);
   }
 
   /**
