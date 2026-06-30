@@ -13,6 +13,35 @@ import type { FieldDef } from "../generate/form-builder.js";
 import { toPdfDate, fromPdfDate, type DocumentMetadata } from "../generate/metadata.js";
 import type { OutlineItem } from "../generate/outline.js";
 
+/** @internal Page descriptor returned by the core's `readPages`. */
+type PageInfo = { index: number; width: number; height: number; rotation: number };
+
+/**
+ * Call a WASM function that returns a JSON string and parse it, mapping any
+ * thrown error through `mapErr` (default {@link toPdfError}).
+ * @internal
+ */
+function callJson<T>(fn: () => string, mapErr: (e: unknown) => Error = toPdfError): T {
+  try {
+    return JSON.parse(fn()) as T;
+  } catch (e) {
+    throw mapErr(e);
+  }
+}
+
+/**
+ * Call a WASM function that returns bytes, mapping any thrown error through
+ * `mapErr` (default {@link toPdfError}).
+ * @internal
+ */
+function callBytes(fn: () => Uint8Array, mapErr: (e: unknown) => Error = toPdfError): Uint8Array {
+  try {
+    return fn();
+  } catch (e) {
+    throw mapErr(e);
+  }
+}
+
 /** @internal */
 type PageStructureOp =
   | { op: "appendBlank"; width: number; height: number }
@@ -164,11 +193,9 @@ export class PdfDocumentBase {
       return this.bytes.slice();
     }
 
-    try {
-      return this.wasm.applyAll(this.bytes, JSON.stringify(plan), fillImages, drawImages, fonts);
-    } catch (e) {
-      throw toPdfError(e);
-    }
+    return callBytes(() =>
+      this.wasm.applyAll(this.bytes, JSON.stringify(plan), fillImages, drawImages, fonts),
+    );
   }
 
   /**
@@ -497,12 +524,7 @@ export class PdfDocumentBase {
 
   private loadPages(): PdfPage[] {
     if (!this.pages) {
-      let infos: { index: number; width: number; height: number; rotation: number }[];
-      try {
-        infos = JSON.parse(this.wasm.readPages(this.bytes));
-      } catch (e) {
-        throw toPdfError(e);
-      }
+      const infos = callJson<PageInfo[]>(() => this.wasm.readPages(this.bytes));
       this.pages = infos.map(
         (p) => new PdfPage(p.index, p.width, p.height, p.rotation, this.drawQueue, p.index),
       );
@@ -521,12 +543,10 @@ export class PdfDocumentBase {
   }
 
   private embedImage(bytes: Uint8Array): PdfImage {
-    let info: { width: number; height: number };
-    try {
-      info = JSON.parse(this.wasm.imageInfo(bytes));
-    } catch (e) {
-      throw toInvalidImageError(e);
-    }
+    const info = callJson<{ width: number; height: number }>(
+      () => this.wasm.imageInfo(bytes),
+      toInvalidImageError,
+    );
     return new PdfImage(bytes, info.width, info.height);
   }
 
@@ -544,12 +564,7 @@ export class PdfDocumentBase {
    * @throws `PdfError` when the source PDF cannot be parsed.
    */
   async embedPdfPage(src: Uint8Array, pageIndex: number): Promise<EmbeddedPdfPage> {
-    let infos: { index: number; width: number; height: number; rotation: number }[];
-    try {
-      infos = JSON.parse(this.wasm.readPages(src));
-    } catch (e) {
-      throw toPdfError(e);
-    }
+    const infos = callJson<PageInfo[]>(() => this.wasm.readPages(src));
     const entry = infos[pageIndex];
     if (entry === undefined) {
       throw new PageOutOfRangeError(pageIndex, infos.length);
@@ -697,11 +712,7 @@ export class PdfDocumentBase {
     const planJson = JSON.stringify(
       selections.map((s) => ({ doc: s.docIndex, page: s.pageIndex })),
     );
-    try {
-      return wasmBinding.manipulatePages(blob, docsJson, planJson);
-    } catch (e) {
-      throw toPdfError(e);
-    }
+    return callBytes(() => wasmBinding.manipulatePages(blob, docsJson, planJson));
   }
 
   /**
@@ -716,11 +727,8 @@ export class PdfDocumentBase {
   ): Uint8Array {
     const raw = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (opts?.password === undefined) return raw;
-    try {
-      return wasmBinding.decryptPdf(raw, opts.password);
-    } catch (e) {
-      throw toPdfError(e);
-    }
+    const password = opts.password;
+    return callBytes(() => wasmBinding.decryptPdf(raw, password));
   }
 
   /** @internal Shared `PdfDocument.assemble` body. */
@@ -736,12 +744,7 @@ export class PdfDocumentBase {
   protected static mergeImpl(wasmBinding: CoreWasm, docs: Uint8Array[]): Uint8Array {
     const selections: { docIndex: number; pageIndex: number }[] = [];
     for (let docIndex = 0; docIndex < docs.length; docIndex++) {
-      let pageInfos: { index: number }[];
-      try {
-        pageInfos = JSON.parse(wasmBinding.readPages(docs[docIndex]!)) as { index: number }[];
-      } catch (e) {
-        throw toPdfError(e);
-      }
+      const pageInfos = callJson<PageInfo[]>(() => wasmBinding.readPages(docs[docIndex]!));
       for (let pageIndex = 0; pageIndex < pageInfos.length; pageIndex++) {
         selections.push({ docIndex, pageIndex });
       }
