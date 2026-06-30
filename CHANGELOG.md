@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Browser build now exposes `PdfDocument.assemble()` and `PdfDocument.merge()`.**
+  Both static methods existed on the Node entry but were missing from the browser
+  entry. The two entry points now share one implementation, so the browser build
+  has the same page-assembly API as Node.
+- **`maxWidth` text wrapping normalizes CR and CRLF line breaks.** Drawing text
+  with `maxWidth` now treats `\r\n` and `\r` as line breaks (matching `\n`), so
+  created documents wrap multi-line text consistently regardless of newline
+  style.
+
+### Changed
+
+- **Saves that combine operations are faster.** A loaded document that queues
+  more than one kind of change (for example field fills plus drawing plus
+  metadata) is now written in a single parse → mutate → serialize pass instead of
+  one full round-trip per operation. Output bytes are unchanged.
+
 ## [1.8.0] - 2026-06-29
 
 ### Added
