@@ -192,6 +192,13 @@ function validateFinite(v: number | undefined, name: string): void {
   }
 }
 
+/** Throw `RangeError` if any `[value, name]` coordinate pair is non-finite. */
+function validatePoints(pairs: readonly (readonly [number, string])[]): void {
+  for (const [v, name] of pairs) {
+    if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
+  }
+}
+
 /** Validate a dash pattern: every entry finite and >= 0; phase finite. */
 function validateDash(dash: number[] | undefined, dashPhase: number | undefined): void {
   if (dash !== undefined) {
@@ -291,14 +298,12 @@ export class PdfPage {
   drawImage(image: PdfImage, options: DrawImageOptions): void {
     const width = options.width ?? image.width;
     const height = options.height ?? image.height;
-    for (const [v, name] of [
+    validatePoints([
       [options.x, "x"],
       [options.y, "y"],
       [width, "width"],
       [height, "height"],
-    ] as const) {
-      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
-    }
+    ]);
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
     validateOpacity(options.opacity);
     validateFinite(options.rotate, "rotate");
@@ -323,14 +328,12 @@ export class PdfPage {
   drawPage(embedded: EmbeddedPdfPage, options: DrawPageOptions): void {
     const width = options.width ?? embedded.width;
     const height = options.height ?? embedded.height;
-    for (const [v, name] of [
+    validatePoints([
       [options.x, "x"],
       [options.y, "y"],
       [width, "width"],
       [height, "height"],
-    ] as const) {
-      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
-    }
+    ]);
     if (width <= 0 || height <= 0) throw new RangeError("width and height must be > 0");
     validateOpacity(options.opacity);
     validateFinite(options.rotate, "rotate");
@@ -355,14 +358,12 @@ export class PdfPage {
    */
   drawLine(options: DrawLineOptions): void {
     const { start, end, strokeWidth, stroke, opacity, dash, dashPhase } = options;
-    for (const [v, name] of [
+    validatePoints([
       [start.x, "start.x"],
       [start.y, "start.y"],
       [end.x, "end.x"],
       [end.y, "end.y"],
-    ] as const) {
-      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
-    }
+    ]);
     validateBorderWidth(strokeWidth, "strokeWidth");
     validateOpacity(opacity);
     validateDash(dash, dashPhase);
@@ -388,14 +389,12 @@ export class PdfPage {
    */
   drawRectangle(options: DrawRectangleOptions): void {
     const { x, y, width, height, fill, stroke, strokeWidth, opacity, dash, dashPhase } = options;
-    for (const [v, name] of [
+    validatePoints([
       [x, "x"],
       [y, "y"],
       [width, "width"],
       [height, "height"],
-    ] as const) {
-      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
-    }
+    ]);
     if (width <= 0) throw new RangeError(`width must be > 0, got ${width}`);
     if (height <= 0) throw new RangeError(`height must be > 0, got ${height}`);
     validateBorderWidth(strokeWidth, "strokeWidth");
@@ -434,14 +433,12 @@ export class PdfPage {
    * `x1 > x0` and `y1 > y0` must hold. Works on both loaded and created documents.
    */
   setMediaBox(x0: number, y0: number, x1: number, y1: number): void {
-    for (const [v, name] of [
+    validatePoints([
       [x0, "x0"],
       [y0, "y0"],
       [x1, "x1"],
       [y1, "y1"],
-    ] as const) {
-      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
-    }
+    ]);
     if (x1 <= x0) throw new RangeError(`x1 must be > x0, got x0=${x0} x1=${x1}`);
     if (y1 <= y0) throw new RangeError(`y1 must be > y0, got y0=${y0} y1=${y1}`);
     this.queue.pushSetMediaBox(this._slot, [x0, y0, x1, y1]);
@@ -468,14 +465,12 @@ export class PdfPage {
    */
   drawEllipse(options: DrawEllipseOptions): void {
     const { x, y, radiusX, radiusY, fill, stroke, strokeWidth, opacity, dash, dashPhase } = options;
-    for (const [v, name] of [
+    validatePoints([
       [x, "x"],
       [y, "y"],
       [radiusX, "radiusX"],
       [radiusY, "radiusY"],
-    ] as const) {
-      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
-    }
+    ]);
     if (radiusX <= 0) throw new RangeError(`radiusX must be > 0, got ${radiusX}`);
     if (radiusY <= 0) throw new RangeError(`radiusY must be > 0, got ${radiusY}`);
     validateBorderWidth(strokeWidth, "strokeWidth");
@@ -574,14 +569,12 @@ export class PdfPage {
    */
   drawLink(options: DrawLinkOptions): void {
     const { x, y, width, height, url, goToPage } = options;
-    for (const [v, name] of [
+    validatePoints([
       [x, "x"],
       [y, "y"],
       [width, "width"],
       [height, "height"],
-    ] as const) {
-      if (!Number.isFinite(v)) throw new RangeError(`${name} must be a finite number`);
-    }
+    ]);
     if (width <= 0) throw new RangeError(`width must be > 0, got ${width}`);
     if (height <= 0) throw new RangeError(`height must be > 0, got ${height}`);
     if (url === undefined && goToPage === undefined) {
