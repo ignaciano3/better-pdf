@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`getForm()` now works on documents created with `PdfDocument.create()`.**
+  After adding fields with the form builder, call `getForm()` in the same
+  session to read, fill, and flatten them — no save-and-reload round-trip. The
+  first `getForm()` call materializes the document and seals it: adding more
+  fields, pages, or drawings afterward throws `FormSealedError`. Adding
+  brand-new fields to a document opened with `PdfDocument.load()` remains
+  unsupported.
+
 ## [1.8.1] - 2026-06-30
 
 ### Fixed

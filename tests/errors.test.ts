@@ -9,6 +9,7 @@ import {
   InvalidOptionError,
   PdfCoreError,
   EncryptedPdfError,
+  FormSealedError,
 } from "../src/index.ts";
 
 const FICHA = join(
@@ -111,4 +112,11 @@ test("getMetadata() on an encrypted PDF throws EncryptedPdfError", async () => {
   expect(err).toBeInstanceOf(EncryptedPdfError);
   expect(err).toBeInstanceOf(PdfError);
   expect((err as Error).name).toBe("EncryptedPdfError");
+});
+
+test("FormSealedError has instructive message and name", () => {
+  const err = new FormSealedError();
+  expect(err).toBeInstanceOf(PdfError);
+  expect(err.name).toBe("FormSealedError");
+  expect(err.message).toContain("sealed after getForm()");
 });

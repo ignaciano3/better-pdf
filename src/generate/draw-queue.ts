@@ -1,6 +1,7 @@
 import { colorToTuple, type Color } from "./color.js";
 import type { Segment } from "./svg-path.js";
 import type { OutlineItem } from "./outline.js";
+import { FormSealedError } from "../core/errors.js";
 
 /** @internal Wire format consumed by the Rust core's apply_draw_ops. */
 export type TextOp = {
@@ -143,6 +144,16 @@ export class DrawQueue {
   private readonly fonts: FontEntry[] = [];
   private metadataOp: Record<string, string> | undefined = undefined;
   private outlineOp: OutlineItem[] | undefined = undefined;
+  private sealed = false;
+
+  /** After this, every push throws — used when a created doc is materialized. */
+  seal(): void {
+    this.sealed = true;
+  }
+
+  private assertOpen(): void {
+    if (this.sealed) throw new FormSealedError();
+  }
 
   get length(): number {
     return this.drawOps.length;
@@ -171,6 +182,7 @@ export class DrawQueue {
       maxWidth?: number;
     },
   ): void {
+    this.assertOpen();
     this.drawOps.push({
       op: "text",
       page,
@@ -189,14 +201,17 @@ export class DrawQueue {
   }
 
   pushAddPage(width: number, height: number): void {
+    this.assertOpen();
     this.pageOps.push({ op: "addPage", width, height });
   }
 
   pushMetadata(meta: Record<string, string>): void {
+    this.assertOpen();
     this.metadataOp = meta;
   }
 
   pushOutline(items: OutlineItem[]): void {
+    this.assertOpen();
     this.outlineOp = items;
   }
 
@@ -205,6 +220,7 @@ export class DrawQueue {
     bytes: Uint8Array,
     opts: { x: number; y: number; width: number; height: number; opacity?: number; rotate?: number; xSkew?: number; ySkew?: number },
   ): void {
+    this.assertOpen();
     this.drawOps.push({
       kind: "image",
       bytes,
@@ -223,6 +239,7 @@ export class DrawQueue {
     bytes: Uint8Array,
     opts: { x: number; y: number; width: number; height: number; srcPage: number; opacity?: number; rotate?: number; xSkew?: number; ySkew?: number },
   ): void {
+    this.assertOpen();
     this.drawOps.push({
       kind: "page",
       bytes,
@@ -237,30 +254,37 @@ export class DrawQueue {
   }
 
   pushLine(op: LineOp): void {
+    this.assertOpen();
     this.drawOps.push(op);
   }
 
   pushRectangle(op: RectangleOp): void {
+    this.assertOpen();
     this.drawOps.push(op);
   }
 
   pushEllipse(op: EllipseOp): void {
+    this.assertOpen();
     this.drawOps.push(op);
   }
 
   pushSetRotation(page: number, degrees: number): void {
+    this.assertOpen();
     this.drawOps.push({ op: "setRotation", page, degrees });
   }
 
   pushSetMediaBox(page: number, box: [number, number, number, number]): void {
+    this.assertOpen();
     this.drawOps.push({ op: "setMediaBox", page, box });
   }
 
   pushLink(op: LinkOp): void {
+    this.assertOpen();
     this.drawOps.push(op);
   }
 
   pushPath(op: PathOp): void {
+    this.assertOpen();
     this.drawOps.push(op);
   }
 

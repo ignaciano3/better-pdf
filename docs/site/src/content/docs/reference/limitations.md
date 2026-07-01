@@ -25,11 +25,17 @@ deliberately unsupported and not planned. The two are listed separately below.
     rejected), indexed-color PNGs require a `PLTE` chunk, and interlaced PNGs,
     unsupported color types, and unsupported row filters are rejected. JPEG is
     also accepted. Convert to a plain 8-bit PNG or JPEG if `setImage` throws.
-- **Form creation and form reading are separate phases.** `getForm()` is **not
-  available on documents created with `PdfDocument.create()`** — it throws. You
-  add fields at creation time with the form builder
-  ([Creating form fields](/better-pdf/guides/creating-form-fields/)) and read or
-  fill them with `getForm()` only after **saving and re-loading** the document.
+- **`getForm()` works on created documents (added in this release).** After
+  adding fields with the form builder
+  ([Creating form fields](/better-pdf/guides/creating-form-fields/)) you can call
+  `getForm()` in the **same session** to read, fill, and flatten them — no
+  save-and-reload round-trip. The first `getForm()` call *materializes* the
+  document (runs the create pass once and caches the bytes), after which the
+  document is **sealed**: adding more fields, pages, or drawings throws
+  `FormSealedError`. Do all content creation before calling `getForm()`.
+  **Still unsupported:** adding brand-new AcroForm fields to a document opened
+  with `PdfDocument.load()` (only reading/filling existing fields is supported
+  there).
 - **Appearance-affecting form-field flags can now be toggled on a loaded
   field** (added in 1.8.0). `multiline`, `comb`, and `password` are set via
   `field.setMultiline()`, `field.setComb(true, maxLen)` / `setComb(false)`, and

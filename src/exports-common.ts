@@ -44,6 +44,7 @@ export {
 export type { FieldFlagChanges } from "./forms/fields.js";
 export {
   PdfError,
+  FormSealedError,
   UnknownFieldError,
   FieldTypeError,
   InvalidOptionError,
