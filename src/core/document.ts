@@ -261,7 +261,7 @@ export class PdfDocumentBase {
       if (this.structureOps.length > 0) {
         bytes = this.wasm.insertPages(bytes, JSON.stringify(this.structureOps));
       }
-      if (this.drawQueue.length > 0) {
+      if (!this.sealed && this.drawQueue.length > 0) {
         const resolve = this.buildPageIndexResolver();
         const { opsJson, images, fonts, fontsJson } = this.drawQueue.toDrawPayload(resolve);
         bytes = this.wasm.applyDrawOps(bytes, opsJson, images, fonts, fontsJson);
