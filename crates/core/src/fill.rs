@@ -595,6 +595,18 @@ fn ap_inputs(
     let da = appearance::parse_da(&da_str);
     let font_ref = font_ref(doc, acro, &da.font)
         .ok_or_else(|| format!("DA font '{}' not found in /DR for {}", da.font, name))?;
+    // Reject Type0 (embedded/composite) DA fonts: the WinAnsi engine below would
+    // mis-encode them. Filling embedded-font fields is a future slice.
+    if let Some(fd) = font_dict(doc, acro, &da.font)
+        && matches!(
+            fd.get(b"Subtype").ok().and_then(|o| o.as_name().ok()),
+            Some(b"Type0")
+        )
+    {
+        return Err(format!(
+            "filling embedded-font fields through the form API is not yet supported; set the value at build time via createForm(). (field '{name}')"
+        ));
+    }
     Ok(ApInputs {
         q: quadding(doc, dict),
         font: da.font.clone(),
@@ -1912,5 +1924,21 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("cannot be combined"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_filling_a_type0_da_font_field() {
+        // A created doc with a text field bound to an embedded (Type0) font.
+        const FONT: &[u8] =
+            include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+        let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
+        let fields = r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20,"value":"A","fontId":0}]"#;
+        let ops = r#"[{"op":"addPage","width":300,"height":300}]"#;
+        let doc = crate::create::create_document_json(ops, &[], FONT, &fonts_json, fields).unwrap();
+
+        // Attempt to re-fill the field through the fill path.
+        let ops_json = r#"[{"name":"n","kind":"text","value":"B"}]"#;
+        let err = fill_fields_json(&doc, ops_json, &[]).unwrap_err();
+        assert!(err.contains("not yet supported"), "got: {err}");
     }
 }
