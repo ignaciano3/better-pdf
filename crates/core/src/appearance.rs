@@ -3,7 +3,8 @@
 
 use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use lopdf::{Dictionary, Object, Stream};
-use std::io::{Read, Write};
+use std::fmt::Write;
+use std::io::{Read, Write as _};
 
 /// Advance-width table (units/1000 em) for one font, indexed by WinAnsi code.
 #[derive(Clone)]
@@ -286,6 +287,42 @@ pub fn text_appearance_content(
     write!(out, "{tx:.2} {ty:.2} Td (").unwrap();
     out.extend_from_slice(&escaped);
     out.extend_from_slice(b") Tj ET Q EMC");
+    out
+}
+
+/// Single-line appearance content for an embedded (Type0/Identity-H) font.
+/// Encodes each char to a 2-byte big-endian GID via `built.gid_for`; chars with
+/// no glyph are skipped (matching `drawText`). Horizontal quad offset uses the
+/// embedded font's measured advance; vertical baseline matches the WinAnsi
+/// single-line builder.
+#[allow(clippy::too_many_arguments)]
+pub fn text_appearance_content_embedded(
+    text: &str,
+    size: f32,
+    box_w: f32,
+    box_h: f32,
+    q: i64,
+    color: &str,
+    font: &str,
+    built: &crate::fonts::BuiltFont,
+    font_bytes: &[u8],
+) -> Vec<u8> {
+    // 2-byte big-endian GID per char with a glyph.
+    let mut hex = String::new();
+    for ch in text.chars() {
+        if let Some(&gid) = built.gid_for.get(&ch) {
+            write!(hex, "{gid:04x}").unwrap();
+        }
+    }
+    let tw = crate::fonts::measure_embedded(font_bytes, size, text).unwrap_or(0.0);
+    let tx = quad_offset(q, box_w, tw);
+    let ty = ((box_h - size) / 2.0 + size * 0.2).max(PAD);
+    let mut out = Vec::new();
+    out.extend_from_slice(b"/Tx BMC q BT ");
+    write!(out, "/{font} {size:.2} Tf {color} ").unwrap();
+    write!(out, "{tx:.2} {ty:.2} Td <").unwrap();
+    out.extend_from_slice(hex.as_bytes());
+    out.extend_from_slice(b"> Tj ET Q EMC");
     out
 }
 
@@ -1526,5 +1563,47 @@ mod tests {
             0xda, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
             0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
         ]
+    }
+}
+
+// TDD-red spec for embedded (Type0) form-field appearance content. Targets a
+// new function mirroring the WinAnsi single-line `text_appearance_content`
+// builder but emitting Identity-H 2-byte GID show strings using a `BuiltFont`'s
+// char->gid map. Fails to compile until that function exists. (The create path
+// renders text fields single-line, so no multiline embedded builder is needed.)
+#[cfg(test)]
+mod embedded_field_appearance_tests {
+    use super::text_appearance_content_embedded;
+    use crate::fonts::BuiltFont;
+    use std::collections::HashMap;
+
+    const FONT: &[u8] = include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+
+    fn built(map: &[(char, u16)]) -> BuiltFont {
+        BuiltFont {
+            gid_for: map.iter().copied().collect::<HashMap<char, u16>>(),
+        }
+    }
+
+    #[test]
+    fn encodes_gids_as_identity_h_hex() {
+        let b = built(&[('A', 1), ('Z', 0x012C)]);
+        let out =
+            text_appearance_content_embedded("AZ", 12.0, 100.0, 20.0, 0, "0 g", "BPF0", &b, FONT);
+        let s = String::from_utf8_lossy(&out);
+        // Two-byte big-endian GID per char, shown as a hex string operator.
+        assert!(s.contains("<0001012c>"), "expected GID hex, got: {s}");
+        assert!(s.contains("Tj"), "expected a show operator, got: {s}");
+        assert!(s.contains("/BPF0 12.00 Tf"), "expected the font op, got: {s}");
+    }
+
+    #[test]
+    fn skips_chars_without_a_glyph() {
+        let b = built(&[('A', 1)]);
+        // 'x' has no entry in gid_for -> skipped, matching drawText behavior.
+        let out =
+            text_appearance_content_embedded("AxA", 12.0, 100.0, 20.0, 0, "0 g", "BPF0", &b, FONT);
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("<00010001>"), "expected the x to be skipped, got: {s}");
     }
 }
