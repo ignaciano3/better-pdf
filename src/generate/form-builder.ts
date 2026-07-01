@@ -4,6 +4,9 @@ import { StandardFonts } from "./fonts.js";
 import { PdfFont, kFontId } from "./font.js";
 import { PdfError } from "../core/errors.js";
 
+// Error message for embedded font field type restrictions
+const EMBEDDED_FONT_FIELD_ERROR = "embedded fonts are supported on plain and multiline text fields only";
+
 // ---------------------------------------------------------------------------
 // Public option interfaces
 // ---------------------------------------------------------------------------
@@ -359,7 +362,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
       }
     }
     if (embeddedFontId !== undefined && opts.comb) {
-      throw new PdfError("embedded fonts are supported on plain and multiline text fields only");
+      throw new PdfError(EMBEDDED_FONT_FIELD_ERROR);
     }
     const def: WireTextField = { ...base, type: "text", width: opts.width, height: opts.height };
     if (opts.value !== undefined) def.value = opts.value;
@@ -488,7 +491,7 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     editable: boolean,
   ): this {
     if ((opts.font as unknown) instanceof PdfFont && (opts.font as unknown as PdfFont)[kFontId] !== undefined) {
-      throw new PdfError("embedded fonts are supported on plain and multiline text fields only");
+      throw new PdfError(EMBEDDED_FONT_FIELD_ERROR);
     }
     const base = buildBase(name, opts, this.names);
     assertPositive(opts.width, `${name}.width`);

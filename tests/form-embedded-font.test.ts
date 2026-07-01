@@ -42,6 +42,7 @@ test("multiline text field with an embedded font saves and round-trips", async (
   const doc = await PdfDocument.create();
   const font = await doc.embedFont(FONT);
   doc.addPage(PageSizes.A4);
+  const testValue = "日本語 のテキスト that should wrap across several lines in the box";
   doc.createForm().addTextField("bio", {
     page: 0,
     x: 50,
@@ -49,7 +50,7 @@ test("multiline text field with an embedded font saves and round-trips", async (
     width: 200,
     height: 120,
     multiline: true,
-    value: "日本語 のテキスト that should wrap across several lines in the box",
+    value: testValue,
     font,
   });
 
@@ -58,6 +59,7 @@ test("multiline text field with an embedded font saves and round-trips", async (
   const field = reloaded.getForm().getField("bio");
   expect(field).toBeDefined();
   expect(field!.type).toBe("text");
+  expect(field!.value).toBe(testValue);
 });
 
 test("subsetting is field-aware: a font used only by a field embeds and saves", async () => {

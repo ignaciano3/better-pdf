@@ -298,7 +298,7 @@ enum FieldDef {
         align: Option<String>,
         #[serde(default)]
         font: Option<String>,
-        #[serde(default, rename = "fontId")]
+        #[serde(default)]
         font_id: Option<usize>,
     },
     CheckBox {
@@ -3883,5 +3883,21 @@ mod tests {
             f,
         );
         assert!(r.is_err(), "unknown font must be rejected");
+    }
+
+    #[test]
+    fn out_of_range_font_id_errors() {
+        const FONT: &[u8] =
+            include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+        let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":180,"height":24,"fontId":5}]"#;
+        let r = create_document_json(
+            r#"[{"op":"addPage","width":595,"height":842}]"#,
+            &[],
+            FONT,
+            &fonts_json,
+            f,
+        );
+        assert!(r.unwrap_err().contains("out of range"));
     }
 }

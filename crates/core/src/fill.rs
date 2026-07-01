@@ -1937,7 +1937,7 @@ mod tests {
         let doc = crate::create::create_document_json(ops, &[], FONT, &fonts_json, fields).unwrap();
 
         // Attempt to re-fill the field through the fill path.
-        let ops_json = r#"[{"name":"n","kind":"text","value":"B"}]"#;
+        let ops_json = r#"[{"name":"n","value":"B"}]"#;
         let err = fill_fields_json(&doc, ops_json, &[]).unwrap_err();
         assert!(err.contains("not yet supported"), "got: {err}");
     }
