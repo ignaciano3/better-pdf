@@ -1019,6 +1019,9 @@ fn validate_create(
                     {
                         return Err(format!("font id {i} out of range"));
                     }
+                    if font_id.is_some() && *comb {
+                        return Err("embedded fonts are supported on plain and multiline text fields only".to_string());
+                    }
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
                     }
@@ -3384,6 +3387,22 @@ mod tests {
             f,
         );
         assert!(r.unwrap_err().contains("comb field cannot be multiline"));
+    }
+
+    #[test]
+    fn comb_field_with_embedded_font_errors() {
+        const FONT: &[u8] =
+            include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+        let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
+        let f = r#"[{"type":"text","name":"t","page":0,"x":0,"y":0,"width":180,"height":24,"maxLength":9,"comb":true,"fontId":0}]"#;
+        let r = create_document_json(
+            r#"[{"op":"addPage","width":595,"height":842}]"#,
+            &[],
+            FONT,
+            &fonts_json,
+            f,
+        );
+        assert!(r.unwrap_err().contains("plain and multiline text fields only"));
     }
 
     #[test]
