@@ -89,3 +89,57 @@ describe("seal enforcement", () => {
     expect(() => loaded.createForm()).toThrow(/not yet supported/);
   });
 });
+
+describe("getForm on created docs — flatten & edges", () => {
+  test("flatten a created field then save -> field no longer interactive", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    doc.createForm().addTextField("name", {
+      page: 0, x: 50, y: 700, width: 200, height: 20, value: "Locked",
+    });
+    const form = doc.getForm();
+    form.flattenField("name");
+    const out = await doc.save();
+
+    const reloaded = await PdfDocument.load(out);
+    expect(reloaded.getForm().getField("name")).toBeUndefined();
+  });
+
+  test("empty created doc -> getForm returns an empty form", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    const form = doc.getForm();
+    expect(form.getFields()).toEqual([]);
+  });
+
+  test("drawn page content survives materialization", async () => {
+    const doc = await PdfDocument.create();
+    const page = doc.addPage(PageSizes.A4);
+    page.drawText("Hello", { x: 72, y: 700, size: 24 });
+    doc.createForm().addTextField("name", {
+      page: 0, x: 50, y: 600, width: 200, height: 20,
+    });
+    doc.getForm(); // materialize
+    const out = await doc.save();
+
+    // Reloads and keeps both the field and (visually) the drawn text.
+    const reloaded = await PdfDocument.load(out);
+    expect(reloaded.getForm().getField("name")).toBeDefined();
+    expect(reloaded.getPageCount()).toBe(1);
+  });
+
+  test("metadata set after getForm is applied on save", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage(PageSizes.A4);
+    doc.createForm().addTextField("name", {
+      page: 0, x: 50, y: 700, width: 200, height: 20,
+    });
+    doc.getForm(); // seal
+    doc.setTitle("After Seal");
+    const out = await doc.save();
+
+    const reloaded = await PdfDocument.load(out);
+    const meta = await reloaded.getMetadata();
+    expect(meta.title).toBe("After Seal");
+  });
+});
