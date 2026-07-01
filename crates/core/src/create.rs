@@ -298,6 +298,8 @@ enum FieldDef {
         align: Option<String>,
         #[serde(default)]
         font: Option<String>,
+        #[serde(default, rename = "fontId")]
+        font_id: Option<usize>,
     },
     CheckBox {
         name: String,
@@ -609,6 +611,23 @@ pub fn create_document_json(
                 used_per_font.entry(*i).or_default().extend(text.chars());
             }
         }
+        for field in &fields {
+            if let FieldDef::Text {
+                font_id: Some(i),
+                value,
+                default_value,
+                ..
+            } = field
+            {
+                let set = used_per_font.entry(*i).or_default();
+                if let Some(v) = value {
+                    set.extend(v.chars());
+                }
+                if let Some(dv) = default_value {
+                    set.extend(dv.chars());
+                }
+            }
+        }
         // Deterministic build order by font id.
         let mut ids: Vec<usize> = used_per_font.keys().copied().collect();
         ids.sort_unstable();
@@ -663,7 +682,14 @@ pub fn create_document_json(
         }
     }
 
-    let acro_form_ref = build_fields_and_acroform(&mut doc, &fields, &page_ids)?;
+    let acro_form_ref = build_fields_and_acroform(
+        &mut doc,
+        &fields,
+        &page_ids,
+        &embedded_fonts,
+        &font_descs,
+        fonts,
+    )?;
 
     let mut catalog_dict = dictionary! {
         "Type" => Object::Name(b"Catalog".to_vec()),
@@ -982,10 +1008,16 @@ fn validate_create(
                     comb,
                     multiline,
                     default_value,
+                    font_id,
                     ..
                 } => {
                     if name.is_empty() {
                         return Err("field name must not be empty".to_string());
+                    }
+                    if let Some(i) = font_id
+                        && *i >= font_descs.len()
+                    {
+                        return Err(format!("font id {i} out of range"));
                     }
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
@@ -1643,6 +1675,9 @@ fn build_fields_and_acroform(
     doc: &mut Document,
     fields: &[FieldDef],
     page_ids: &[ObjectId],
+    embedded_fonts: &std::collections::HashMap<usize, (ObjectId, BuiltFont)>,
+    font_descs: &[FontDesc],
+    fonts: &[u8],
 ) -> Result<Option<ObjectId>, String> {
     if fields.is_empty() {
         return Ok(None);
@@ -1687,6 +1722,22 @@ fn build_fields_and_acroform(
         font_registry.insert(base, (alias, fid));
     }
 
+    // Register every embedded font used by a text field under its `/BPF<n>`
+    // alias, so the field's `/DA` and appearance can reference it and viewers
+    // can resolve it via the AcroForm `/DR` without a per-appearance copy.
+    for field in fields {
+        if let FieldDef::Text {
+            font_id: Some(i), ..
+        } = field
+        {
+            let alias = format!("BPF{i}");
+            if !dr_fonts.has(alias.as_bytes()) {
+                let (type0_id, _) = &embedded_fonts[i];
+                dr_fonts.set(alias.as_bytes().to_vec(), Object::Reference(*type0_id));
+            }
+        }
+    }
+
     let mut acro_fields: Vec<Object> = Vec::new();
     // Track which field object ids go on which page: page_index -> Vec<ObjectId>
     let mut page_annots: Vec<Vec<lopdf::ObjectId>> = vec![Vec::new(); page_ids.len()];
@@ -1715,34 +1766,51 @@ fn build_fields_and_acroform(
                 font_size,
                 align,
                 font,
+                font_id,
             } => {
                 let val_str = value.clone().unwrap_or_default();
-                let val_bytes = crate::appearance::encode_winansi(&val_str);
                 let op = color_op(*text_color);
                 let size = font_size.unwrap_or(12.0);
                 let q = quadding(align);
-                let base_font = font.as_deref().unwrap_or("Helvetica");
-                let (font_alias, font_ref) = font_registry[base_font];
-                let widths = crate::appearance::standard_14_widths(base_font).unwrap();
 
-                let content = if *comb {
-                    crate::appearance::text_appearance_content_comb(
-                        &val_bytes,
-                        size,
-                        *width,
-                        *height,
-                        max_length.unwrap_or(0),
-                        &op,
-                        font_alias,
-                        &widths,
-                    )
+                let (content, font_alias_str, ap_font_ref) = if let Some(fid) = font_id {
+                    let (type0_id, built) = &embedded_fonts[fid];
+                    let alias = format!("BPF{fid}");
+                    let fd = &font_descs[*fid];
+                    let fbytes = &fonts[fd.offset..fd.offset + fd.length];
+                    let content = crate::appearance::text_appearance_content_embedded(
+                        &val_str, size, *width, *height, q, &op, &alias, built, fbytes,
+                    );
+                    (content, alias, *type0_id)
                 } else {
-                    crate::appearance::text_appearance_content(
-                        &val_bytes, size, *width, *height, q, &op, font_alias, &widths,
-                    )
+                    let base_font = font.as_deref().unwrap_or("Helvetica");
+                    let (font_alias, font_ref) = font_registry[base_font];
+                    let widths = crate::appearance::standard_14_widths(base_font).unwrap();
+                    let val_bytes = crate::appearance::encode_winansi(&val_str);
+                    let content = if *comb {
+                        crate::appearance::text_appearance_content_comb(
+                            &val_bytes,
+                            size,
+                            *width,
+                            *height,
+                            max_length.unwrap_or(0),
+                            &op,
+                            font_alias,
+                            &widths,
+                        )
+                    } else {
+                        crate::appearance::text_appearance_content(
+                            &val_bytes, size, *width, *height, q, &op, font_alias, &widths,
+                        )
+                    };
+                    (content, font_alias.to_string(), font_ref)
                 };
                 let ap_stream = crate::appearance::build_appearance_xobject(
-                    content, *width, *height, font_alias, font_ref,
+                    content,
+                    *width,
+                    *height,
+                    &font_alias_str,
+                    ap_font_ref,
                 );
                 let ap_id = doc.add_object(Object::Stream(ap_stream));
 
@@ -1769,17 +1837,24 @@ fn build_fields_and_acroform(
                 field_dict.set("Rect", rect);
                 field_dict.set(
                     "DA",
-                    Object::string_literal(format!("/{font_alias} {size} Tf {op}")),
+                    Object::string_literal(format!("/{font_alias_str} {size} Tf {op}")),
                 );
                 if align.is_some() {
                     field_dict.set("Q", Object::Integer(q));
                 }
-                field_dict.set("V", Object::string_literal(val_bytes));
+                // Embedded-font values may contain characters outside WinAnsi
+                // (e.g. CJK), so encode /V and /DV as PDF text strings (which
+                // fall back to UTF-16BE) rather than lossy WinAnsi bytes.
+                let text_string_obj = |s: &str| {
+                    if font_id.is_some() {
+                        lopdf::text_string(s)
+                    } else {
+                        Object::string_literal(crate::appearance::encode_winansi(s))
+                    }
+                };
+                field_dict.set("V", text_string_obj(&val_str));
                 if let Some(dv) = default_value {
-                    field_dict.set(
-                        "DV",
-                        Object::string_literal(crate::appearance::encode_winansi(dv)),
-                    );
+                    field_dict.set("DV", text_string_obj(dv));
                 }
                 field_dict.set("Ff", Object::Integer(flags));
                 field_dict.set(
