@@ -1,5 +1,12 @@
 import { PdfForm, kFormQueue, kFlattenQueue } from "../forms/form.js";
-import { toPdfError, PageOutOfRangeError, PdfError, toInvalidImageError, EncryptedPdfError } from "./errors.js";
+import {
+  toPdfError,
+  PageOutOfRangeError,
+  PdfError,
+  toInvalidImageError,
+  EncryptedPdfError,
+  FormSealedError,
+} from "./errors.js";
 import type { FormSchema, TypedPdfForm } from "../forms/schema.js";
 import { PdfPage } from "../generate/page.js";
 import { DrawQueue } from "../generate/draw-queue.js";
@@ -149,10 +156,11 @@ export class PdfDocumentBase {
   private outlineItems?: OutlineItem[];
   private readonly structureOps: PageStructureOp[] = [];
   private readonly appendedPages: PdfPage[] = [];
+  private sealed = false;
 
   /** @internal */
   protected constructor(
-    protected readonly bytes: Uint8Array,
+    protected bytes: Uint8Array,
     private readonly wasm: CoreWasm,
     private readonly mode: "load" | "create" = "load",
   ) {}
@@ -180,22 +188,9 @@ export class PdfDocumentBase {
    * ```
    */
   async save(): Promise<Uint8Array> {
-    if (this.mode === "create") {
+    if (this.mode === "create" && !this.sealed) {
       try {
-        if (this.meta.dirty) {
-          this.drawQueue.pushMetadata(this.meta.wire);
-        }
-        if (this.outlineItems !== undefined) {
-          this.drawQueue.pushOutline(this.outlineItems);
-        }
-        const { opsJson, images, fonts, fontsJson } = this.drawQueue.toCreatePayload();
-        return this.wasm.createDocument(
-          opsJson,
-          images,
-          fonts,
-          fontsJson,
-          JSON.stringify(this.fieldDefs),
-        );
+        return this.buildCreatedBytes();
       } catch (e) {
         throw toPdfError(e);
       }
@@ -225,7 +220,7 @@ export class PdfDocumentBase {
     if (form && form[kFlattenQueue].length > 0) {
       plan["flatten"] = form[kFlattenQueue];
     }
-    if (this.drawQueue.length > 0) {
+    if (!this.sealed && this.drawQueue.length > 0) {
       const resolve = this.buildPageIndexResolver();
       const { opsJson, images, fonts: f, fontsJson } = this.drawQueue.toDrawPayload(resolve);
       plan["draw"] = { ops: JSON.parse(opsJson), fonts: JSON.parse(fontsJson) };
@@ -284,6 +279,28 @@ export class PdfDocumentBase {
       return this.bytes.slice();
     }
     return bytes;
+  }
+
+  /**
+   * Build the finished PDF bytes for a created document: bake queued metadata
+   * and outline, then run the single-pass createDocument with all fields.
+   * Shared by `save()` (create mode) and `getForm()` materialization.
+   */
+  private buildCreatedBytes(): Uint8Array {
+    if (this.meta.dirty) {
+      this.drawQueue.pushMetadata(this.meta.wire);
+    }
+    if (this.outlineItems !== undefined) {
+      this.drawQueue.pushOutline(this.outlineItems);
+    }
+    const { opsJson, images, fonts, fontsJson } = this.drawQueue.toCreatePayload();
+    return this.wasm.createDocument(
+      opsJson,
+      images,
+      fonts,
+      fontsJson,
+      JSON.stringify(this.fieldDefs),
+    );
   }
 
   /** Set the document title metadata. */
@@ -598,10 +615,8 @@ export class PdfDocumentBase {
    */
   getForm<S extends FormSchema>(): TypedPdfForm<S>;
   getForm(): PdfForm {
-    if (this.mode === "create") {
-      throw new PdfError(
-        "getForm is not available on documents created with PdfDocument.create(); creating AcroForm fields is not supported",
-      );
+    if (this.mode === "create" && !this.sealed) {
+      this.materializeCreatedForm();
     }
     if (!this.form) {
       try {
@@ -611,6 +626,25 @@ export class PdfDocumentBase {
       }
     }
     return this.form;
+  }
+
+  /**
+   * Turn a created document into a load-backed, sealed one: build real bytes,
+   * swap them in, freeze the draw queue, and clear the metadata/outline that
+   * are now baked into those bytes. The load-mode save pipeline takes over.
+   */
+  private materializeCreatedForm(): void {
+    let bytes: Uint8Array;
+    try {
+      bytes = this.buildCreatedBytes();
+    } catch (e) {
+      throw toPdfError(e);
+    }
+    this.bytes = bytes;
+    this.drawQueue.seal();
+    this.sealed = true;
+    this.meta.clearDirty();
+    this.outlineItems = undefined;
   }
 
   /** Get a standard-14 font handle for measuring or drawing text. */

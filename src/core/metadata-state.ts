@@ -27,6 +27,11 @@ export class MetadataState {
     this.dirtyFlag = true;
   }
 
+  /** Reset the dirty flag after values are baked into created bytes. */
+  clearDirty(): void {
+    this.dirtyFlag = false;
+  }
+
   setTitle(value: string): void {
     this.set("title", value);
   }

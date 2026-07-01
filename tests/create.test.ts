@@ -68,10 +68,12 @@ describe("create", () => {
 });
 
 describe("create mode guards", () => {
-  test("getForm on a created doc throws PdfError", async () => {
+  // getForm() on a created document now materializes the document instead of
+  // throwing — see tests/created-form-getform.test.ts for coverage.
+  test("insertPage on a created doc throws PdfError", async () => {
     const { PdfError } = await import("../src/index.ts");
     const doc = await PdfDocument.create();
     doc.addPage(PageSizes.A4);
-    expect(() => doc.getForm()).toThrow(PdfError);
+    expect(() => doc.insertPage(0)).toThrow(PdfError);
   });
 });
