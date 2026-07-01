@@ -119,17 +119,12 @@ resource `BPF<n>` — the exact convention `drawText` uses, so a field and a
 
 ## Rust create path
 
-**New appearance functions** (`appearance.rs`), CID counterparts of the WinAnsi
-builders:
+**New appearance function** (`appearance.rs`), the CID counterpart of the
+WinAnsi single-line builder:
 
 ```rust
 pub fn text_appearance_content_embedded(
     text: &str, size: f32, box_w: f32, box_h: f32, q: i64,
-    color: &str, font: &str, built: &BuiltFont, font_bytes: &[u8],
-) -> Vec<u8>;
-
-pub fn text_appearance_content_multiline_embedded(
-    lines: &[&str], size: f32, box_w: f32, box_h: f32, q: i64,
     color: &str, font: &str, built: &BuiltFont, font_bytes: &[u8],
 ) -> Vec<u8>;
 ```
@@ -137,21 +132,25 @@ pub fn text_appearance_content_multiline_embedded(
 - Encode each char via `built.gid_for` to a 2-byte big-endian GID; emit a hex
   show string `<....> Tj` (Identity-H). Chars absent from `gid_for` are skipped
   (matching `drawText`).
-- Single line: horizontal offset from `quad_offset(q, box_w, measure_embedded(font_bytes, size, text))`;
+- Horizontal offset from `quad_offset(q, box_w, measure_embedded(font_bytes, size, text))`;
   vertical baseline identical to the WinAnsi single-line formula.
-- Multiline: `lines` are pre-wrapped by the caller (via
-  `wrap_str(value, avail_w, |s| measure_embedded(font_bytes, size, s))`); emit
-  one show string per line, top-aligned, stepping by the same leading the
-  WinAnsi multiline path uses.
 - Hex is lowercase (`{:04x}`); the font op is `/{font} {size:.2} Tf {color}`,
   matching the WinAnsi format byte-for-byte except for the show string.
+
+**Single-line only, matching the standard-14 create path.** `create.rs` renders
+text fields single-line today (the field-build block branches only comb vs
+single line; it does not wrap multiline at build time). Embedded fields follow
+the same rule: a `multiline` embedded field carries the multiline `/Ff` flag but
+its build-time appearance is single-line, exactly as a standard-14 multiline
+builder field is today. So no multiline embedded builder is added. (Multiline
+wrapping lives only in the fill path, which is guarded off for Type0 — see the
+re-fill guard.)
 
 **Field wiring** (`create.rs`). For a text-field def with `font_id: Some(n)`:
 
 - Resolve the already-built `BuiltFont` and its Type0 object id for font `n`.
 - Appearance XObject `/Resources /Font << /BPF<n> <type0_ref> >>`, content from
-  the embedded builder above (single or multiline by the field's `multiline`
-  flag).
+  `text_appearance_content_embedded` (single-line, as above).
 - Field `/DA (/BPF<n> <size> Tf <color>)`.
 - Extend the `/DR` registry to add `/Font /BPF<n> → <type0_ref>` for each
   embedded font used by a field (alongside the standard-14 aliases). The
@@ -213,7 +212,7 @@ TDD-red tests already authored (become this plan's acceptance criteria):
   field-only-font subsetting; comb + dropdown rejection; re-fill rejects at
   `save()`; standard-14 unaffected.
 - **`crates/core/src/appearance.rs`** (`embedded_field_appearance_tests`) —
-  Identity-H GID hex encoding; no-glyph skipping; one show operator per line.
+  Identity-H GID hex encoding; no-glyph skipping.
 
 Additional coverage to add during implementation:
 
