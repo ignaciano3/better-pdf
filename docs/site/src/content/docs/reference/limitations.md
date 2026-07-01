@@ -70,8 +70,16 @@ deliberately unsupported and not planned. The two are listed separately below.
   — selectable per field via the builder `font` option (Helvetica / Times /
   Courier families), with `fontSize`, `textColor`, and `align` also
   configurable (and `checkStyle` for the selected mark of checkboxes and
-  radios). **Embedded / non-Latin (CJK) fonts are not supported for
-  form-field values** — only the standard-14 WinAnsi fonts.
+  radios). **Embedded fonts (CJK / non-Latin) are supported on builder-created
+  plain and multiline text fields** via `addTextField({ font: doc.embedFont(bytes) })`;
+  the value is CID-encoded into a Type0 appearance and the glyphs are subset.
+  - **Caveat — build-time only.** Embedded-font field values must be set through
+    the builder (`value` / `defaultValue`); re-filling an embedded-font field
+    through the form API (`getForm().getTextField(...).setText(...)`) throws
+    `filling embedded-font fields through the form API is not yet supported`.
+  - **Caveat — comb and choice fields.** Comb text fields, dropdowns, and list
+    boxes accept standard-14 fonts only; passing an embedded font throws
+    `embedded fonts are supported on plain and multiline text fields only`.
 - **Form-field format / calculation actions (AcroForm JavaScript)** are not
   supported — there is no API for `/AA` additional-action scripts such as date
   pickers, number/currency masks, validation, or calculated fields. These rely

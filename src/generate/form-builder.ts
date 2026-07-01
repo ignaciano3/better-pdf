@@ -1,6 +1,11 @@
 import { colorToTuple, type Color } from "./color.js";
 import type { DeclaredField, FieldNameOf, FormSchema } from "../forms/schema.js";
 import { StandardFonts } from "./fonts.js";
+import { PdfFont, kFontId } from "./font.js";
+import { PdfError } from "../core/errors.js";
+
+// Error message for embedded font field type restrictions
+const EMBEDDED_FONT_FIELD_ERROR = "embedded fonts are supported on plain and multiline text fields only";
 
 // ---------------------------------------------------------------------------
 // Public option interfaces
@@ -49,9 +54,10 @@ export interface TextFieldOptions extends BaseFieldOptions {
   align?: FieldAlign;
   /** Font size in points for the field's value. Defaults to 12. */
   fontSize?: number;
-  /** Standard-14 font for the field's value. Defaults to Helvetica. Embedded
-   * (PdfFont) fonts are not supported for form fields. */
-  font?: StandardFonts;
+  /** Font for the field's value: a standard-14 name, or an embedded font from
+   *  doc.embedFont(). Embedded fonts are supported on plain and multiline text
+   *  fields only. Defaults to Helvetica. */
+  font?: StandardFonts | PdfFont;
 }
 
 /**
@@ -166,6 +172,7 @@ interface WireTextField extends WireBase {
   align?: FieldAlign;
   fontSize?: number;
   font?: string;
+  fontId?: number;
 }
 
 /** @internal */
@@ -257,7 +264,7 @@ function assertGeometry(opts: { x: number; y: number }, label: string): void {
  */
 function applyTextStyle(
   def: { align?: FieldAlign; fontSize?: number; font?: string },
-  opts: { align?: FieldAlign; fontSize?: number; font?: StandardFonts },
+  opts: { align?: FieldAlign; fontSize?: number; font?: StandardFonts | PdfFont },
   label: string,
 ): void {
   if (opts.align !== undefined) def.align = opts.align;
@@ -265,7 +272,7 @@ function applyTextStyle(
     assertPositive(opts.fontSize, `${label}.fontSize`);
     def.fontSize = opts.fontSize;
   }
-  if (opts.font !== undefined) {
+  if (opts.font !== undefined && !(opts.font instanceof PdfFont)) {
     if (!Object.values(StandardFonts).includes(opts.font)) {
       throw new RangeError(`${label}.font is not a standard-14 font: ${String(opts.font)}`);
     }
@@ -342,6 +349,21 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
         `${name}.defaultValue length ${opts.defaultValue.length} exceeds maxLength ${opts.maxLength}`,
       );
     }
+    // Resolve font: standard-14 name string, or an embedded PdfFont id.
+    let embeddedFontId: number | undefined;
+    let styleFont: StandardFonts | PdfFont | undefined = opts.font;
+    if (opts.font instanceof PdfFont) {
+      const id = opts.font[kFontId];
+      if (id !== undefined) {
+        embeddedFontId = id;
+      } else {
+        // A standard-14 PdfFont handle (from doc.getFont()); use its name.
+        styleFont = opts.font.name;
+      }
+    }
+    if (embeddedFontId !== undefined && opts.comb) {
+      throw new PdfError(EMBEDDED_FONT_FIELD_ERROR);
+    }
     const def: WireTextField = { ...base, type: "text", width: opts.width, height: opts.height };
     if (opts.value !== undefined) def.value = opts.value;
     if (opts.defaultValue !== undefined) def.defaultValue = opts.defaultValue;
@@ -349,7 +371,8 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     if (opts.multiline !== undefined) def.multiline = opts.multiline;
     if (opts.password) def.password = true;
     if (opts.comb) def.comb = true;
-    applyTextStyle(def, opts, name);
+    applyTextStyle(def, { align: opts.align, fontSize: opts.fontSize, font: styleFont }, name);
+    if (embeddedFontId !== undefined) def.fontId = embeddedFontId;
     this.defs.push(def);
     this.names.add(name);
     return this as unknown as FormBuilder<
@@ -467,6 +490,9 @@ export class FormBuilder<S extends FormSchema = Record<never, never>> {
     combo: boolean,
     editable: boolean,
   ): this {
+    if ((opts.font as unknown) instanceof PdfFont && (opts.font as unknown as PdfFont)[kFontId] !== undefined) {
+      throw new PdfError(EMBEDDED_FONT_FIELD_ERROR);
+    }
     const base = buildBase(name, opts, this.names);
     assertPositive(opts.width, `${name}.width`);
     assertPositive(opts.height, `${name}.height`);
