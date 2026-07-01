@@ -117,6 +117,19 @@ export class InvalidRotationError extends PdfError {
   }
 }
 
+/**
+ * Thrown when field, page, or draw operations are attempted on a created
+ * document after `getForm()` has sealed it. Do all content creation before
+ * calling `getForm()`.
+ */
+export class FormSealedError extends PdfError {
+  constructor(
+    message = "content creation is sealed after getForm() on a created document; add all fields, pages, and drawings before calling getForm().",
+  ) {
+    super(message);
+  }
+}
+
 export function toInvalidImageError(e: unknown): InvalidImageError {
   const message = e instanceof Error ? e.message : String(e);
   return new InvalidImageError(message);
