@@ -426,6 +426,7 @@ export class PdfDocumentBase {
    * drawable and the op is applied before draw ops at save time.
    */
   addPage(size: PageSize = PageSizes.A4): PdfPage {
+    this.assertNotSealed();
     const [width, height] = size;
     if (this.mode === "create") {
       const index = this.createdPages.length;
@@ -452,6 +453,7 @@ export class PdfDocumentBase {
    * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
    */
   insertPage(index: number, size: PageSize = PageSizes.A4): void {
+    this.assertNotSealed();
     if (this.mode !== "load") {
       throw new PdfError("insertPage is only available on documents opened with PdfDocument.load()");
     }
@@ -469,6 +471,7 @@ export class PdfDocumentBase {
    * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
    */
   removePage(index: number): void {
+    this.assertNotSealed();
     if (this.mode !== "load") {
       throw new PdfError("removePage is only available on documents opened with PdfDocument.load()");
     }
@@ -485,6 +488,7 @@ export class PdfDocumentBase {
    * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
    */
   movePage(from: number, to: number): void {
+    this.assertNotSealed();
     if (this.mode !== "load") {
       throw new PdfError("movePage is only available on documents opened with PdfDocument.load()");
     }
@@ -510,6 +514,10 @@ export class PdfDocumentBase {
     return buildPageIndexResolver(this.structureOps, this.loadPages().length);
   }
 
+  private assertNotSealed(): void {
+    if (this.sealed) throw new FormSealedError();
+  }
+
   /**
    * Begin building an AcroForm on a document created with {@link PdfDocument.create}.
    *
@@ -521,8 +529,11 @@ export class PdfDocumentBase {
    */
   createForm(): FormBuilder {
     if (this.mode !== "create") {
-      throw new PdfError("createForm is only available on documents created with PdfDocument.create()");
+      throw new PdfError(
+        "createForm() is only available on documents created with PdfDocument.create(). Adding new form fields to a loaded PDF is not yet supported — to build and fill a form, create a document, add fields with createForm(), then call getForm() to read or fill them.",
+      );
     }
+    this.assertNotSealed();
     return new FormBuilder(this.fieldDefs, this.fieldNames);
   }
 
