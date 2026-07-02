@@ -3273,11 +3273,10 @@ mod tests {
     }
 
     #[test]
-    fn create_output_byte_identical_after_refactor() {
+    fn create_output_structurally_intact_after_refactor() {
         // A doc exercising a standard-14 text field, a checkbox, and a choice
         // field. Guards the Task 1 `build_one_field` extraction: create output
-        // must stay structurally intact (the existing create/field tests plus
-        // the whole suite are the byte-level gate).
+        // must stay structurally intact, backed by the full create suite.
         let ops = r#"[{"op":"addPage","width":300,"height":300}]"#;
         let fields = r#"[
             {"type":"text","name":"t","page":0,"x":10,"y":10,"width":100,"height":20},

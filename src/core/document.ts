@@ -163,6 +163,7 @@ export class PdfDocumentBase {
   private readonly structureOps: PageStructureOp[] = [];
   private readonly appendedPages: PdfPage[] = [];
   private sealed = false;
+  private formFlushed = false;
 
   /** @internal */
   protected constructor(
@@ -550,7 +551,7 @@ export class PdfDocumentBase {
   createForm(): FormBuilder {
     if (this.mode === "create") {
       this.assertNotSealed();
-    } else if (this.form) {
+    } else if (this.form || this.formFlushed) {
       throw new PdfError(
         "createForm() must be called before getForm(); the form has already been built for this document",
       );
@@ -679,6 +680,7 @@ export class PdfDocumentBase {
     this.sealed = true;
     this.meta.clearDirty();
     this.outlineItems = undefined;
+    this.formFlushed = true;
   }
 
   /**
@@ -700,6 +702,7 @@ export class PdfDocumentBase {
     this.bytes = bytes;
     this.fieldDefs.length = 0;
     this.fieldNames.clear();
+    this.formFlushed = true;
   }
 
   /** Get a standard-14 font handle for measuring or drawing text. */

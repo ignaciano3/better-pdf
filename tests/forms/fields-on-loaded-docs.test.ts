@@ -36,6 +36,13 @@ describe("fields on loaded docs", () => {
     expect(() => doc.createForm()).toThrow();
   });
 
+  test("createForm() after a save()-flush throws", async () => {
+    const doc = await loadFicha();
+    doc.createForm().addTextField("f1", { page: 0, x: 10, y: 10, width: 50, height: 15 });
+    await doc.save(); // flushes pending fields without ever calling getForm()
+    expect(() => doc.createForm()).toThrow();
+  });
+
   test("collision with an existing field throws at flush", async () => {
     const doc = await loadFicha();
     const existing = doc.getForm().getFields()[0]!.name;
