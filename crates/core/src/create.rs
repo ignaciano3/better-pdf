@@ -383,7 +383,7 @@ pub(crate) enum FieldDef {
 #[derive(Deserialize)]
 pub(crate) struct RadioOption {
     value: String,
-    page: usize,
+    pub(crate) page: usize,
     x: f32,
     y: f32,
     size: f32,
