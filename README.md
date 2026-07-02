@@ -41,7 +41,7 @@ See the [per-runtime guide](docs/site/src/content/docs/guides/runtimes.md) and [
 - Create new PDFs with `PdfDocument.create()` and standard page sizes.
 - Draw text, images, lines, rectangles, and ellipses on new and existing pages.
 - Embed custom TTF/OTF fonts with glyph subsetting for full Unicode text (CJK, accented Latin, any script) — selectable and searchable in PDF viewers.
-- Create fillable AcroForm fields (text, checkbox, radio, dropdown, listbox, signature) on generated documents with `doc.createForm()`.
+- Create fillable AcroForm fields (text, checkbox, radio, dropdown, listbox, signature) with `doc.createForm()` — on generated documents, and on documents opened with `PdfDocument.load()` (added fields must precede the first `getForm()`).
 - Read and write document metadata (Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate) via `doc.setTitle()` / `doc.getMetadata()` on both created and loaded documents; dates round-trip to JS `Date`.
 - Merge multiple PDFs into one with `PdfDocument.merge([a, b, c])`.
 - Extract or reorder pages from a loaded document with `doc.copyPages([0, 2, 4])`.
@@ -277,10 +277,6 @@ const output = await doc.save();
 await Bun.write("form.pdf", output);
 ```
 
-> **Created documents only.** `createForm()` throws on documents opened with
-> `PdfDocument.load()`. The field names are accumulated into the builder's type,
-> so `getFieldNames()` is statically typed.
->
 > **A normal fillable form.** The result is a standard AcroForm: reload it with
 > `PdfDocument.load(output)` and you can fill it (`getForm().getTextField(...)`,
 > `.getCheckBox(...).check()`, …) and flatten it with this same library.
@@ -288,6 +284,36 @@ await Bun.write("form.pdf", output);
 Every field supports `required`, `readOnly`, `tooltip`, and the optional
 `border` (`{ color, width? }`) / `background` (a `Color`) appearance — colors come
 from `rgb(r, g, b)` and `grayscale(v)` (0–1).
+
+#### Add fields to an existing PDF
+
+`createForm()` also works on a document opened with `PdfDocument.load()` — it
+adds new AcroForm fields to a PDF that already exists (with or without a form
+of its own):
+
+```ts
+import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.load(bytes);
+const form = doc.createForm();
+form.addTextField("signature_date", {
+  page: 0, x: 72, y: 120, width: 160, height: 22,
+});
+
+// Fill it in the same session — the field is injected on this first getForm() call.
+doc.getForm().getTextField("signature_date").setText("2026-07-02");
+
+const output = await doc.save();
+```
+
+> **Add fields before the first `getForm()`.** New fields are injected into
+> the loaded PDF on the first `getForm()`/`save()` call, so every
+> `createForm()`-declared field must be added before that first call — calling
+> `createForm()` again afterward throws. A declared field name that collides
+> with a field already in the PDF is rejected. **Current limitation:** filling
+> an embedded-font (CJK/Type0) field created this way is not yet supported —
+> it throws at `save()`; only standard-14 fonts can be filled on
+> loaded-and-injected fields today.
 
 ### (g) Page operations (merge, extract, split, assemble)
 

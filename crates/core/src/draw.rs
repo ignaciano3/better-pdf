@@ -1875,7 +1875,7 @@ fn set_font(res: &mut Dictionary, key: &str, font_id: ObjectId) {
 /// Append `Reference(annot_id)` to a cloned page's `/Annots`, handling the
 /// three storage forms: inline array (push), indirect reference to an array
 /// (clone into new_document then push), or absent (create a new array).
-fn append_annot_to_page(
+pub(crate) fn append_annot_to_page(
     inc: &mut IncrementalDocument,
     page_id: ObjectId,
     annot_id: ObjectId,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PdfDocument, PageSizes, FormSealedError, PdfError } from "../src/index.ts";
+import { PdfDocument, PageSizes, FormSealedError } from "../src/index.ts";
 
 describe("getForm on created docs", () => {
   test("create -> getForm -> read fields (build-time values)", async () => {
@@ -81,12 +81,11 @@ describe("seal enforcement", () => {
     ).toThrow(FormSealedError);
   });
 
-  test("createForm on a loaded doc throws an instructive message", async () => {
+  test("createForm on a loaded doc is supported (see tests/forms/fields-on-loaded-docs.test.ts)", async () => {
     const doc = await PdfDocument.create();
     doc.addPage(PageSizes.A4);
     const loaded = await PdfDocument.load(await doc.save());
-    expect(() => loaded.createForm()).toThrow(PdfError);
-    expect(() => loaded.createForm()).toThrow(/not yet supported/);
+    expect(() => loaded.createForm()).not.toThrow();
   });
 });
 

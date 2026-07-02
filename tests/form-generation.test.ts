@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PdfDocument, PageSizes, PdfError, StandardFonts } from "../src/index.ts";
+import { PdfDocument, PageSizes, PdfError, StandardFonts, FormBuilder } from "../src/index.ts";
 
 const FICHA = "tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf";
 
@@ -194,13 +194,21 @@ describe("form-generation: readOnly reflected", () => {
 });
 
 // ---------------------------------------------------------------------------
-// createForm on a loaded doc throws
+// createForm on a loaded doc (see tests/forms/fields-on-loaded-docs.test.ts
+// for the full inject-fields coverage)
 // ---------------------------------------------------------------------------
 
-describe("form-generation: guard on loaded doc", () => {
-  test("createForm() on a loaded doc throws PdfError", async () => {
+describe("form-generation: createForm on a loaded doc", () => {
+  test("createForm() on a loaded doc returns a FormBuilder", async () => {
     const bytes = new Uint8Array(await Bun.file(FICHA).arrayBuffer());
     const doc = await PdfDocument.load(bytes);
+    expect(doc.createForm()).toBeInstanceOf(FormBuilder);
+  });
+
+  test("createForm() on a loaded doc after getForm() throws PdfError", async () => {
+    const bytes = new Uint8Array(await Bun.file(FICHA).arrayBuffer());
+    const doc = await PdfDocument.load(bytes);
+    doc.getForm();
     expect(() => doc.createForm()).toThrow(PdfError);
   });
 });

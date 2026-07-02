@@ -11,6 +11,7 @@ mod flatten;
 mod font_metrics;
 mod fonts;
 mod forms;
+mod inject;
 mod metadata;
 mod outline;
 mod pageops;
@@ -92,6 +93,19 @@ pub fn create_document(
 ) -> Result<Vec<u8>, JsError> {
     create::create_document_json(ops_json, images, fonts, fonts_json, fields_json)
         .map_err(|e| JsError::new(&e))
+}
+
+/// Inject new AcroForm fields (JSON array of field defs, same schema as
+/// create_document's fields_json) into a loaded PDF; returns new bytes.
+/// `fonts` / `fonts_json` carry embedded fonts referenced by fields.
+#[wasm_bindgen]
+pub fn inject_fields(
+    data: &[u8],
+    fields_json: &str,
+    fonts: &[u8],
+    fonts_json: &str,
+) -> Result<Vec<u8>, JsError> {
+    inject::inject_fields_json(data, fields_json, fonts, fonts_json).map_err(|e| JsError::new(&e))
 }
 
 /// Assemble a new PDF from an ordered page selection across source PDFs.

@@ -21,11 +21,11 @@ fn default_true() -> bool {
 /// One embedded font descriptor in the `fonts_json` payload. `offset`/`length`
 /// index into the concatenated `fonts` blob; `subset` controls glyph subsetting.
 #[derive(Deserialize)]
-struct FontDesc {
-    offset: usize,
-    length: usize,
+pub(crate) struct FontDesc {
+    pub(crate) offset: usize,
+    pub(crate) length: usize,
     #[serde(default = "default_true")]
-    subset: bool,
+    pub(crate) subset: bool,
 }
 
 #[derive(Deserialize)]
@@ -188,7 +188,7 @@ enum CreateOp {
 }
 
 #[derive(Deserialize)]
-struct Border {
+pub(crate) struct Border {
     color: [f32; 3],
     width: f32,
 }
@@ -270,7 +270,7 @@ fn quadding(align: &Option<String>) -> i64 {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-enum FieldDef {
+pub(crate) enum FieldDef {
     Text {
         name: String,
         page: usize,
@@ -381,7 +381,7 @@ enum FieldDef {
 }
 
 #[derive(Deserialize)]
-struct RadioOption {
+pub(crate) struct RadioOption {
     value: String,
     page: usize,
     x: f32,
@@ -524,7 +524,7 @@ fn mark_on_appearance(style: &str, size: f32) -> Stream {
 
 /// Map a standard-14 base font name to its deterministic AcroForm /DR resource
 /// alias. Returns `None` for names that are not standard-14 text fonts.
-fn da_font_alias(base: &str) -> Option<&'static str> {
+pub(crate) fn da_font_alias(base: &str) -> Option<&'static str> {
     Some(match base {
         "Helvetica" => "Helv",
         "Helvetica-Bold" => "HeBo",
@@ -992,7 +992,20 @@ fn validate_create(
         }
     }
 
-    // Validate fields
+    validate_fields(fields, pages.len(), font_descs)
+}
+
+/// Per-field validation shared by the create and inject paths: empty/duplicate
+/// names, per-option radio page range, finite coordinates, positive
+/// size/width/height, option-value rules, embedded `font_id` range, and
+/// selected/defaultSelected membership — for all five field variants.
+/// `page_count` bounds the pages fields may target; `font_descs` bounds
+/// embedded `font_id`s. Validation-only: no objects are built.
+pub(crate) fn validate_fields(
+    fields: &[FieldDef],
+    page_count: usize,
+    font_descs: &[FontDesc],
+) -> Result<(), String> {
     {
         let mut seen_names: HashSet<&str> = HashSet::new();
         for field in fields {
@@ -1034,10 +1047,9 @@ fn validate_create(
                             dv.chars().count()
                         ));
                     }
-                    if *page >= pages.len() {
+                    if *page >= page_count {
                         return Err(format!(
-                            "field page {page} out of range ({} pages)",
-                            pages.len()
+                            "field page {page} out of range ({page_count} pages)"
                         ));
                     }
                     if !x.is_finite() || !y.is_finite() {
@@ -1082,10 +1094,9 @@ fn validate_create(
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
                     }
-                    if *page >= pages.len() {
+                    if *page >= page_count {
                         return Err(format!(
-                            "field page {page} out of range ({} pages)",
-                            pages.len()
+                            "field page {page} out of range ({page_count} pages)"
                         ));
                     }
                     if !x.is_finite() || !y.is_finite() {
@@ -1136,11 +1147,10 @@ fn validate_create(
                         if !seen_values.insert(opt.value.as_str()) {
                             return Err(format!("duplicate radio option value: {}", opt.value));
                         }
-                        if opt.page >= pages.len() {
+                        if opt.page >= page_count {
                             return Err(format!(
-                                "radio option page {} out of range ({} pages)",
-                                opt.page,
-                                pages.len()
+                                "radio option page {} out of range ({page_count} pages)",
+                                opt.page
                             ));
                         }
                         if !opt.x.is_finite() || !opt.y.is_finite() {
@@ -1176,10 +1186,9 @@ fn validate_create(
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
                     }
-                    if *page >= pages.len() {
+                    if *page >= page_count {
                         return Err(format!(
-                            "field page {page} out of range ({} pages)",
-                            pages.len()
+                            "field page {page} out of range ({page_count} pages)"
                         ));
                     }
                     if !x.is_finite() || !y.is_finite() {
@@ -1232,10 +1241,9 @@ fn validate_create(
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
                     }
-                    if *page >= pages.len() {
+                    if *page >= page_count {
                         return Err(format!(
-                            "field page {page} out of range ({} pages)",
-                            pages.len()
+                            "field page {page} out of range ({page_count} pages)"
                         ));
                     }
                     if !x.is_finite() || !y.is_finite() {
@@ -1671,6 +1679,532 @@ fn build_pages(
     Ok(page_ids)
 }
 
+/// A built field's top-level object id plus which page each of its widget
+/// annotations must be appended to. Page indices are 0-based into the caller's
+/// page list (create path: fresh pages; inject path: existing pages).
+pub(crate) struct BuiltField {
+    pub top_field_id: ObjectId,
+    pub widgets: Vec<(usize, ObjectId)>,
+}
+
+/// Resolved font handle for a text/choice field's appearance stream and /DA.
+pub(crate) enum FieldFont<'a> {
+    Standard {
+        alias: &'a str,
+        font_ref: ObjectId,
+    },
+    Embedded {
+        alias: &'a str,
+        type0_id: ObjectId,
+        built: &'a BuiltFont,
+        bytes: &'a [u8],
+    },
+}
+
+/// Resolve the per-field font handle exactly as the inline create loop did, so
+/// aliases (`Helv`, `BPF<n>`) and object references are unchanged. `Text`/
+/// `Choice` fields get `Some`; buttons/signatures get `None`.
+fn resolve_create_font<'a>(
+    field: &FieldDef,
+    font_registry: &'a std::collections::HashMap<&str, (&'static str, ObjectId)>,
+    embedded_fonts: &'a std::collections::HashMap<usize, (ObjectId, BuiltFont)>,
+    embedded_aliases: &'a std::collections::HashMap<usize, String>,
+    font_descs: &'a [FontDesc],
+    fonts: &'a [u8],
+) -> Option<FieldFont<'a>> {
+    match field {
+        FieldDef::Text {
+            font_id: Some(i), ..
+        } => {
+            let (type0_id, built) = &embedded_fonts[i];
+            let fd = &font_descs[*i];
+            let bytes = &fonts[fd.offset..fd.offset + fd.length];
+            Some(FieldFont::Embedded {
+                alias: embedded_aliases[i].as_str(),
+                type0_id: *type0_id,
+                built,
+                bytes,
+            })
+        }
+        FieldDef::Text { font, .. } | FieldDef::Choice { font, .. } => {
+            let base = font.as_deref().unwrap_or("Helvetica");
+            let (alias, font_ref) = font_registry[base];
+            Some(FieldFont::Standard { alias, font_ref })
+        }
+        _ => None,
+    }
+}
+
+/// Build one field's object graph (widget/field dict, /AP appearance, radio
+/// kids) into `doc`. `font` is `Some` for text/choice fields, `None` otherwise.
+/// Returns the top-level field id and the `(page_index, widget_id)` pairs the
+/// caller must wire into page `/Annots`. Object add order matches the previous
+/// inline construction so create output is byte-identical. Does NOT touch page
+/// `/Annots` or the `/AcroForm`.
+pub(crate) fn build_one_field(
+    doc: &mut Document,
+    field: &FieldDef,
+    page_ids: &[ObjectId],
+    font: Option<FieldFont<'_>>,
+) -> Result<BuiltField, String> {
+    match field {
+        FieldDef::Text {
+            name,
+            page,
+            x,
+            y,
+            width,
+            height,
+            value,
+            default_value,
+            max_length,
+            multiline,
+            password,
+            comb,
+            required,
+            read_only,
+            tooltip,
+            border,
+            background,
+            text_color,
+            font_size,
+            align,
+            font: base_font_name,
+            font_id,
+        } => {
+            let val_str = value.clone().unwrap_or_default();
+            let op = color_op(*text_color);
+            let size = font_size.unwrap_or(12.0);
+            let q = quadding(align);
+
+            let (content, font_alias_str, ap_font_ref) = match font {
+                Some(FieldFont::Embedded {
+                    alias,
+                    type0_id,
+                    built,
+                    bytes,
+                }) => {
+                    let content = crate::appearance::text_appearance_content_embedded(
+                        &val_str, size, *width, *height, q, &op, alias, built, bytes,
+                    );
+                    (content, alias.to_string(), type0_id)
+                }
+                Some(FieldFont::Standard { alias, font_ref }) => {
+                    let base_font = base_font_name.as_deref().unwrap_or("Helvetica");
+                    let widths = crate::appearance::standard_14_widths(base_font).unwrap();
+                    let val_bytes = crate::appearance::encode_winansi(&val_str);
+                    let content = if *comb {
+                        crate::appearance::text_appearance_content_comb(
+                            &val_bytes,
+                            size,
+                            *width,
+                            *height,
+                            max_length.unwrap_or(0),
+                            &op,
+                            alias,
+                            &widths,
+                        )
+                    } else {
+                        crate::appearance::text_appearance_content(
+                            &val_bytes, size, *width, *height, q, &op, alias, &widths,
+                        )
+                    };
+                    (content, alias.to_string(), font_ref)
+                }
+                None => unreachable!("text field always resolves a font"),
+            };
+            let ap_stream = crate::appearance::build_appearance_xobject(
+                content,
+                *width,
+                *height,
+                &font_alias_str,
+                ap_font_ref,
+            );
+            let ap_id = doc.add_object(Object::Stream(ap_stream));
+
+            let flags: i64 = (*read_only as i64)
+                | ((*required as i64) << 1)
+                | ((multiline.unwrap_or(false) as i64) << 12)
+                | ((*password as i64) << 13)
+                | ((*comb as i64) << 24);
+
+            let rect = Object::Array(vec![
+                Object::Real(*x),
+                Object::Real(*y),
+                Object::Real(*x + *width),
+                Object::Real(*y + *height),
+            ]);
+
+            let mut field_dict = Dictionary::new();
+            field_dict.set("Type", Object::Name(b"Annot".to_vec()));
+            field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+            // Print flag (/F bit 3) so the field shows in printed output.
+            field_dict.set("F", Object::Integer(4));
+            field_dict.set("FT", Object::Name(b"Tx".to_vec()));
+            field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+            field_dict.set("Rect", rect);
+            field_dict.set(
+                "DA",
+                Object::string_literal(format!("/{font_alias_str} {size} Tf {op}")),
+            );
+            if align.is_some() {
+                field_dict.set("Q", Object::Integer(q));
+            }
+            // Embedded-font values may contain characters outside WinAnsi
+            // (e.g. CJK), so encode /V and /DV as PDF text strings (which
+            // fall back to UTF-16BE) rather than lossy WinAnsi bytes.
+            let text_string_obj = |s: &str| {
+                if font_id.is_some() {
+                    lopdf::text_string(s)
+                } else {
+                    Object::string_literal(crate::appearance::encode_winansi(s))
+                }
+            };
+            field_dict.set("V", text_string_obj(&val_str));
+            if let Some(dv) = default_value {
+                field_dict.set("DV", text_string_obj(dv));
+            }
+            field_dict.set("Ff", Object::Integer(flags));
+            field_dict.set(
+                "AP",
+                Object::Dictionary(dictionary! {
+                    "N" => Object::Reference(ap_id)
+                }),
+            );
+            field_dict.set("P", Object::Reference(page_ids[*page]));
+
+            if let Some(ml) = max_length {
+                field_dict.set("MaxLen", Object::Integer(*ml));
+            }
+            apply_tooltip(&mut field_dict, tooltip);
+
+            apply_mk_and_border(&mut field_dict, background, border);
+
+            let field_id = doc.add_object(Object::Dictionary(field_dict));
+            Ok(BuiltField {
+                top_field_id: field_id,
+                widgets: vec![(*page, field_id)],
+            })
+        }
+        FieldDef::CheckBox {
+            name,
+            page,
+            x,
+            y,
+            size,
+            checked,
+            default_checked,
+            on_value,
+            required,
+            read_only,
+            tooltip,
+            border,
+            background,
+            check_style,
+        } => {
+            let on = on_value.clone().unwrap_or_else(|| "Yes".to_string());
+
+            let off_id = doc.add_object(Object::Stream(button_off_appearance(*size)));
+            let style = check_style.as_deref().unwrap_or("check");
+            let on_id = doc.add_object(Object::Stream(mark_on_appearance(style, *size)));
+
+            let mut ap_n = Dictionary::new();
+            ap_n.set(on.as_bytes().to_vec(), Object::Reference(on_id));
+            ap_n.set("Off", Object::Reference(off_id));
+
+            let as_val = if *checked {
+                Object::Name(on.as_bytes().to_vec())
+            } else {
+                Object::Name(b"Off".to_vec())
+            };
+            let v_val = as_val.clone();
+
+            let flags: i64 = (*read_only as i64) | ((*required as i64) << 1);
+
+            let rect = Object::Array(vec![
+                Object::Real(*x),
+                Object::Real(*y),
+                Object::Real(*x + *size),
+                Object::Real(*y + *size),
+            ]);
+
+            let mut field_dict = Dictionary::new();
+            field_dict.set("Type", Object::Name(b"Annot".to_vec()));
+            field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+            // Print flag (/F bit 3) so the field shows in printed output.
+            field_dict.set("F", Object::Integer(4));
+            field_dict.set("FT", Object::Name(b"Btn".to_vec()));
+            field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+            field_dict.set("Rect", rect);
+            field_dict.set("V", v_val);
+            field_dict.set("AS", as_val);
+            if let Some(dc) = default_checked {
+                let dv_name = if *dc {
+                    on.as_bytes().to_vec()
+                } else {
+                    b"Off".to_vec()
+                };
+                field_dict.set("DV", Object::Name(dv_name));
+            }
+            field_dict.set("Ff", Object::Integer(flags));
+            field_dict.set(
+                "AP",
+                Object::Dictionary(dictionary! {
+                    "N" => Object::Dictionary(ap_n)
+                }),
+            );
+            field_dict.set("P", Object::Reference(page_ids[*page]));
+
+            apply_tooltip(&mut field_dict, tooltip);
+
+            apply_mk_and_border(&mut field_dict, background, border);
+
+            let field_id = doc.add_object(Object::Dictionary(field_dict));
+            Ok(BuiltField {
+                top_field_id: field_id,
+                widgets: vec![(*page, field_id)],
+            })
+        }
+        FieldDef::RadioGroup {
+            name,
+            selected,
+            default_selected,
+            required,
+            read_only,
+            tooltip,
+            options,
+            check_style,
+        } => {
+            let parent_id = doc.new_object_id();
+            let style = check_style.as_deref().unwrap_or("circle");
+
+            let v_val = if let Some(sel) = selected {
+                Object::Name(sel.as_bytes().to_vec())
+            } else {
+                Object::Name(b"Off".to_vec())
+            };
+
+            let flags: i64 = (1_i64 << 15) | (*read_only as i64) | ((*required as i64) << 1);
+
+            let mut kids_refs: Vec<Object> = Vec::new();
+            let mut widgets: Vec<(usize, ObjectId)> = Vec::new();
+
+            for opt in options {
+                let off_id = doc.add_object(Object::Stream(button_off_appearance(opt.size)));
+                let on_id = doc.add_object(Object::Stream(mark_on_appearance(style, opt.size)));
+
+                let mut ap_n = Dictionary::new();
+                ap_n.set(opt.value.as_bytes().to_vec(), Object::Reference(on_id));
+                ap_n.set("Off", Object::Reference(off_id));
+
+                let is_selected = selected.as_ref().map(|s| s == &opt.value).unwrap_or(false);
+                let as_val = if is_selected {
+                    Object::Name(opt.value.as_bytes().to_vec())
+                } else {
+                    Object::Name(b"Off".to_vec())
+                };
+
+                let rect = Object::Array(vec![
+                    Object::Real(opt.x),
+                    Object::Real(opt.y),
+                    Object::Real(opt.x + opt.size),
+                    Object::Real(opt.y + opt.size),
+                ]);
+
+                let mut kid_dict = Dictionary::new();
+                kid_dict.set("Type", Object::Name(b"Annot".to_vec()));
+                kid_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+                // Print flag (/F bit 3) so the button shows in printed output.
+                kid_dict.set("F", Object::Integer(4));
+                kid_dict.set("Rect", rect);
+                kid_dict.set("Parent", Object::Reference(parent_id));
+                kid_dict.set("P", Object::Reference(page_ids[opt.page]));
+                kid_dict.set("AS", as_val);
+                kid_dict.set(
+                    "AP",
+                    Object::Dictionary(dictionary! {
+                        "N" => Object::Dictionary(ap_n)
+                    }),
+                );
+
+                let kid_id = doc.add_object(Object::Dictionary(kid_dict));
+                kids_refs.push(Object::Reference(kid_id));
+                widgets.push((opt.page, kid_id));
+            }
+
+            let mut parent_dict = Dictionary::new();
+            parent_dict.set("FT", Object::Name(b"Btn".to_vec()));
+            parent_dict.set("Ff", Object::Integer(flags));
+            parent_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+            parent_dict.set("Kids", Object::Array(kids_refs));
+            parent_dict.set("V", v_val);
+            if let Some(dv) = default_selected {
+                parent_dict.set("DV", Object::Name(dv.as_bytes().to_vec()));
+            }
+
+            apply_tooltip(&mut parent_dict, tooltip);
+
+            doc.set_object(parent_id, Object::Dictionary(parent_dict));
+            Ok(BuiltField {
+                top_field_id: parent_id,
+                widgets,
+            })
+        }
+        FieldDef::Choice {
+            name,
+            page,
+            x,
+            y,
+            width,
+            height,
+            combo,
+            editable,
+            multiselect,
+            options,
+            selected,
+            default_selected,
+            required,
+            read_only,
+            tooltip,
+            border,
+            background,
+            text_color,
+            font_size,
+            align,
+            font: base_font_name,
+        } => {
+            let value = selected.clone().unwrap_or_default();
+            let val_bytes = crate::appearance::encode_winansi(&value);
+            let op = color_op(*text_color);
+            let size = font_size.unwrap_or(12.0);
+            let q = quadding(align);
+            let base_font = base_font_name.as_deref().unwrap_or("Helvetica");
+            let (font_alias, font_ref) = match font {
+                Some(FieldFont::Standard { alias, font_ref }) => (alias, font_ref),
+                _ => unreachable!("choice field always resolves a standard font"),
+            };
+            let widths = crate::appearance::standard_14_widths(base_font).unwrap();
+
+            let content = crate::appearance::text_appearance_content(
+                &val_bytes, size, *width, *height, q, &op, font_alias, &widths,
+            );
+            let ap_stream = crate::appearance::build_appearance_xobject(
+                content, *width, *height, font_alias, font_ref,
+            );
+            let ap_id = doc.add_object(Object::Stream(ap_stream));
+
+            // Edit flag (bit 18) only meaningful for combo boxes;
+            // Multiselect flag (bit 22) only meaningful for list boxes.
+            let flags: i64 = (*read_only as i64)
+                | ((*required as i64) << 1)
+                | ((*combo as i64) << 17)
+                | (((*combo && *editable) as i64) << 18)
+                | (((!*combo && *multiselect) as i64) << 21);
+
+            let rect = Object::Array(vec![
+                Object::Real(*x),
+                Object::Real(*y),
+                Object::Real(*x + *width),
+                Object::Real(*y + *height),
+            ]);
+
+            let opt_array: Vec<Object> = options
+                .iter()
+                .map(|o| Object::string_literal(o.as_bytes().to_vec()))
+                .collect();
+
+            let mut field_dict = Dictionary::new();
+            field_dict.set("Type", Object::Name(b"Annot".to_vec()));
+            field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+            // Print flag (/F bit 3) so the field shows in printed output.
+            field_dict.set("F", Object::Integer(4));
+            field_dict.set("FT", Object::Name(b"Ch".to_vec()));
+            field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+            field_dict.set("Rect", rect);
+            field_dict.set(
+                "DA",
+                Object::string_literal(format!("/{font_alias} {size} Tf {op}")),
+            );
+            if align.is_some() {
+                field_dict.set("Q", Object::Integer(q));
+            }
+            field_dict.set("Ff", Object::Integer(flags));
+            field_dict.set("Opt", Object::Array(opt_array));
+            field_dict.set("V", Object::string_literal(val_bytes));
+            if let Some(sel) = selected {
+                let idx = options.iter().position(|o| o == sel).unwrap() as i64;
+                field_dict.set("I", Object::Array(vec![Object::Integer(idx)]));
+            }
+            if let Some(dv) = default_selected {
+                field_dict.set(
+                    "DV",
+                    Object::string_literal(crate::appearance::encode_winansi(dv)),
+                );
+            }
+            field_dict.set(
+                "AP",
+                Object::Dictionary(dictionary! {
+                    "N" => Object::Reference(ap_id)
+                }),
+            );
+            field_dict.set("P", Object::Reference(page_ids[*page]));
+
+            apply_tooltip(&mut field_dict, tooltip);
+
+            apply_mk_and_border(&mut field_dict, background, border);
+
+            let field_id = doc.add_object(Object::Dictionary(field_dict));
+            Ok(BuiltField {
+                top_field_id: field_id,
+                widgets: vec![(*page, field_id)],
+            })
+        }
+        FieldDef::Signature {
+            name,
+            page,
+            x,
+            y,
+            width,
+            height,
+            required,
+            read_only,
+            tooltip,
+            border,
+            background,
+        } => {
+            let flags: i64 = (*read_only as i64) | ((*required as i64) << 1);
+
+            let rect = Object::Array(vec![
+                Object::Real(*x),
+                Object::Real(*y),
+                Object::Real(*x + *width),
+                Object::Real(*y + *height),
+            ]);
+
+            let mut field_dict = Dictionary::new();
+            field_dict.set("Type", Object::Name(b"Annot".to_vec()));
+            field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
+            // Print flag (/F bit 3) so the field shows in printed output.
+            field_dict.set("F", Object::Integer(4));
+            field_dict.set("FT", Object::Name(b"Sig".to_vec()));
+            field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
+            field_dict.set("Rect", rect);
+            field_dict.set("Ff", Object::Integer(flags));
+            field_dict.set("P", Object::Reference(page_ids[*page]));
+
+            apply_tooltip(&mut field_dict, tooltip);
+
+            apply_mk_and_border(&mut field_dict, background, border);
+
+            let field_id = doc.add_object(Object::Dictionary(field_dict));
+            Ok(BuiltField {
+                top_field_id: field_id,
+                widgets: vec![(*page, field_id)],
+            })
+        }
+    }
+}
+
 /// Build the AcroForm and every field's widget annotation, appending widgets
 /// to their pages' `/Annots`. Returns the AcroForm object id, or `None` when
 /// no fields are defined.
@@ -1728,6 +2262,10 @@ fn build_fields_and_acroform(
     // Register every embedded font used by a text field under its `/BPF<n>`
     // alias, so the field's `/DA` and appearance can reference it and viewers
     // can resolve it via the AcroForm `/DR` without a per-appearance copy.
+    // `embedded_aliases` keeps the computed `/BPF<n>` alias owned so
+    // `resolve_create_font` can lend it to `FieldFont::Embedded` as a `&str`.
+    let mut embedded_aliases: std::collections::HashMap<usize, String> =
+        std::collections::HashMap::new();
     for field in fields {
         if let FieldDef::Text {
             font_id: Some(i), ..
@@ -1738,6 +2276,7 @@ fn build_fields_and_acroform(
                 let (type0_id, _) = &embedded_fonts[i];
                 dr_fonts.set(alias.as_bytes().to_vec(), Object::Reference(*type0_id));
             }
+            embedded_aliases.insert(*i, alias);
         }
     }
 
@@ -1746,442 +2285,18 @@ fn build_fields_and_acroform(
     let mut page_annots: Vec<Vec<lopdf::ObjectId>> = vec![Vec::new(); page_ids.len()];
 
     for field in fields {
-        match field {
-            FieldDef::Text {
-                name,
-                page,
-                x,
-                y,
-                width,
-                height,
-                value,
-                default_value,
-                max_length,
-                multiline,
-                password,
-                comb,
-                required,
-                read_only,
-                tooltip,
-                border,
-                background,
-                text_color,
-                font_size,
-                align,
-                font,
-                font_id,
-            } => {
-                let val_str = value.clone().unwrap_or_default();
-                let op = color_op(*text_color);
-                let size = font_size.unwrap_or(12.0);
-                let q = quadding(align);
-
-                let (content, font_alias_str, ap_font_ref) = if let Some(fid) = font_id {
-                    let (type0_id, built) = &embedded_fonts[fid];
-                    let alias = format!("BPF{fid}");
-                    let fd = &font_descs[*fid];
-                    let fbytes = &fonts[fd.offset..fd.offset + fd.length];
-                    let content = crate::appearance::text_appearance_content_embedded(
-                        &val_str, size, *width, *height, q, &op, &alias, built, fbytes,
-                    );
-                    (content, alias, *type0_id)
-                } else {
-                    let base_font = font.as_deref().unwrap_or("Helvetica");
-                    let (font_alias, font_ref) = font_registry[base_font];
-                    let widths = crate::appearance::standard_14_widths(base_font).unwrap();
-                    let val_bytes = crate::appearance::encode_winansi(&val_str);
-                    let content = if *comb {
-                        crate::appearance::text_appearance_content_comb(
-                            &val_bytes,
-                            size,
-                            *width,
-                            *height,
-                            max_length.unwrap_or(0),
-                            &op,
-                            font_alias,
-                            &widths,
-                        )
-                    } else {
-                        crate::appearance::text_appearance_content(
-                            &val_bytes, size, *width, *height, q, &op, font_alias, &widths,
-                        )
-                    };
-                    (content, font_alias.to_string(), font_ref)
-                };
-                let ap_stream = crate::appearance::build_appearance_xobject(
-                    content,
-                    *width,
-                    *height,
-                    &font_alias_str,
-                    ap_font_ref,
-                );
-                let ap_id = doc.add_object(Object::Stream(ap_stream));
-
-                let flags: i64 = (*read_only as i64)
-                    | ((*required as i64) << 1)
-                    | ((multiline.unwrap_or(false) as i64) << 12)
-                    | ((*password as i64) << 13)
-                    | ((*comb as i64) << 24);
-
-                let rect = Object::Array(vec![
-                    Object::Real(*x),
-                    Object::Real(*y),
-                    Object::Real(*x + *width),
-                    Object::Real(*y + *height),
-                ]);
-
-                let mut field_dict = Dictionary::new();
-                field_dict.set("Type", Object::Name(b"Annot".to_vec()));
-                field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
-                // Print flag (/F bit 3) so the field shows in printed output.
-                field_dict.set("F", Object::Integer(4));
-                field_dict.set("FT", Object::Name(b"Tx".to_vec()));
-                field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
-                field_dict.set("Rect", rect);
-                field_dict.set(
-                    "DA",
-                    Object::string_literal(format!("/{font_alias_str} {size} Tf {op}")),
-                );
-                if align.is_some() {
-                    field_dict.set("Q", Object::Integer(q));
-                }
-                // Embedded-font values may contain characters outside WinAnsi
-                // (e.g. CJK), so encode /V and /DV as PDF text strings (which
-                // fall back to UTF-16BE) rather than lossy WinAnsi bytes.
-                let text_string_obj = |s: &str| {
-                    if font_id.is_some() {
-                        lopdf::text_string(s)
-                    } else {
-                        Object::string_literal(crate::appearance::encode_winansi(s))
-                    }
-                };
-                field_dict.set("V", text_string_obj(&val_str));
-                if let Some(dv) = default_value {
-                    field_dict.set("DV", text_string_obj(dv));
-                }
-                field_dict.set("Ff", Object::Integer(flags));
-                field_dict.set(
-                    "AP",
-                    Object::Dictionary(dictionary! {
-                        "N" => Object::Reference(ap_id)
-                    }),
-                );
-                field_dict.set("P", Object::Reference(page_ids[*page]));
-
-                if let Some(ml) = max_length {
-                    field_dict.set("MaxLen", Object::Integer(*ml));
-                }
-                apply_tooltip(&mut field_dict, tooltip);
-
-                apply_mk_and_border(&mut field_dict, background, border);
-
-                let field_id = doc.add_object(Object::Dictionary(field_dict));
-                acro_fields.push(Object::Reference(field_id));
-                page_annots[*page].push(field_id);
-            }
-            FieldDef::CheckBox {
-                name,
-                page,
-                x,
-                y,
-                size,
-                checked,
-                default_checked,
-                on_value,
-                required,
-                read_only,
-                tooltip,
-                border,
-                background,
-                check_style,
-            } => {
-                let on = on_value.clone().unwrap_or_else(|| "Yes".to_string());
-
-                let off_id = doc.add_object(Object::Stream(button_off_appearance(*size)));
-                let style = check_style.as_deref().unwrap_or("check");
-                let on_id = doc.add_object(Object::Stream(mark_on_appearance(style, *size)));
-
-                let mut ap_n = Dictionary::new();
-                ap_n.set(on.as_bytes().to_vec(), Object::Reference(on_id));
-                ap_n.set("Off", Object::Reference(off_id));
-
-                let as_val = if *checked {
-                    Object::Name(on.as_bytes().to_vec())
-                } else {
-                    Object::Name(b"Off".to_vec())
-                };
-                let v_val = as_val.clone();
-
-                let flags: i64 = (*read_only as i64) | ((*required as i64) << 1);
-
-                let rect = Object::Array(vec![
-                    Object::Real(*x),
-                    Object::Real(*y),
-                    Object::Real(*x + *size),
-                    Object::Real(*y + *size),
-                ]);
-
-                let mut field_dict = Dictionary::new();
-                field_dict.set("Type", Object::Name(b"Annot".to_vec()));
-                field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
-                // Print flag (/F bit 3) so the field shows in printed output.
-                field_dict.set("F", Object::Integer(4));
-                field_dict.set("FT", Object::Name(b"Btn".to_vec()));
-                field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
-                field_dict.set("Rect", rect);
-                field_dict.set("V", v_val);
-                field_dict.set("AS", as_val);
-                if let Some(dc) = default_checked {
-                    let dv_name = if *dc {
-                        on.as_bytes().to_vec()
-                    } else {
-                        b"Off".to_vec()
-                    };
-                    field_dict.set("DV", Object::Name(dv_name));
-                }
-                field_dict.set("Ff", Object::Integer(flags));
-                field_dict.set(
-                    "AP",
-                    Object::Dictionary(dictionary! {
-                        "N" => Object::Dictionary(ap_n)
-                    }),
-                );
-                field_dict.set("P", Object::Reference(page_ids[*page]));
-
-                apply_tooltip(&mut field_dict, tooltip);
-
-                apply_mk_and_border(&mut field_dict, background, border);
-
-                let field_id = doc.add_object(Object::Dictionary(field_dict));
-                acro_fields.push(Object::Reference(field_id));
-                page_annots[*page].push(field_id);
-            }
-            FieldDef::RadioGroup {
-                name,
-                selected,
-                default_selected,
-                required,
-                read_only,
-                tooltip,
-                options,
-                check_style,
-            } => {
-                let parent_id = doc.new_object_id();
-                let style = check_style.as_deref().unwrap_or("circle");
-
-                let v_val = if let Some(sel) = selected {
-                    Object::Name(sel.as_bytes().to_vec())
-                } else {
-                    Object::Name(b"Off".to_vec())
-                };
-
-                let flags: i64 = (1_i64 << 15) | (*read_only as i64) | ((*required as i64) << 1);
-
-                let mut kids_refs: Vec<Object> = Vec::new();
-
-                for opt in options {
-                    let off_id = doc.add_object(Object::Stream(button_off_appearance(opt.size)));
-                    let on_id = doc.add_object(Object::Stream(mark_on_appearance(style, opt.size)));
-
-                    let mut ap_n = Dictionary::new();
-                    ap_n.set(opt.value.as_bytes().to_vec(), Object::Reference(on_id));
-                    ap_n.set("Off", Object::Reference(off_id));
-
-                    let is_selected = selected.as_ref().map(|s| s == &opt.value).unwrap_or(false);
-                    let as_val = if is_selected {
-                        Object::Name(opt.value.as_bytes().to_vec())
-                    } else {
-                        Object::Name(b"Off".to_vec())
-                    };
-
-                    let rect = Object::Array(vec![
-                        Object::Real(opt.x),
-                        Object::Real(opt.y),
-                        Object::Real(opt.x + opt.size),
-                        Object::Real(opt.y + opt.size),
-                    ]);
-
-                    let mut kid_dict = Dictionary::new();
-                    kid_dict.set("Type", Object::Name(b"Annot".to_vec()));
-                    kid_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
-                    // Print flag (/F bit 3) so the button shows in printed output.
-                    kid_dict.set("F", Object::Integer(4));
-                    kid_dict.set("Rect", rect);
-                    kid_dict.set("Parent", Object::Reference(parent_id));
-                    kid_dict.set("P", Object::Reference(page_ids[opt.page]));
-                    kid_dict.set("AS", as_val);
-                    kid_dict.set(
-                        "AP",
-                        Object::Dictionary(dictionary! {
-                            "N" => Object::Dictionary(ap_n)
-                        }),
-                    );
-
-                    let kid_id = doc.add_object(Object::Dictionary(kid_dict));
-                    kids_refs.push(Object::Reference(kid_id));
-                    page_annots[opt.page].push(kid_id);
-                }
-
-                let mut parent_dict = Dictionary::new();
-                parent_dict.set("FT", Object::Name(b"Btn".to_vec()));
-                parent_dict.set("Ff", Object::Integer(flags));
-                parent_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
-                parent_dict.set("Kids", Object::Array(kids_refs));
-                parent_dict.set("V", v_val);
-                if let Some(dv) = default_selected {
-                    parent_dict.set("DV", Object::Name(dv.as_bytes().to_vec()));
-                }
-
-                apply_tooltip(&mut parent_dict, tooltip);
-
-                doc.set_object(parent_id, Object::Dictionary(parent_dict));
-                acro_fields.push(Object::Reference(parent_id));
-            }
-            FieldDef::Choice {
-                name,
-                page,
-                x,
-                y,
-                width,
-                height,
-                combo,
-                editable,
-                multiselect,
-                options,
-                selected,
-                default_selected,
-                required,
-                read_only,
-                tooltip,
-                border,
-                background,
-                text_color,
-                font_size,
-                align,
-                font,
-            } => {
-                let value = selected.clone().unwrap_or_default();
-                let val_bytes = crate::appearance::encode_winansi(&value);
-                let op = color_op(*text_color);
-                let size = font_size.unwrap_or(12.0);
-                let q = quadding(align);
-                let base_font = font.as_deref().unwrap_or("Helvetica");
-                let (font_alias, font_ref) = font_registry[base_font];
-                let widths = crate::appearance::standard_14_widths(base_font).unwrap();
-
-                let content = crate::appearance::text_appearance_content(
-                    &val_bytes, size, *width, *height, q, &op, font_alias, &widths,
-                );
-                let ap_stream = crate::appearance::build_appearance_xobject(
-                    content, *width, *height, font_alias, font_ref,
-                );
-                let ap_id = doc.add_object(Object::Stream(ap_stream));
-
-                // Edit flag (bit 18) only meaningful for combo boxes;
-                // Multiselect flag (bit 22) only meaningful for list boxes.
-                let flags: i64 = (*read_only as i64)
-                    | ((*required as i64) << 1)
-                    | ((*combo as i64) << 17)
-                    | (((*combo && *editable) as i64) << 18)
-                    | (((!*combo && *multiselect) as i64) << 21);
-
-                let rect = Object::Array(vec![
-                    Object::Real(*x),
-                    Object::Real(*y),
-                    Object::Real(*x + *width),
-                    Object::Real(*y + *height),
-                ]);
-
-                let opt_array: Vec<Object> = options
-                    .iter()
-                    .map(|o| Object::string_literal(o.as_bytes().to_vec()))
-                    .collect();
-
-                let mut field_dict = Dictionary::new();
-                field_dict.set("Type", Object::Name(b"Annot".to_vec()));
-                field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
-                // Print flag (/F bit 3) so the field shows in printed output.
-                field_dict.set("F", Object::Integer(4));
-                field_dict.set("FT", Object::Name(b"Ch".to_vec()));
-                field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
-                field_dict.set("Rect", rect);
-                field_dict.set(
-                    "DA",
-                    Object::string_literal(format!("/{font_alias} {size} Tf {op}")),
-                );
-                if align.is_some() {
-                    field_dict.set("Q", Object::Integer(q));
-                }
-                field_dict.set("Ff", Object::Integer(flags));
-                field_dict.set("Opt", Object::Array(opt_array));
-                field_dict.set("V", Object::string_literal(val_bytes));
-                if let Some(sel) = selected {
-                    let idx = options.iter().position(|o| o == sel).unwrap() as i64;
-                    field_dict.set("I", Object::Array(vec![Object::Integer(idx)]));
-                }
-                if let Some(dv) = default_selected {
-                    field_dict.set(
-                        "DV",
-                        Object::string_literal(crate::appearance::encode_winansi(dv)),
-                    );
-                }
-                field_dict.set(
-                    "AP",
-                    Object::Dictionary(dictionary! {
-                        "N" => Object::Reference(ap_id)
-                    }),
-                );
-                field_dict.set("P", Object::Reference(page_ids[*page]));
-
-                apply_tooltip(&mut field_dict, tooltip);
-
-                apply_mk_and_border(&mut field_dict, background, border);
-
-                let field_id = doc.add_object(Object::Dictionary(field_dict));
-                acro_fields.push(Object::Reference(field_id));
-                page_annots[*page].push(field_id);
-            }
-            FieldDef::Signature {
-                name,
-                page,
-                x,
-                y,
-                width,
-                height,
-                required,
-                read_only,
-                tooltip,
-                border,
-                background,
-            } => {
-                let flags: i64 = (*read_only as i64) | ((*required as i64) << 1);
-
-                let rect = Object::Array(vec![
-                    Object::Real(*x),
-                    Object::Real(*y),
-                    Object::Real(*x + *width),
-                    Object::Real(*y + *height),
-                ]);
-
-                let mut field_dict = Dictionary::new();
-                field_dict.set("Type", Object::Name(b"Annot".to_vec()));
-                field_dict.set("Subtype", Object::Name(b"Widget".to_vec()));
-                // Print flag (/F bit 3) so the field shows in printed output.
-                field_dict.set("F", Object::Integer(4));
-                field_dict.set("FT", Object::Name(b"Sig".to_vec()));
-                field_dict.set("T", Object::string_literal(name.as_bytes().to_vec()));
-                field_dict.set("Rect", rect);
-                field_dict.set("Ff", Object::Integer(flags));
-                field_dict.set("P", Object::Reference(page_ids[*page]));
-
-                apply_tooltip(&mut field_dict, tooltip);
-
-                apply_mk_and_border(&mut field_dict, background, border);
-
-                let field_id = doc.add_object(Object::Dictionary(field_dict));
-                acro_fields.push(Object::Reference(field_id));
-                page_annots[*page].push(field_id);
-            }
+        let font = resolve_create_font(
+            field,
+            &font_registry,
+            embedded_fonts,
+            &embedded_aliases,
+            font_descs,
+            fonts,
+        );
+        let built = build_one_field(doc, field, page_ids, font)?;
+        acro_fields.push(Object::Reference(built.top_field_id));
+        for (page_idx, widget_id) in built.widgets {
+            page_annots[page_idx].push(widget_id);
         }
     }
 
@@ -3155,6 +3270,25 @@ mod tests {
             .as_reference()
             .unwrap();
         doc.get_dictionary(fid).unwrap().clone()
+    }
+
+    #[test]
+    fn create_output_structurally_intact_after_refactor() {
+        // A doc exercising a standard-14 text field, a checkbox, and a choice
+        // field. Guards the Task 1 `build_one_field` extraction: create output
+        // must stay structurally intact, backed by the full create suite.
+        let ops = r#"[{"op":"addPage","width":300,"height":300}]"#;
+        let fields = r#"[
+            {"type":"text","name":"t","page":0,"x":10,"y":10,"width":100,"height":20},
+            {"type":"checkBox","name":"c","page":0,"x":10,"y":40,"size":12},
+            {"type":"choice","name":"d","page":0,"x":10,"y":70,"width":100,"height":20,"options":["a","b"],"combo":true}
+        ]"#;
+        let out = create_document_json(ops, &[], &[], "[]", fields).unwrap();
+        // Structural assertions (stable across environments):
+        let doc = Document::load_mem(&out).unwrap();
+        assert!(doc.catalog().unwrap().has(b"AcroForm"));
+        let acro = get_first_field_dict(&doc); // existing test helper
+        assert!(acro.has(b"T"));
     }
 
     #[test]

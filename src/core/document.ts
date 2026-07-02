@@ -136,6 +136,12 @@ export interface CoreWasm {
   manipulatePages(docsBlob: Uint8Array, docsJson: string, planJson: string): Uint8Array;
   setOutline(data: Uint8Array, json: string): Uint8Array;
   insertPages(data: Uint8Array, opsJson: string): Uint8Array;
+  injectFields(
+    data: Uint8Array,
+    fieldsJson: string,
+    fonts?: Uint8Array,
+    fontsJson?: string,
+  ): Uint8Array;
   applyAll(
     data: Uint8Array,
     planJson: string,
@@ -157,6 +163,7 @@ export class PdfDocumentBase {
   private readonly structureOps: PageStructureOp[] = [];
   private readonly appendedPages: PdfPage[] = [];
   private sealed = false;
+  private formFlushed = false;
 
   /** @internal */
   protected constructor(
@@ -195,6 +202,8 @@ export class PdfDocumentBase {
         throw toPdfError(e);
       }
     }
+
+    this.injectPendingFields(); // load-mode: bake any pending builder fields
 
     const form = this.form;
 
@@ -519,21 +528,34 @@ export class PdfDocumentBase {
   }
 
   /**
-   * Begin building an AcroForm on a document created with {@link PdfDocument.create}.
+   * Begin building an AcroForm.
    *
    * Returns a {@link FormBuilder} that accumulates field definitions. The
-   * builder shares state with the document; calling `save()` serializes all
-   * added fields to Rust.
+   * builder shares state with the document; the added fields are serialized to
+   * Rust when the document is finalized.
    *
-   * @throws `PdfError` when called on a document opened with `PdfDocument.load()`.
+   * On a document created with {@link PdfDocument.create}, the fields are baked
+   * in when the created document is materialized (the first `getForm()` or
+   * `save()`).
+   *
+   * On a document opened with {@link PdfDocument.load}, the fields are injected
+   * into the existing PDF on the first `getForm()` or `save()`, whichever comes
+   * first. All `createForm()` field-adds must therefore happen *before* the
+   * first `getForm()`.
+   *
+   * @throws `PdfError` when called after the form has already been built for
+   *   this document (i.e. after the first `getForm()`).
+   * @throws `FormSealedError` on a created document whose content was sealed by
+   *   a prior `getForm()`.
    */
   createForm(): FormBuilder {
-    if (this.mode !== "create") {
+    if (this.mode === "create") {
+      this.assertNotSealed();
+    } else if (this.form || this.formFlushed) {
       throw new PdfError(
-        "createForm() is only available on documents created with PdfDocument.create(). Adding new form fields to a loaded PDF is not yet supported — to build and fill a form, create a document, add fields with createForm(), then call getForm() to read or fill them.",
+        "createForm() must be called before getForm(); the form has already been built for this document",
       );
     }
-    this.assertNotSealed();
     return new FormBuilder(this.fieldDefs, this.fieldNames);
   }
 
@@ -628,6 +650,8 @@ export class PdfDocumentBase {
   getForm(): PdfForm {
     if (this.mode === "create" && !this.sealed) {
       this.materializeCreatedForm();
+    } else {
+      this.injectPendingFields();
     }
     if (!this.form) {
       try {
@@ -656,6 +680,29 @@ export class PdfDocumentBase {
     this.sealed = true;
     this.meta.clearDirty();
     this.outlineItems = undefined;
+    this.formFlushed = true;
+  }
+
+  /**
+   * Loaded-doc analogue of `materializeCreatedForm`: bake any pending
+   * `createForm()`-queued fields into `this.bytes` via `inject_fields`, then
+   * clear the pending state so the load-mode form path takes over. No-op on
+   * created documents (handled by `materializeCreatedForm`) and when nothing
+   * was queued, so the hot load→mutate→save path is untouched.
+   */
+  private injectPendingFields(): void {
+    if (this.mode !== "load" || this.fieldDefs.length === 0) return;
+    const { fonts, fontsJson } = this.drawQueue.toCreatePayload();
+    let bytes: Uint8Array;
+    try {
+      bytes = this.wasm.injectFields(this.bytes, JSON.stringify(this.fieldDefs), fonts, fontsJson);
+    } catch (e) {
+      throw toPdfError(e);
+    }
+    this.bytes = bytes;
+    this.fieldDefs.length = 0;
+    this.fieldNames.clear();
+    this.formFlushed = true;
   }
 
   /** Get a standard-14 font handle for measuring or drawing text. */
