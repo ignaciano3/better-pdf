@@ -527,13 +527,25 @@ export class PdfDocumentBase {
   }
 
   /**
-   * Begin building an AcroForm on a document created with {@link PdfDocument.create}.
+   * Begin building an AcroForm.
    *
    * Returns a {@link FormBuilder} that accumulates field definitions. The
-   * builder shares state with the document; calling `save()` serializes all
-   * added fields to Rust.
+   * builder shares state with the document; the added fields are serialized to
+   * Rust when the document is finalized.
    *
-   * @throws `PdfError` when called on a document opened with `PdfDocument.load()`.
+   * On a document created with {@link PdfDocument.create}, the fields are baked
+   * in when the created document is materialized (the first `getForm()` or
+   * `save()`).
+   *
+   * On a document opened with {@link PdfDocument.load}, the fields are injected
+   * into the existing PDF on the first `getForm()` or `save()`, whichever comes
+   * first. All `createForm()` field-adds must therefore happen *before* the
+   * first `getForm()`.
+   *
+   * @throws `PdfError` when called after the form has already been built for
+   *   this document (i.e. after the first `getForm()`).
+   * @throws `FormSealedError` on a created document whose content was sealed by
+   *   a prior `getForm()`.
    */
   createForm(): FormBuilder {
     if (this.mode === "create") {

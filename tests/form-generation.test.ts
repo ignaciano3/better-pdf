@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PdfDocument, PageSizes, PdfError, StandardFonts } from "../src/index.ts";
+import { PdfDocument, PageSizes, PdfError, StandardFonts, FormBuilder } from "../src/index.ts";
 
 const FICHA = "tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf";
 
@@ -202,7 +202,7 @@ describe("form-generation: createForm on a loaded doc", () => {
   test("createForm() on a loaded doc returns a FormBuilder", async () => {
     const bytes = new Uint8Array(await Bun.file(FICHA).arrayBuffer());
     const doc = await PdfDocument.load(bytes);
-    expect(() => doc.createForm()).not.toThrow();
+    expect(doc.createForm()).toBeInstanceOf(FormBuilder);
   });
 
   test("createForm() on a loaded doc after getForm() throws PdfError", async () => {
