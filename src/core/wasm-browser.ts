@@ -43,4 +43,5 @@ export const {
   manipulatePages,
   setOutline,
   insertPages,
+  injectFields,
 } = makeBindings(raw, ensureInitialized);

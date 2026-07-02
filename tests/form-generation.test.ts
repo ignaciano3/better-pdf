@@ -194,13 +194,21 @@ describe("form-generation: readOnly reflected", () => {
 });
 
 // ---------------------------------------------------------------------------
-// createForm on a loaded doc throws
+// createForm on a loaded doc (see tests/forms/fields-on-loaded-docs.test.ts
+// for the full inject-fields coverage)
 // ---------------------------------------------------------------------------
 
-describe("form-generation: guard on loaded doc", () => {
-  test("createForm() on a loaded doc throws PdfError", async () => {
+describe("form-generation: createForm on a loaded doc", () => {
+  test("createForm() on a loaded doc returns a FormBuilder", async () => {
     const bytes = new Uint8Array(await Bun.file(FICHA).arrayBuffer());
     const doc = await PdfDocument.load(bytes);
+    expect(() => doc.createForm()).not.toThrow();
+  });
+
+  test("createForm() on a loaded doc after getForm() throws PdfError", async () => {
+    const bytes = new Uint8Array(await Bun.file(FICHA).arrayBuffer());
+    const doc = await PdfDocument.load(bytes);
+    doc.getForm();
     expect(() => doc.createForm()).toThrow(PdfError);
   });
 });

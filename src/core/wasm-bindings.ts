@@ -42,6 +42,12 @@ export interface RawBindings {
   manipulate_pages(docsBlob: Uint8Array, docsJson: string, planJson: string): Uint8Array;
   set_outline(data: Uint8Array, json: string): Uint8Array;
   insert_pages(data: Uint8Array, opsJson: string): Uint8Array;
+  inject_fields(
+    data: Uint8Array,
+    fieldsJson: string,
+    fonts: Uint8Array,
+    fontsJson: string,
+  ): Uint8Array;
 }
 
 const EMPTY = new Uint8Array();
@@ -74,5 +80,7 @@ export function makeBindings(raw: RawBindings, guard: () => void = () => {}): Co
       (guard(), raw.manipulate_pages(docsBlob, docsJson, planJson)),
     setOutline: (data, json) => (guard(), raw.set_outline(data, json)),
     insertPages: (data, opsJson) => (guard(), raw.insert_pages(data, opsJson)),
+    injectFields: (data, fieldsJson, fonts = EMPTY, fontsJson = "[]") =>
+      (guard(), raw.inject_fields(data, fieldsJson, fonts, fontsJson)),
   };
 }
