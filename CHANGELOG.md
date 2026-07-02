@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-02
+
 ### Added
 
+- **`createForm()` now works on documents opened with `PdfDocument.load()`.**
+  Add new AcroForm fields (text, checkbox, radio, dropdown, list box, signature)
+  to an existing PDF, then read/fill them via `getForm()` in the same session.
+  Fields are injected on the first `getForm()`/`save()`; add all fields before
+  calling `getForm()`. A field name that collides with an existing field is
+  rejected. Filling an embedded-font field created this way is not yet supported.
 - **`getForm()` now works on documents created with `PdfDocument.create()`.**
   After adding fields with the form builder, call `getForm()` in the same
   session to read, fill, and flatten them — no save-and-reload round-trip. The
   first `getForm()` call materializes the document and seals it: adding more
-  fields, pages, or drawings afterward throws `FormSealedError`. Adding
-  brand-new fields to a document opened with `PdfDocument.load()` remains
-  unsupported.
+  fields, pages, or drawings afterward throws `FormSealedError`.
 
 ## [1.8.1] - 2026-06-30
 
