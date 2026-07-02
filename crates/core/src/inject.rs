@@ -3,25 +3,14 @@
 //! target document has no `/AcroForm`, a fresh one is created and attached to the
 //! catalog. Merging into an existing `/AcroForm` is a separate slice.
 
-use crate::create::{BuiltField, FieldDef, FieldFont, build_one_field, da_font_alias};
+use crate::create::{
+    BuiltField, FieldDef, FieldFont, FontDesc, build_one_field, da_font_alias, validate_fields,
+};
 use crate::doc_io::load_pdf;
 use crate::draw::{append_annot_to_page, font_dict};
 use crate::fonts::{BuiltFont, EmbeddedFontInput, build_embedded_font};
 use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, dictionary};
 use std::collections::{BTreeSet, HashMap};
-
-/// Font descriptor for the embedded-font blob (mirror of create.rs FontDesc).
-#[derive(serde::Deserialize)]
-struct FontDesc {
-    offset: usize,
-    length: usize,
-    #[serde(default = "default_true")]
-    subset: bool,
-}
-
-fn default_true() -> bool {
-    true
-}
 
 pub fn inject_fields_json(
     data: &[u8],
@@ -37,9 +26,9 @@ pub fn inject_fields_json(
     let font_descs: Vec<FontDesc> =
         serde_json::from_str(fonts_json).map_err(|e| format!("invalid fonts JSON: {e}"))?;
 
-    // Validate font descriptor byte ranges and per-field font references up
-    // front, mirroring the create path, so a bad request fails before any object
-    // is written and the later indexing/`unwrap`s cannot panic.
+    // Validate the font-blob byte ranges up front (NOT covered by
+    // `create::validate_fields`), so the later `fonts[offset..offset+length]`
+    // slices cannot panic.
     for fd in &font_descs {
         let end = fd
             .offset
@@ -49,7 +38,9 @@ pub fn inject_fields_json(
             return Err("font range out of bounds".to_string());
         }
     }
-    validate_field_fonts(&fields, &font_descs)?;
+    // Reject unknown standard-14 field fonts (NOT covered by validate_fields),
+    // so `resolve_std_aliases`' `da_font_alias(..).expect(..)` cannot panic.
+    validate_field_std14_fonts(&fields)?;
 
     let doc = load_pdf(data)?;
 
@@ -71,12 +62,10 @@ pub fn inject_fields_json(
         sorted.sort_by_key(|(n, _)| *n);
         sorted.into_iter().map(|(_, id)| id).collect()
     };
-    for f in &fields {
-        let pg = field_page(f);
-        if pg >= page_ids.len() {
-            return Err(format!("field page index {pg} out of range"));
-        }
-    }
+    // Full per-field validation against the ACTUAL page count — every radio
+    // option's page included — mirroring create's trust boundary. Runs before
+    // any object is added/cloned, so a rejected request produces zero mutation.
+    validate_fields(&fields, page_ids.len(), &font_descs)?;
 
     // Existing /DR/Font alias keys (to uniquify against). Empty when no AcroForm.
     let existing_aliases = existing_dr_aliases(&inc);
@@ -116,27 +105,16 @@ pub fn inject_fields_json(
     Ok(out)
 }
 
-/// Validate each field's font reference so building cannot panic: embedded
-/// `font_id` must be in range (and not combined with comb), and standard-14
-/// field fonts must resolve to both an alias and a width table.
-fn validate_field_fonts(fields: &[FieldDef], font_descs: &[FontDesc]) -> Result<(), String> {
+/// Reject unknown standard-14 field fonts. `create::validate_fields` covers
+/// embedded `font_id` range and comb rules, but NOT standard-14 name validity,
+/// which `resolve_std_aliases` relies on (`da_font_alias(..).expect(..)`).
+fn validate_field_std14_fonts(fields: &[FieldDef]) -> Result<(), String> {
     for f in fields {
         match f {
+            // Embedded-font text fields don't use a standard-14 alias.
             FieldDef::Text {
-                font_id: Some(i),
-                comb,
-                ..
-            } => {
-                if *i >= font_descs.len() {
-                    return Err(format!("font id {i} out of range"));
-                }
-                if *comb {
-                    return Err(
-                        "embedded fonts are supported on plain and multiline text fields only"
-                            .to_string(),
-                    );
-                }
-            }
+                font_id: Some(_), ..
+            } => {}
             FieldDef::Text { font, .. } | FieldDef::Choice { font, .. } => {
                 let base = font.as_deref().unwrap_or("Helvetica");
                 if da_font_alias(base).is_none()
@@ -159,18 +137,6 @@ fn field_name(f: &FieldDef) -> &str {
         | FieldDef::RadioGroup { name, .. }
         | FieldDef::Choice { name, .. }
         | FieldDef::Signature { name, .. } => name,
-    }
-}
-
-/// The page index used for the up-front range check. Radio groups have per-kid
-/// pages (wired from `BuiltField.widgets`); here we use the first option's page.
-fn field_page(f: &FieldDef) -> usize {
-    match f {
-        FieldDef::Text { page, .. }
-        | FieldDef::CheckBox { page, .. }
-        | FieldDef::Choice { page, .. }
-        | FieldDef::Signature { page, .. } => *page,
-        FieldDef::RadioGroup { options, .. } => options.first().map(|o| o.page).unwrap_or(0),
     }
 }
 
@@ -485,5 +451,33 @@ mod tests {
         let fields = r#"[{"type":"text","name":"t","page":5,"x":1,"y":1,"width":10,"height":10}]"#;
         let err = inject_fields_json(&base, fields, &[], "[]").unwrap_err();
         assert!(err.contains("page"), "expected page-range error, got: {err}");
+    }
+
+    #[test]
+    fn rejects_radio_option_page_out_of_range() {
+        // A NON-first radio option references an out-of-range page. The pre-check
+        // must reject this cleanly rather than letting build_one_field index
+        // page_ids[opt.page] out of bounds (a WASM-boundary panic).
+        let base = blank_page_pdf();
+        let fields = r#"[{"type":"radioGroup","name":"r","options":[
+            {"value":"a","page":0,"x":1,"y":1,"size":10},
+            {"value":"b","page":9,"x":1,"y":30,"size":10}
+        ]}]"#;
+        let err = inject_fields_json(&base, fields, &[], "[]").unwrap_err();
+        assert!(
+            err.contains("page") || err.contains("out of range"),
+            "expected page-range error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_options_radio_group() {
+        let base = blank_page_pdf();
+        let fields = r#"[{"type":"radioGroup","name":"r","options":[]}]"#;
+        let err = inject_fields_json(&base, fields, &[], "[]").unwrap_err();
+        assert!(
+            err.contains("option"),
+            "expected empty-options error, got: {err}"
+        );
     }
 }

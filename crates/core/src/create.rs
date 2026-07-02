@@ -21,11 +21,11 @@ fn default_true() -> bool {
 /// One embedded font descriptor in the `fonts_json` payload. `offset`/`length`
 /// index into the concatenated `fonts` blob; `subset` controls glyph subsetting.
 #[derive(Deserialize)]
-struct FontDesc {
-    offset: usize,
-    length: usize,
+pub(crate) struct FontDesc {
+    pub(crate) offset: usize,
+    pub(crate) length: usize,
     #[serde(default = "default_true")]
-    subset: bool,
+    pub(crate) subset: bool,
 }
 
 #[derive(Deserialize)]
@@ -383,7 +383,7 @@ pub(crate) enum FieldDef {
 #[derive(Deserialize)]
 pub(crate) struct RadioOption {
     value: String,
-    pub(crate) page: usize,
+    page: usize,
     x: f32,
     y: f32,
     size: f32,
@@ -992,7 +992,20 @@ fn validate_create(
         }
     }
 
-    // Validate fields
+    validate_fields(fields, pages.len(), font_descs)
+}
+
+/// Per-field validation shared by the create and inject paths: empty/duplicate
+/// names, per-option radio page range, finite coordinates, positive
+/// size/width/height, option-value rules, embedded `font_id` range, and
+/// selected/defaultSelected membership — for all five field variants.
+/// `page_count` bounds the pages fields may target; `font_descs` bounds
+/// embedded `font_id`s. Validation-only: no objects are built.
+pub(crate) fn validate_fields(
+    fields: &[FieldDef],
+    page_count: usize,
+    font_descs: &[FontDesc],
+) -> Result<(), String> {
     {
         let mut seen_names: HashSet<&str> = HashSet::new();
         for field in fields {
@@ -1034,10 +1047,9 @@ fn validate_create(
                             dv.chars().count()
                         ));
                     }
-                    if *page >= pages.len() {
+                    if *page >= page_count {
                         return Err(format!(
-                            "field page {page} out of range ({} pages)",
-                            pages.len()
+                            "field page {page} out of range ({page_count} pages)"
                         ));
                     }
                     if !x.is_finite() || !y.is_finite() {
@@ -1082,10 +1094,9 @@ fn validate_create(
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
                     }
-                    if *page >= pages.len() {
+                    if *page >= page_count {
                         return Err(format!(
-                            "field page {page} out of range ({} pages)",
-                            pages.len()
+                            "field page {page} out of range ({page_count} pages)"
                         ));
                     }
                     if !x.is_finite() || !y.is_finite() {
@@ -1136,11 +1147,10 @@ fn validate_create(
                         if !seen_values.insert(opt.value.as_str()) {
                             return Err(format!("duplicate radio option value: {}", opt.value));
                         }
-                        if opt.page >= pages.len() {
+                        if opt.page >= page_count {
                             return Err(format!(
-                                "radio option page {} out of range ({} pages)",
-                                opt.page,
-                                pages.len()
+                                "radio option page {} out of range ({page_count} pages)",
+                                opt.page
                             ));
                         }
                         if !opt.x.is_finite() || !opt.y.is_finite() {
@@ -1176,10 +1186,9 @@ fn validate_create(
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
                     }
-                    if *page >= pages.len() {
+                    if *page >= page_count {
                         return Err(format!(
-                            "field page {page} out of range ({} pages)",
-                            pages.len()
+                            "field page {page} out of range ({page_count} pages)"
                         ));
                     }
                     if !x.is_finite() || !y.is_finite() {
@@ -1232,10 +1241,9 @@ fn validate_create(
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
                     }
-                    if *page >= pages.len() {
+                    if *page >= page_count {
                         return Err(format!(
-                            "field page {page} out of range ({} pages)",
-                            pages.len()
+                            "field page {page} out of range ({page_count} pages)"
                         ));
                     }
                     if !x.is_finite() || !y.is_finite() {
