@@ -1,7 +1,8 @@
 //! Inject builder-defined AcroForm fields into an already-loaded PDF via an
-//! incremental update. This module implements the **no-AcroForm** path: when the
-//! target document has no `/AcroForm`, a fresh one is created and attached to the
-//! catalog. Merging into an existing `/AcroForm` is a separate slice.
+//! incremental update. When the target document has no `/AcroForm`, a fresh one
+//! is created and attached to the catalog; when one already exists, the new field
+//! refs and font aliases are merged into it (appending `/Fields`, merging
+//! `/DR/Font`) while leaving `/DA` and `/NeedAppearances` intact.
 
 use crate::create::{
     BuiltField, FieldDef, FieldFont, FontDesc, build_one_field, da_font_alias, validate_fields,
@@ -97,8 +98,9 @@ pub fn inject_fields_json(
         }
     }
 
-    // Attach a brand-new AcroForm (no-AcroForm path); the merge path is separate.
-    attach_new_acroform(&mut inc, &acro_field_ids, &dr_additions)?;
+    // Merge into an existing /AcroForm (append /Fields, merge /DR/Font) or
+    // create a fresh one when the document has none.
+    merge_or_create_acroform(&mut inc, &acro_field_ids, &dr_additions)?;
 
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
@@ -167,6 +169,13 @@ fn existing_field_names(doc: &Document) -> Result<BTreeSet<String>, String> {
         }
     }
     Ok(names)
+}
+
+/// Test-only wrapper so the `tests` module (and sibling-module tests) can reuse
+/// the top-level field-name walker.
+#[cfg(test)]
+pub(crate) fn test_field_names(doc: &Document) -> BTreeSet<String> {
+    existing_field_names(doc).unwrap()
 }
 
 /// Existing `/DR/Font` alias keys, so injected aliases can avoid collisions.
@@ -363,6 +372,213 @@ fn field_font<'a>(
     }
 }
 
+/// Where the new font aliases must be written, discovered from the existing
+/// `/AcroForm`'s `/DR`. `Indirect`/`InlineInDr` reference standalone objects that
+/// are cloned+edited on their own; `InlineInAcro` is written into the AcroForm
+/// dictionary itself (creating `/DR` and/or `/Font` as needed).
+#[derive(Clone, Copy)]
+enum FontPlan {
+    /// `/DR/Font` is its own indirect object.
+    Indirect(ObjectId),
+    /// `/DR` is an indirect object whose `/Font` is inline (or absent) within it.
+    InlineInDr(ObjectId),
+    /// `/DR` is inline in the AcroForm (or absent); write `/DR/Font` there.
+    InlineInAcro,
+}
+
+/// Attach fields to an existing `/AcroForm` (append `/Fields`, merge `/DR/Font`)
+/// or create one if absent. Uses the fill.rs clone-and-edit pattern for both the
+/// indirect-reference and inline-in-catalog AcroForm storage forms, and clones
+/// indirect `/Fields`, `/DR`, or `/DR/Font` objects before editing them (mirroring
+/// `draw::append_annot_to_page`). Leaves `/DA` and `/NeedAppearances` untouched
+/// on an existing form (only seeds a default `/DA` when absent).
+fn merge_or_create_acroform(
+    inc: &mut IncrementalDocument,
+    field_ids: &[ObjectId],
+    dr_additions: &[(String, ObjectId)],
+) -> Result<(), String> {
+    let root = inc
+        .get_prev_documents()
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+        .map_err(|e| e.to_string())?;
+
+    // Discover the AcroForm storage form and the shape of /Fields and /DR, all
+    // by reading the (unmodified) previous document. Only Copy data escapes the
+    // borrow, so we can mutate `inc` afterwards.
+    let acro_ref: Option<ObjectId>;
+    let fields_indirect: Option<ObjectId>;
+    let da_absent: bool;
+    let font_plan: FontPlan;
+    {
+        let prev = inc.get_prev_documents();
+        let cat = prev.get_dictionary(root).map_err(|e| e.to_string())?;
+        acro_ref = match cat.get(b"AcroForm") {
+            Ok(Object::Reference(id)) => Some(*id),
+            Ok(Object::Dictionary(_)) => None, // inline in catalog
+            _ => return attach_new_acroform(inc, field_ids, dr_additions), // absent
+        };
+        let acro = match acro_ref {
+            Some(id) => prev.get_dictionary(id).map_err(|e| e.to_string())?,
+            None => cat
+                .get(b"AcroForm")
+                .and_then(Object::as_dict)
+                .map_err(|e| e.to_string())?,
+        };
+        fields_indirect = match acro.get(b"Fields") {
+            Ok(Object::Reference(id)) => Some(*id),
+            _ => None,
+        };
+        da_absent = acro.get(b"DA").is_err();
+        font_plan = match acro.get(b"DR") {
+            Ok(Object::Reference(dr_id)) => {
+                // Indirect /DR: does it hold an indirect /Font?
+                match prev
+                    .get_dictionary(*dr_id)
+                    .ok()
+                    .and_then(|d| d.get(b"Font").ok())
+                    .and_then(|o| o.as_reference().ok())
+                {
+                    Some(font_id) => FontPlan::Indirect(font_id),
+                    None => FontPlan::InlineInDr(*dr_id),
+                }
+            }
+            Ok(Object::Dictionary(dr)) => match dr.get(b"Font") {
+                Ok(Object::Reference(font_id)) => FontPlan::Indirect(*font_id),
+                _ => FontPlan::InlineInAcro,
+            },
+            _ => FontPlan::InlineInAcro, // /DR absent
+        };
+    }
+
+    // Indirect /Fields array: clone the standalone object and append to it.
+    if let Some(arr_id) = fields_indirect {
+        inc.opt_clone_object_to_new_document(arr_id)
+            .map_err(|e| e.to_string())?;
+        let arr = inc
+            .new_document
+            .get_object_mut(arr_id)
+            .and_then(Object::as_array_mut)
+            .map_err(|e| e.to_string())?;
+        for id in field_ids {
+            arr.push(Object::Reference(*id));
+        }
+    }
+
+    // Font aliases into an indirect target (its own object, or inline within an
+    // indirect /DR). InlineInAcro is handled with the AcroForm dict below.
+    match font_plan {
+        FontPlan::Indirect(font_id) => {
+            inc.opt_clone_object_to_new_document(font_id)
+                .map_err(|e| e.to_string())?;
+            let font = inc
+                .new_document
+                .get_object_mut(font_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
+            set_font_aliases(font, dr_additions);
+        }
+        FontPlan::InlineInDr(dr_id) => {
+            inc.opt_clone_object_to_new_document(dr_id)
+                .map_err(|e| e.to_string())?;
+            let dr = inc
+                .new_document
+                .get_object_mut(dr_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
+            set_font_aliases(ensure_font_dict(dr), dr_additions);
+        }
+        FontPlan::InlineInAcro => {}
+    }
+
+    // AcroForm-dict inline edits: inline /Fields, InlineInAcro /DR/Font, /DA seed.
+    let need_acro_edit =
+        fields_indirect.is_none() || matches!(font_plan, FontPlan::InlineInAcro) || da_absent;
+    if need_acro_edit {
+        let acro = acro_dict_mut(inc, root, acro_ref)?;
+        if fields_indirect.is_none() {
+            match acro.get_mut(b"Fields") {
+                Ok(Object::Array(arr)) => {
+                    for id in field_ids {
+                        arr.push(Object::Reference(*id));
+                    }
+                }
+                _ => acro.set(
+                    "Fields",
+                    Object::Array(field_ids.iter().map(|id| Object::Reference(*id)).collect()),
+                ),
+            }
+        }
+        if matches!(font_plan, FontPlan::InlineInAcro) {
+            if !matches!(acro.get(b"DR"), Ok(Object::Dictionary(_))) {
+                acro.set("DR", Object::Dictionary(Dictionary::new()));
+            }
+            let dr = acro
+                .get_mut(b"DR")
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
+            set_font_aliases(ensure_font_dict(dr), dr_additions);
+        }
+        // Only seed a default /DA when the existing form lacks one; never touch
+        // an existing /DA or /NeedAppearances (appearances are pre-built).
+        if da_absent {
+            acro.set("DA", Object::string_literal("/Helv 0 Tf 0 g"));
+        }
+    }
+    Ok(())
+}
+
+/// Get a mutable handle to the existing AcroForm dictionary, cloning whatever
+/// object holds it into `new_document` first (the AcroForm object when indirect,
+/// else the catalog when the AcroForm is inline).
+fn acro_dict_mut(
+    inc: &mut IncrementalDocument,
+    root: ObjectId,
+    acro_ref: Option<ObjectId>,
+) -> Result<&mut Dictionary, String> {
+    match acro_ref {
+        Some(acro_id) => {
+            inc.opt_clone_object_to_new_document(acro_id)
+                .map_err(|e| e.to_string())?;
+            inc.new_document
+                .get_object_mut(acro_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())
+        }
+        None => {
+            inc.opt_clone_object_to_new_document(root)
+                .map_err(|e| e.to_string())?;
+            let cat = inc
+                .new_document
+                .get_object_mut(root)
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
+            cat.get_mut(b"AcroForm")
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())
+        }
+    }
+}
+
+/// Get-or-create the inline `/Font` sub-dictionary of a `/DR` dict.
+fn ensure_font_dict(dr: &mut Dictionary) -> &mut Dictionary {
+    if !matches!(dr.get(b"Font"), Ok(Object::Dictionary(_))) {
+        dr.set("Font", Object::Dictionary(Dictionary::new()));
+    }
+    dr.get_mut(b"Font")
+        .and_then(Object::as_dict_mut)
+        .expect("just ensured /Font is a dict")
+}
+
+/// Write new `(alias, ref)` font entries. Aliases are already uniquified against
+/// the existing `/DR/Font` keys, so this only ever adds.
+fn set_font_aliases(font: &mut Dictionary, dr_additions: &[(String, ObjectId)]) {
+    for (alias, id) in dr_additions {
+        font.set(alias.as_bytes().to_vec(), Object::Reference(*id));
+    }
+}
+
 /// No-AcroForm path: create a fresh `/AcroForm` and attach it to the catalog.
 fn attach_new_acroform(
     inc: &mut IncrementalDocument,
@@ -402,6 +618,62 @@ fn attach_new_acroform(
 mod tests {
     use super::*;
     use lopdf::Document;
+
+    const FICHA: &[u8] =
+        include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
+
+    fn top_field_names(bytes: &[u8]) -> std::collections::BTreeSet<String> {
+        let doc = Document::load_mem(bytes).unwrap();
+        crate::inject::test_field_names(&doc)
+    }
+
+    #[test]
+    fn merges_into_existing_acroform_preserving_fields() {
+        let before = top_field_names(FICHA);
+        assert!(!before.is_empty(), "fixture must already have fields");
+        let fields =
+            r#"[{"type":"text","name":"bpf_new_field","page":0,"x":10,"y":10,"width":80,"height":18}]"#;
+        let out = inject_fields_json(FICHA, fields, &[], "[]").unwrap();
+        let after = top_field_names(&out);
+        // Every pre-existing field survives, and our new one is present.
+        for name in &before {
+            assert!(after.contains(name), "lost field {name}");
+        }
+        assert!(after.contains("bpf_new_field"));
+        // Structural sanity: merged output re-parses and keeps its pages. The
+        // stronger qpdf --check gate runs in the TS integration suite / CI.
+        let doc = Document::load_mem(&out).unwrap();
+        assert!(!doc.get_pages().is_empty());
+    }
+
+    #[test]
+    fn rejects_name_collision_with_existing_field() {
+        let existing = top_field_names(FICHA).into_iter().next().unwrap();
+        let fields = format!(
+            r#"[{{"type":"text","name":"{existing}","page":0,"x":1,"y":1,"width":10,"height":10}}]"#
+        );
+        let err = inject_fields_json(FICHA, &fields, &[], "[]").unwrap_err();
+        assert!(err.contains("already exists"), "got: {err}");
+    }
+
+    #[test]
+    fn injects_all_field_types() {
+        let base = blank_page_pdf();
+        let fields = r#"[
+            {"type":"text","name":"txt","page":0,"x":10,"y":10,"width":100,"height":20},
+            {"type":"text","name":"ml","page":0,"x":10,"y":40,"width":100,"height":40,"multiline":true},
+            {"type":"checkBox","name":"cb","page":0,"x":10,"y":90,"size":12},
+            {"type":"radioGroup","name":"rg","options":[{"value":"a","page":0,"x":10,"y":110,"size":12},{"value":"b","page":0,"x":40,"y":110,"size":12}]},
+            {"type":"choice","name":"dd","page":0,"x":10,"y":140,"width":100,"height":20,"options":["x","y"],"combo":true},
+            {"type":"choice","name":"lb","page":0,"x":10,"y":170,"width":100,"height":40,"options":["x","y"],"combo":false},
+            {"type":"signature","name":"sig","page":0,"x":10,"y":220,"width":100,"height":40}
+        ]"#;
+        let out = inject_fields_json(&base, fields, &[], "[]").unwrap();
+        let names = top_field_names(&out);
+        for n in ["txt", "ml", "cb", "rg", "dd", "lb", "sig"] {
+            assert!(names.contains(n), "missing field {n}");
+        }
+    }
 
     /// Build a 1-page PDF with NO form via the create path (empty fields).
     fn blank_page_pdf() -> Vec<u8> {
