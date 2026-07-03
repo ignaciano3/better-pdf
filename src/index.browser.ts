@@ -68,6 +68,9 @@ export class PdfDocument extends PdfDocumentBase {
   /**
    * Assemble a new PDF from an ordered selection of pages across one or more
    * source documents. See {@link PdfDocument.assemble} in the Node build.
+   *
+   * @param options - Optional; `{ objectStreams?: boolean }` packs object streams
+   *   for smaller output (default false).
    */
   static async assemble(
     docs: Uint8Array[],
@@ -78,7 +81,12 @@ export class PdfDocument extends PdfDocumentBase {
     return PdfDocumentBase.assembleImpl(wasm, docs, selections, options?.objectStreams ?? false);
   }
 
-  /** Merge multiple PDFs into one, preserving all pages in order. */
+  /**
+   * Merge multiple PDFs into one, preserving all pages in order.
+   *
+   * @param options - Optional; `{ objectStreams?: boolean }` packs object streams
+   *   for smaller output (default false).
+   */
   static async merge(docs: Uint8Array[], options?: ManipulateOptions): Promise<Uint8Array> {
     await initializeWasm();
     return PdfDocumentBase.mergeImpl(wasm, docs, options?.objectStreams ?? false);

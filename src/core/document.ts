@@ -168,8 +168,10 @@ export interface SaveOptions {
   compress?: boolean;
   /**
    * Pack non-stream objects into PDF object streams (+ cross-reference streams)
-   * for smaller output. Defaults to `false`. Honored only for documents created
-   * with `PdfDocument.create()`; ignored for incremental (loaded-document) saves.
+   * for smaller output. Defaults to `false`. Honored only for created documents
+   * saved directly via `save()` (a created document materialized by `getForm()`
+   * becomes sealed and takes the incremental path, which ignores this flag).
+   * Ignored for loaded-document (incremental) saves.
    */
   objectStreams?: boolean;
 }

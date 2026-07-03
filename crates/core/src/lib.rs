@@ -95,6 +95,9 @@ pub fn apply_all(
 /// `fonts` is the concatenated font blob that embedded-font text ops index into
 /// via `fonts_json` descriptors (pass `&[]` / "[]" for none).
 /// `fields_json` is a JSON array of field definitions (pass "[]" for none).
+/// `compress` deflates generated streams (default-on at the TS layer);
+/// `object_streams` packs non-stream objects into PDF object streams for
+/// smaller output (default-off).
 #[wasm_bindgen]
 pub fn create_document(
     ops_json: &str,

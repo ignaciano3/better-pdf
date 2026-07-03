@@ -38,7 +38,8 @@ valid.
 
 `doc.save({ objectStreams: true })` additionally packs non-stream objects into
 PDF object streams (+ cross-reference streams) for smaller output. It defaults
-to `false` and only applies to created documents saved via `save()`.
+to `false` and only applies to created documents saved via `save()`; it is
+ignored on loaded-document (incremental) saves.
 
 The full-document assembly operations — `PdfDocument.merge(docs, options?)`,
 `PdfDocument.assemble(...)`, `doc.copyPages(indices, options?)`, and

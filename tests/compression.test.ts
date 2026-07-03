@@ -52,13 +52,13 @@ describe("stream compression", () => {
 });
 
 describe("object streams", () => {
-  async function manyPages(objectStreams: boolean) {
+  async function manyPages(objectStreams?: boolean) {
     const doc = await PdfDocument.create();
     for (let p = 0; p < 30; p++) {
       const page = doc.addPage();
       page.drawText("page " + p, { x: 40, y: 700, size: 12 });
     }
-    return doc.save({ objectStreams });
+    return objectStreams === undefined ? doc.save() : doc.save({ objectStreams });
   }
 
   test("create: objectStreams shrinks a multi-page doc and reloads", async () => {
@@ -72,10 +72,8 @@ describe("object streams", () => {
 
   test("default is off (byte-identical to no option)", async () => {
     const a = await manyPages(false);
-    const doc = await PdfDocument.create();
-    for (let p = 0; p < 30; p++) doc.addPage().drawText("page " + p, { x: 40, y: 700, size: 12 });
-    const b = await doc.save();
-    expect(b.length).toBe(a.length);
+    const b = await manyPages();
+    expect(b).toEqual(a);
   });
 
   test("merge: objectStreams shrinks and reloads", async () => {
@@ -89,6 +87,40 @@ describe("object streams", () => {
     expect(packed.length).toBeLessThan(plain.length);
     const reloaded = await PdfDocument.load(packed);
     expect(reloaded.getPageCount()).toBe(20);
+  });
+
+  test("copyPages: objectStreams shrinks and reloads", async () => {
+    const seed = await PdfDocument.create();
+    for (let p = 0; p < 12; p++) seed.addPage().drawText("page " + p, { x: 10, y: 10, size: 8 });
+    const base = await seed.save();
+    const indices = Array.from({ length: 12 }, (_, i) => i);
+
+    const doc = await PdfDocument.load(base);
+    const packed = await doc.copyPages(indices, { objectStreams: true });
+    const doc2 = await PdfDocument.load(base);
+    const plain = await doc2.copyPages(indices);
+
+    expect(packed.length).toBeLessThan(plain.length);
+    const reloaded = await PdfDocument.load(packed);
+    expect(reloaded.getPageCount()).toBe(12);
+  });
+
+  test("splitPages: objectStreams produces valid, reloadable per-page PDFs", async () => {
+    const seed = await PdfDocument.create();
+    for (let p = 0; p < 12; p++) seed.addPage().drawText("page " + p, { x: 10, y: 10, size: 8 });
+    const base = await seed.save();
+
+    const doc = await PdfDocument.load(base);
+    const results = await doc.splitPages({ objectStreams: true });
+
+    // Object streams may not shrink a single-page split doc (too few objects
+    // to offset ObjStm overhead), so assert validity/reload + count, not size.
+    expect(results.length).toBe(12);
+    for (const result of results) {
+      expect(new TextDecoder().decode(result.slice(0, 5))).toBe("%PDF-");
+      const reloaded = await PdfDocument.load(result);
+      expect(reloaded.getPageCount()).toBe(1);
+    }
   });
 
   test("objectStreams is a no-op on loaded-document (incremental) save", async () => {

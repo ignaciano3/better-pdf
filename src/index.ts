@@ -67,6 +67,8 @@ export class PdfDocument extends PdfDocumentBase {
    * @param docs - Array of source PDF byte arrays.
    * @param selections - Ordered list of `{docIndex, pageIndex}` entries describing
    *   which page from which document to include. Indices are zero-based.
+   * @param options - Optional; `{ objectStreams?: boolean }` packs object streams
+   *   for smaller output (default false).
    * @returns A new PDF containing only the selected pages in the given order.
    *
    * @example
@@ -90,6 +92,8 @@ export class PdfDocument extends PdfDocumentBase {
    * Merge multiple PDF documents into a single PDF, preserving all pages in order.
    *
    * @param docs - Array of source PDF byte arrays to merge.
+   * @param options - Optional; `{ objectStreams?: boolean }` packs object streams
+   *   for smaller output (default false).
    * @returns A new PDF containing all pages from all source documents in order.
    *
    * @example
