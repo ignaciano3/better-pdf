@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 
 mod appearance;
 mod apply;
+mod compress;
 pub mod create;
 mod doc_io;
 mod draw;
