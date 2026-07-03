@@ -111,8 +111,8 @@ function buildPageIndexResolver(
 export interface CoreWasm {
   decryptPdf(data: Uint8Array, password: string): Uint8Array;
   readFields(data: Uint8Array): string;
-  fillFields(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array;
-  flattenFields(data: Uint8Array, namesJson: string): Uint8Array;
+  fillFields(data: Uint8Array, opsJson: string, images: Uint8Array, compress?: boolean): Uint8Array;
+  flattenFields(data: Uint8Array, namesJson: string, compress?: boolean): Uint8Array;
   readPages(data: Uint8Array): string;
   applyDrawOps(
     data: Uint8Array,
@@ -120,6 +120,7 @@ export interface CoreWasm {
     images: Uint8Array,
     fonts?: Uint8Array,
     fontsJson?: string,
+    compress?: boolean,
   ): Uint8Array;
   createDocument(
     opsJson: string,
@@ -127,20 +128,27 @@ export interface CoreWasm {
     fonts?: Uint8Array,
     fontsJson?: string,
     fieldsJson?: string,
+    compress?: boolean,
   ): Uint8Array;
   imageInfo(data: Uint8Array): string;
   measureText(font: string, size: number, text: string): number;
   measureTextEmbedded(font: Uint8Array, size: number, text: string): number;
   readMetadata(data: Uint8Array): string;
-  setMetadata(data: Uint8Array, metaJson: string): Uint8Array;
-  manipulatePages(docsBlob: Uint8Array, docsJson: string, planJson: string): Uint8Array;
-  setOutline(data: Uint8Array, json: string): Uint8Array;
-  insertPages(data: Uint8Array, opsJson: string): Uint8Array;
+  setMetadata(data: Uint8Array, metaJson: string, compress?: boolean): Uint8Array;
+  manipulatePages(
+    docsBlob: Uint8Array,
+    docsJson: string,
+    planJson: string,
+    compress?: boolean,
+  ): Uint8Array;
+  setOutline(data: Uint8Array, json: string, compress?: boolean): Uint8Array;
+  insertPages(data: Uint8Array, opsJson: string, compress?: boolean): Uint8Array;
   injectFields(
     data: Uint8Array,
     fieldsJson: string,
     fonts?: Uint8Array,
     fontsJson?: string,
+    compress?: boolean,
   ): Uint8Array;
   applyAll(
     data: Uint8Array,
@@ -148,6 +156,7 @@ export interface CoreWasm {
     fillImages: Uint8Array,
     drawImages: Uint8Array,
     fonts: Uint8Array,
+    compress?: boolean,
   ): Uint8Array;
 }
 
