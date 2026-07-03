@@ -50,3 +50,58 @@ describe("stream compression", () => {
     expect(reloaded.getPageCount()).toBe(1);
   });
 });
+
+describe("object streams", () => {
+  async function manyPages(objectStreams: boolean) {
+    const doc = await PdfDocument.create();
+    for (let p = 0; p < 30; p++) {
+      const page = doc.addPage();
+      page.drawText("page " + p, { x: 40, y: 700, size: 12 });
+    }
+    return doc.save({ objectStreams });
+  }
+
+  test("create: objectStreams shrinks a multi-page doc and reloads", async () => {
+    const packed = await manyPages(true);
+    const plain = await manyPages(false);
+    expect(packed.length).toBeLessThan(plain.length);
+    expect(new TextDecoder().decode(packed.slice(0, 5))).toBe("%PDF-");
+    const reloaded = await PdfDocument.load(packed);
+    expect(reloaded.getPageCount()).toBe(30);
+  });
+
+  test("default is off (byte-identical to no option)", async () => {
+    const a = await manyPages(false);
+    const doc = await PdfDocument.create();
+    for (let p = 0; p < 30; p++) doc.addPage().drawText("page " + p, { x: 40, y: 700, size: 12 });
+    const b = await doc.save();
+    expect(b.length).toBe(a.length);
+  });
+
+  test("merge: objectStreams shrinks and reloads", async () => {
+    const base = await (async () => {
+      const d = await PdfDocument.create();
+      for (let p = 0; p < 10; p++) d.addPage().drawText("x", { x: 10, y: 10, size: 8 });
+      return d.save();
+    })();
+    const packed = await PdfDocument.merge([base, base], { objectStreams: true });
+    const plain = await PdfDocument.merge([base, base]);
+    expect(packed.length).toBeLessThan(plain.length);
+    const reloaded = await PdfDocument.load(packed);
+    expect(reloaded.getPageCount()).toBe(20);
+  });
+
+  test("objectStreams is a no-op on loaded-document (incremental) save", async () => {
+    const seed = await PdfDocument.create();
+    seed.addPage();
+    const base = await seed.save();
+    async function stamp(objectStreams: boolean) {
+      const doc = await PdfDocument.load(base);
+      doc.getPage(0).drawText("stamp", { x: 50, y: 50, size: 12 });
+      return doc.save({ objectStreams });
+    }
+    const withFlag = await stamp(true);
+    const without = await stamp(false);
+    expect(withFlag.length).toBe(without.length);
+  });
+});

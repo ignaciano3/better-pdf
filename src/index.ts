@@ -11,6 +11,7 @@
 
 import * as wasm from "./core/wasm.js";
 import { PdfDocumentBase } from "./core/document.js";
+import type { ManipulateOptions } from "./core/document.js";
 
 /**
  * Represents a loaded PDF document.
@@ -80,8 +81,9 @@ export class PdfDocument extends PdfDocumentBase {
   static async assemble(
     docs: Uint8Array[],
     selections: { docIndex: number; pageIndex: number }[],
+    options?: ManipulateOptions,
   ): Promise<Uint8Array> {
-    return PdfDocumentBase.assembleImpl(wasm, docs, selections);
+    return PdfDocumentBase.assembleImpl(wasm, docs, selections, options?.objectStreams ?? false);
   }
 
   /**
@@ -95,8 +97,8 @@ export class PdfDocument extends PdfDocumentBase {
    * const merged = await PdfDocument.merge([docA, docB, docC]);
    * ```
    */
-  static async merge(docs: Uint8Array[]): Promise<Uint8Array> {
-    return PdfDocumentBase.mergeImpl(wasm, docs);
+  static async merge(docs: Uint8Array[], options?: ManipulateOptions): Promise<Uint8Array> {
+    return PdfDocumentBase.mergeImpl(wasm, docs, options?.objectStreams ?? false);
   }
 }
 
