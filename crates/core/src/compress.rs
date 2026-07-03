@@ -178,4 +178,15 @@ mod tests {
         );
         assert_eq!(Document::load_mem(&plain).unwrap().get_pages().len(), 5);
     }
+
+    #[test]
+    fn serialize_document_both_axes_produce_loadable_pdf() {
+        // compress + object_streams together: disjoint object sets, must round-trip.
+        let out = serialize_document(&mut many_page_doc(30), true, true).unwrap();
+        assert!(
+            out.windows(6).any(|w| w == b"ObjStm"),
+            "expected an /ObjStm with both axes enabled"
+        );
+        assert_eq!(Document::load_mem(&out).unwrap().get_pages().len(), 30);
+    }
 }
