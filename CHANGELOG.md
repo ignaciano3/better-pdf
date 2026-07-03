@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-03
+
+### Added
+
+- **Stream compression on save.** `save()` now deflate-compresses the content,
+  appearance, and font streams `better-pdf` generates, producing substantially
+  smaller PDFs. Controlled by a new option: `doc.save({ compress })`, defaulting
+  to `true`. Pass `doc.save({ compress: false })` for plaintext output.
+  - New `SaveOptions` type (`{ compress?: boolean }`), exported from the package
+    entry points. Additive and backward-compatible — `save()` with no argument
+    behaves as before, only smaller.
+  - Streams that already carry a `/Filter` (embedded images, embedded font
+    programs) are left untouched, so there is no double-compression.
+  - Benchmarks (load → mutate → save): on the full-document create path, output
+    shrank to ~12% of its uncompressed size (5-page text document) for a ~4%
+    (~0.02 ms) time cost per save. On incremental (loaded-document) saves the
+    time cost is within noise, since only the newly appended section is
+    compressed.
+
+  Caveats:
+  1. Raw PDF byte output changes. Consumers that regex or snapshot the raw bytes
+     of saved PDFs should pass `{ compress: false }` or update their fixtures.
+  2. Incremental saves remain append-only, so compression only affects the newly
+     appended section — the original revision's bytes are preserved, so existing
+     digital signatures on that revision stay valid.
+
 ## [1.9.0] - 2026-07-02
 
 ### Added

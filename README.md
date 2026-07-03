@@ -58,6 +58,7 @@ See the [per-runtime guide](docs/site/src/content/docs/guides/runtimes.md) and [
 - Non-ASCII document metadata: `setTitle`/`setAuthor`/etc. encode non-Latin text (Japanese, accented Latin, Arabic, etc.) as UTF-16BE for correct round-trip fidelity.
 - Palette (indexed-color) PNG embedding: `embedPng` handles color-type-3 PNGs with `tRNS` transparency — transparency is stored as a soft mask, same as RGBA PNGs. No API change.
 - Decrypt and modify encrypted PDFs: `PdfDocument.load(bytes, { password })` decrypts RC4 / AES-128 / AES-256 encrypted PDFs (use `{ password: "" }` for owner-locked / empty-user-password files). Decryption is opt-in — bare `load(bytes)` is unchanged. Saving an edited encrypted PDF produces a **decrypted** output. Re-encryption and creating encrypted PDFs are still unsupported.
+- Deflate-compress generated content, appearance, and font streams on save — on by default, opt out with `doc.save({ compress: false })`. Streams already compressed (images, embedded fonts) are left untouched.
 
 ## Install
 
@@ -98,6 +99,22 @@ form.flattenField("beneficiario.apellidos_nombres");
 const output = await doc.save();
 await Bun.write("filled.pdf", output);
 ```
+
+### Compression
+
+`save()` deflate-compresses the content, appearance, and font streams it
+generates, producing smaller PDFs. It is on by default; opt out to keep the
+streams plaintext (e.g. for debugging or byte-level assertions):
+
+```ts
+const small = await doc.save();                    // compressed (default)
+const plain = await doc.save({ compress: false }); // uncompressed
+```
+
+Streams that are already compressed (images, embedded fonts) are left
+untouched, and incremental saves only compress the newly appended section — the
+original revision's bytes are preserved, so existing digital signatures on it
+stay valid.
 
 ## Generating & drawing
 
@@ -559,7 +576,7 @@ const output = await doc.save();
 - `doc.setModificationDate(d: Date): void`
 - `doc.getMetadata(): Promise<DocumentMetadata>` — reads the Info dictionary; all fields are optional
 - `doc.setOutline(items: OutlineItem[]): void` — set the PDF bookmarks/outline tree; `OutlineItem = { title: string; page: number; children?: OutlineItem[] }`; `page` is 0-based
-- `doc.save(): Promise<Uint8Array>`
+- `doc.save(options?: SaveOptions): Promise<Uint8Array>` — `SaveOptions = { compress?: boolean }`; `compress` defaults to `true` (deflate generated streams). Pass `{ compress: false }` for plaintext output.
 
 `save()` applies queued fills first, then queued flattens. With no queued operations it returns a byte-identical round trip.
 `save()` always starts from the originally loaded bytes (calling it twice
