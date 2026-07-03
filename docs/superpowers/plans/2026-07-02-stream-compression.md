@@ -4,7 +4,7 @@
 
 **Goal:** Deflate-compress the content/appearance/font streams `better-pdf` emits, cutting output size, controllable via `doc.save({ compress })` (default `true`).
 
-**Architecture:** Add one internal Rust helper, `compress_generated_streams(&mut Document)`, that walks a freshly-built `Document` and FlateDecode-compresses every stream that both permits compression and has no existing `/Filter`. Call it at each production serialization site — before `save_to` for full-document paths and before `IncrementalDocument::create_from` for incremental paths — gated by a `compress: bool` threaded from the wasm boundary. TypeScript `save()` gains an optional `{ compress }` option (default `true`) plumbed through `applyAll` / `createDocument` / the chained fallback. Images (already `FlateDecode`) are skipped by the per-stream guard, so there is no double-compression.
+**Architecture:** Add one internal Rust helper, `compress_generated_streams(&mut Document)`, that walks a freshly-built `Document` and FlateDecode-compresses every stream that both permits compression and has no existing `/Filter`. Call it at each production serialization site, always **immediately before the final `save_to`** — on the full `Document` for full-document paths, and on `inc.new_document` for incremental paths. The hook must be before `save_to`, **not** before `IncrementalDocument::create_from`: in `apply.rs` (the fast path), `inject.rs`, and `pagetree.rs` the new document is still empty (or nearly so) at `create_from` time — the actual content/appearance/font streams are written into `inc.new_document` afterwards. Compressing `inc.new_document` is safe: cloned original objects that carry a `/Filter` are skipped by the per-stream guard, and replacing an originally-uncompressed stream with a compressed one is legal in an incremental update because the object is rewritten wholesale. The flag is a `compress: bool` threaded from the wasm boundary. TypeScript `save()` gains an optional `{ compress }` option (default `true`) plumbed through `applyAll` / `createDocument` / the chained fallback. Images (already `FlateDecode`) are skipped by the per-stream guard, so there is no double-compression.
 
 **Tech Stack:** Rust (`lopdf 0.41`, `flate2`), compiled to WebAssembly via `wasm-bindgen`; TypeScript API layer; `cargo test` (Rust unit) + `bun test` (TS integration).
 
@@ -14,6 +14,7 @@
 - Default behavior is `compress: true`. Output bytes will change vs. pre-feature; that is expected and is **not** an API break (byte output is not part of the SemVer contract).
 - `lopdf` is pinned at `0.41` with `default-features = false` (native) and `features = ["wasm_js"]` (wasm32). Do not change the dependency.
 - Compression must be **lossless and structural only**: deflate of stream bodies. No image resampling, no lossy re-encoding, no object-stream/xref-stream rewriting in this plan.
+- `save()` sits on the load→mutate→save hot path and `lopdf::Stream::compress()` uses `Compression::best()` (the slowest zlib level). The benchmark delta must be measured (Task 7) before release; if the regression is unacceptable, the fallback is implementing deflate at a faster level inside `compress_generated_streams` instead of delegating to `Document::compress()` — the helper wrapper exists precisely so that policy change has one home.
 - Never recompress or mutate objects that already carry a `/Filter` (fonts’ FontFile, image XObjects). The per-stream guard enforces this.
 - Incremental (loaded-document) paths are append-only: only compress the **newly built** `Document`, never the original bytes.
 
@@ -27,10 +28,10 @@
 
 **Modified files (Rust — wire the helper + thread the flag):**
 - `crates/core/src/lib.rs` — declare `mod compress;`; add `compress: bool` params to the affected `#[wasm_bindgen]` exports.
-- `crates/core/src/create.rs:742` — full-document path; compress before `save_to`.
-- `crates/core/src/apply.rs:104` — incremental fast path; compress the new `Document` before `create_from`.
-- `crates/core/src/draw.rs:988`, `crates/core/src/fill.rs:70`, `crates/core/src/flatten.rs:34`, `crates/core/src/inject.rs:106`, `crates/core/src/outline.rs:141`, `crates/core/src/metadata.rs:123`, `crates/core/src/pagetree.rs:181` — incremental paths; compress before `create_from`.
-- `crates/core/src/pageops.rs:373` — full-document merge path; compress before `save_to`.
+- `crates/core/src/create.rs:742` — full-document path; compress `doc` before `save_to`.
+- `crates/core/src/apply.rs:104` — incremental fast path; compress `inc.new_document` before `inc.save_to`.
+- `crates/core/src/draw.rs:988`, `crates/core/src/fill.rs:70`, `crates/core/src/flatten.rs:34`, `crates/core/src/inject.rs:106`, `crates/core/src/outline.rs:141`, `crates/core/src/metadata.rs:123`, `crates/core/src/pagetree.rs:181` — incremental paths; compress `inc.new_document` before `inc.save_to` (the line numbers are the `save_to` sites).
+- `crates/core/src/pageops.rs:373` — full-document merge path; compress `merged` before `save_to`.
 
 **Modified files (TS — surface the option):**
 - `src/core/wasm-bindings.ts` / `src/core/wasm-browser.ts` — pass the `compress` arg through to the raw wasm exports.
@@ -51,9 +52,13 @@
 - `Document::compress()` (`processor.rs:22`) iterates all objects; for each `Object::Stream` where `stream.allows_compression == true`, calls `stream.compress()`.
 - `Stream::compress()` (`object.rs:777`): **no-op if `/Filter` already set**; else zlib-encodes, and **keeps the result only if it actually shrinks** (`compressed.len() + 19 < original.len()`), setting `/Filter = FlateDecode`. Idempotent and self-guarding.
 - `Stream::with_compression(bool)` (`object.rs:738`) sets the `allows_compression` flag; default on `Stream::new` is `true`.
-- `save_to` does **not** call `compress()` — nothing compresses today unless we call it.
+- `save_to` does **not** call `compress()` — no *save path* compresses today. (One isolated exception already exists: `embed.rs:136` calls `stream.compress().ok()` on embedded-PDF-page XObjects at build time. It is unaffected by this plan — its output carries a `/Filter`, so the per-stream guard skips it.)
 
-Our helper is a thin, intention-revealing wrapper over `Document::compress()` so all call sites read identically and future policy (e.g. skipping specific stream subtypes) has one home. Current `.with_compression(false)` calls in `create.rs`, `appearance.rs`, `flatten.rs` set `allows_compression = false`, which would make our helper skip those exact content/appearance streams — so those calls must be dropped (Task 2) for the feature to reach page content.
+**Where content is built relative to `create_from`** (verified in source): the standalone paths (`fill.rs`, `flatten.rs`, `draw.rs`, `outline.rs`, `metadata.rs`) build the new `Document` fully *before* `create_from`, but `apply.rs` (the fast path `save()` actually uses), `inject.rs`, and `pagetree.rs` write their streams into `inc.new_document` *after* `create_from`. Hooking before `create_from` would therefore leave the primary save path uncompressed. The uniform, correct hook is `compress_generated_streams(&mut inc.new_document)` immediately before `inc.save_to(...)` — `new_document` is a public field the code already mutates directly.
+
+- FontFile2 safety: lopdf's docs warn against compressing font streams, but that caveat is about missing `/Length1`. `fonts/mod.rs:97` sets `/Length1` to the uncompressed program length before the stream is built, so a Flate-compressed FontFile2 is spec-legal here.
+
+Our helper is a thin, intention-revealing wrapper over `Document::compress()` so all call sites read identically and future policy (e.g. a faster compression level, skipping specific stream subtypes) has one home. Current `.with_compression(false)` calls in `create.rs`, `appearance.rs`, `flatten.rs` set `allows_compression = false`, which would make our helper skip those exact content/appearance streams — so those calls must be dropped (Task 2) for the feature to reach page content.
 
 ---
 
@@ -200,7 +205,7 @@ Drop the `.with_compression(false)` calls so page-content and appearance streams
 - [ ] **Step 1: Verify current call sites**
 
 Run: `cd crates/core && grep -rn "with_compression(false)" src`
-Expected: exactly the 5 lines listed above.
+Expected: exactly 6 lines — the 5 listed above plus `appearance.rs:652` (the image XObject, which stays).
 
 - [ ] **Step 2: Remove each `.with_compression(false)`**
 
@@ -349,17 +354,17 @@ git commit -m "feat(core): compress streams in create path behind compress flag"
 
 ### Task 4: Compress in the incremental paths, gated by the flag
 
-All incremental emit sites share the shape: build a new `Document`, then `IncrementalDocument::create_from(orig_bytes, doc)`, then `inc.save_to(...)`. Compress the **new** `Document` right before `create_from`. This task covers the fast path (`apply.rs`) and the per-op paths.
+All incremental emit sites share the shape: build a new `Document`, then `IncrementalDocument::create_from(orig_bytes, doc)`, then `inc.save_to(...)`. Compress **`inc.new_document` immediately before `inc.save_to`** — NOT before `create_from`. In `apply.rs`, `inject.rs`, and `pagetree.rs` the streams are written into `inc.new_document` *after* `create_from`, so an earlier hook would compress an empty document and silently ship uncompressed output on the primary save path (see Design Notes). Hooking before `save_to` is correct for every path, including the ones that build the document up front. This task covers the fast path (`apply.rs`) and the per-op paths.
 
 **Files:**
-- Modify: `crates/core/src/apply.rs` — `apply_all_json` (`:53`, `create_from` at `:84`)
+- Modify: `crates/core/src/apply.rs` — `apply_all_json` (`:53`, `inc.save_to` at `:104`)
 - Modify: `crates/core/src/draw.rs:988`, `crates/core/src/fill.rs:70`, `crates/core/src/flatten.rs:34`, `crates/core/src/inject.rs:106`, `crates/core/src/outline.rs:141`, `crates/core/src/metadata.rs:123`, `crates/core/src/pagetree.rs:181`
 - Modify: `crates/core/src/lib.rs` — the corresponding `#[wasm_bindgen]` exports (`apply_all`, `apply_draw_ops`, `fill_fields`, `flatten_fields`, `inject_fields`, `set_outline`, `set_metadata`, `insert_pages`)
 - Test: `crates/core/src/apply.rs` (inline `#[cfg(test)]`)
 
 **Interfaces:**
 - Consumes: `compress_generated_streams` (Task 1).
-- Produces: each listed Rust entry function and its wasm export gains a trailing `compress: bool`. The new `Document` is compressed before `create_from` when `compress == true`.
+- Produces: each listed Rust entry function and its wasm export gains a trailing `compress: bool`. `inc.new_document` is compressed immediately before `inc.save_to` when `compress == true`.
 
 - [ ] **Step 1: Write the failing test (fast path)**
 
@@ -389,7 +394,7 @@ Expected: FAIL — `apply_all_json` does not yet take `compress` (compile error)
 
 - [ ] **Step 3: Thread the flag through `apply_all_json`**
 
-In `crates/core/src/apply.rs`, add trailing `compress: bool` to `apply_all_json` and compress the new `Document` before `create_from` (`:84`):
+In `crates/core/src/apply.rs`, add trailing `compress: bool` to `apply_all_json` and compress `inc.new_document` after all the `*_apply` calls, immediately before `inc.save_to` (`:104`). The fill/flatten/draw/metadata/outline content is written into `inc.new_document` between `create_from` (`:84`) and `save_to` — compressing any earlier would miss all of it:
 
 ```rust
 pub fn apply_all_json(
@@ -400,32 +405,30 @@ pub fn apply_all_json(
     fonts: &[u8],
     compress: bool,
 ) -> Result<Vec<u8>, String> {
-    // ... build `doc` (the new Document) exactly as today ...
+    // ... existing body unchanged: build doc, create_from, run the
+    //     fill/flatten/draw/metadata/outline *_apply phases ...
 
     if compress {
-        crate::compress::compress_generated_streams(&mut doc);
+        crate::compress::compress_generated_streams(&mut inc.new_document);
     }
 
-    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
 }
 ```
 
-Verify the local variable holding the new `Document` is named correctly (read the function body first — it may not be `doc`) and that it is still owned/mutable at that point.
-
 - [ ] **Step 4: Apply the same pattern to the per-op paths**
 
-In each of `draw.rs:988`, `fill.rs:70`, `flatten.rs:34`, `inject.rs:106`, `outline.rs:141`, `metadata.rs:123`, `pagetree.rs:181`: add a trailing `compress: bool` to the public entry function, and insert immediately before its `IncrementalDocument::create_from(...)`:
+In each of `draw.rs:988`, `fill.rs:70`, `flatten.rs:34`, `inject.rs:106`, `outline.rs:141`, `metadata.rs:123`, `pagetree.rs:181` (these are the `inc.save_to` lines): add a trailing `compress: bool` to the public entry function, and insert immediately before `inc.save_to(...)`:
 
 ```rust
 if compress {
-    crate::compress::compress_generated_streams(&mut doc); // use the real local name
+    crate::compress::compress_generated_streams(&mut inc.new_document);
 }
 ```
 
-For each file, read the function to confirm the new-document variable name before editing.
+For each file, read the function to confirm the `IncrementalDocument` local is named `inc` before editing. (`inject.rs` and `pagetree.rs` also build streams after `create_from`, so this placement is required there too, not just stylistic.)
 
 - [ ] **Step 5: Thread the flag through every affected wasm export**
 
@@ -737,13 +740,20 @@ const plain = await doc.save({ compress: false }); // uncompressed, e.g. for deb
 
 - [ ] **Step 3: Add a `CHANGELOG.md` entry**
 
-Add a new minor-version section (bump the current minor) documenting: stream compression on save, default `true`, new `SaveOptions.compress`, additive/backward-compatible.
+Add a new minor-version section (bump the current minor) documenting: stream compression on save, default `true`, new `SaveOptions.compress`, additive/backward-compatible. Include two caveats: (1) raw PDF byte output changes — consumers that regex or snapshot the raw bytes of saved PDFs should pass `{ compress: false }` or update their fixtures; (2) incremental saves remain append-only, so compression only affects the newly appended section — existing digital signatures on the original revision stay valid.
 
-- [ ] **Step 4: Bump the version**
+- [ ] **Step 4: Measure the benchmark impact**
+
+`Stream::compress` uses `Compression::best()` and now runs on every default save, so quantify the cost on the load→mutate→save path before releasing.
+
+Run: `bun run bench` on `master`, then on this branch, and compare.
+Expected: record the deltas (time and output size) in the CHANGELOG entry or PR description. If the save-path regression is unacceptable, stop and revisit the compression level inside `compress_generated_streams` (implement deflate at a faster level there instead of delegating to `Document::compress()`) before shipping.
+
+- [ ] **Step 5: Bump the version**
 
 Update `version` in `package.json` and `crates/core/Cargo.toml` to the new minor version (match the CHANGELOG heading).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add README.md CHANGELOG.md package.json crates/core/Cargo.toml
@@ -761,10 +771,11 @@ git commit -m "docs: document save({ compress }) and release notes"
 - All incremental paths + merge wired + gated → Task 4. ✓
 - wasm rebuild + binding thread-through → Task 5. ✓
 - Public `save({ compress })` default true + type export + integration tests → Task 6. ✓
-- Docs + version bump → Task 7. ✓
+- Docs + benchmark measurement + version bump → Task 7. ✓
 - Images/fonts not double-compressed → guaranteed by `Stream::compress()`'s `/Filter` guard (Design Notes) + leaving `appearance.rs:652` untouched (Task 2 Step 2). ✓
-- Append-only integrity → only the new `Document` is compressed before `create_from` (Task 4). ✓
+- Append-only integrity → only `inc.new_document` is compressed before `inc.save_to`; the original bytes are never touched, so existing signatures stay valid (Task 4). ✓
+- Hook placement → before `save_to`, never before `create_from`: `apply.rs`/`inject.rs`/`pagetree.rs` build their streams after `create_from` (Design Notes). ✓
 
 **Type consistency:** trailing `compress: bool` (Rust) / `compress: boolean` (TS) added consistently across Rust entry fns, wasm exports, TS bindings, and `document.ts`; `compress_generated_streams` name used identically at every call site; `SaveOptions.compress` optional with `?? true` default at the single `save()` entry.
 
-**Out of scope (explicitly not in this plan):** image downsampling/lossy re-encoding, object streams (`use_object_streams`), xref streams, linearization. These are separate future plans.
+**Out of scope (explicitly not in this plan):** image downsampling/lossy re-encoding, object streams (`use_object_streams`), xref streams, linearization. Also intentionally excluded: the `doc_io.rs:34` `save_to` (the decrypt-on-load full rewrite) — it is a load-time re-serialization of the original document, not a stream-emitting save path; do not wire the compress flag through it. These are separate future plans.
