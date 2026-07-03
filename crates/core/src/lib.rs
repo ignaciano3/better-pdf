@@ -136,8 +136,9 @@ pub fn manipulate_pages(
     docs_json: &str,
     plan_json: &str,
     compress: bool,
+    object_streams: bool,
 ) -> Result<Vec<u8>, JsError> {
-    pageops::manipulate_pages_json(docs_blob, docs_json, plan_json, compress)
+    pageops::manipulate_pages_json(docs_blob, docs_json, plan_json, compress, object_streams)
         .map_err(|e| JsError::new(&e))
 }
 
