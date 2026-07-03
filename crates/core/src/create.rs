@@ -549,6 +549,7 @@ pub fn create_document_json(
     fonts_json: &str,
     fields_json: &str,
     compress: bool,
+    object_streams: bool,
 ) -> Result<Vec<u8>, String> {
     let ops: Vec<CreateOp> =
         serde_json::from_str(ops_json).map_err(|e| format!("invalid create ops: {e}"))?;
@@ -739,13 +740,7 @@ pub fn create_document_json(
         doc.trailer.set("Info", Object::Reference(info_id));
     }
 
-    if compress {
-        crate::compress::compress_generated_streams(&mut doc);
-    }
-
-    let mut out = Vec::new();
-    doc.save_to(&mut out).map_err(|e| e.to_string())?;
-    Ok(out)
+    crate::compress::serialize_document(&mut doc, compress, object_streams)
 }
 
 /// Validate every create op and field definition before any object is built,
@@ -2361,10 +2356,10 @@ mod tests {
     fn create_document_compresses_content_when_enabled() {
         let empty = Vec::new();
         let compressed =
-            create_document_json(SIMPLE_TEXT_PAGE_OPS_JSON, &empty, &empty, "[]", "[]", true)
+            create_document_json(SIMPLE_TEXT_PAGE_OPS_JSON, &empty, &empty, "[]", "[]", true, false)
                 .unwrap();
         let raw =
-            create_document_json(SIMPLE_TEXT_PAGE_OPS_JSON, &empty, &empty, "[]", "[]", false)
+            create_document_json(SIMPLE_TEXT_PAGE_OPS_JSON, &empty, &empty, "[]", "[]", false, false)
                 .unwrap();
         assert!(
             compressed.len() < raw.len(),
@@ -2376,6 +2371,36 @@ mod tests {
             compressed.windows(11).any(|w| w == b"FlateDecode"),
             "expected a FlateDecode filter in compressed output"
         );
+    }
+
+    #[test]
+    fn create_document_object_streams_shrinks_multipage() {
+        // 30 blank pages => 30 page dicts + a pages node + catalog to pack.
+        let mut ops = String::from("[");
+        for i in 0..30 {
+            if i > 0 {
+                ops.push(',');
+            }
+            ops.push_str(r#"{"op":"addPage","width":595,"height":842}"#);
+        }
+        ops.push(']');
+
+        let empty = Vec::new();
+        let packed = create_document_json(&ops, &empty, &empty, "[]", "[]", true, true).unwrap();
+        let plain = create_document_json(&ops, &empty, &empty, "[]", "[]", true, false).unwrap();
+
+        assert!(
+            packed.len() < plain.len(),
+            "object-stream output {} should be smaller than {}",
+            packed.len(),
+            plain.len()
+        );
+        assert!(
+            packed.windows(6).any(|w| w == b"ObjStm"),
+            "expected an /ObjStm in object-stream output"
+        );
+        // Round-trips through the parser with all pages intact.
+        assert_eq!(Document::load_mem(&packed).unwrap().get_pages().len(), 30);
     }
 
     const FICHA: &[u8] =
@@ -2437,7 +2462,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"page","page":0,"x":10,"y":20,"width":300,"height":400,"imageOffset":0,"imageLength":{len},"srcPage":0}}]"#
         );
-        let out = create_document_json(&json, src, &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(&json, src, &[], "[]", "[]", false, false).unwrap();
         assert!(
             page0_has_bpp_form_xobject(&out),
             "created page must carry a BPp Form XObject"
@@ -2488,7 +2513,7 @@ mod tests {
             ]},
             {"type":"choice","name":"d","page":0,"x":10,"y":100,"width":100,"height":20,"combo":true,"options":["X","Y"],"defaultSelected":"Y"}
         ]"#;
-        let out = create_document_json(ops, &[], &[], "[]", fields, false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", fields, false, false).unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         let dv = |name: &str| {
@@ -2512,7 +2537,7 @@ mod tests {
             {"type":"text","name":"amount","page":0,"x":10,"y":10,"width":100,"height":20,"fontSize":14},
             {"type":"checkBox","name":"agree","page":0,"x":10,"y":40,"size":12}
         ]"#;
-        let out = create_document_json(ops, &[], &[], "[]", fields, false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", fields, false, false).unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         let by = |name: &str| {
@@ -2540,7 +2565,7 @@ mod tests {
                 {"value":"B","page":0,"x":40,"y":40,"size":12}
             ]}
         ]"#;
-        let out = create_document_json(ops, &[], &[], "[]", fields, false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", fields, false, false).unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         let by = |name: &str| {
@@ -2561,7 +2586,7 @@ mod tests {
     fn builder_sets_password_flag() {
         let ops = r#"[{"op":"addPage","width":595,"height":842}]"#;
         let fields = r#"[{"type":"text","name":"pin","page":0,"x":10,"y":10,"width":100,"height":20,"password":true}]"#;
-        let out = create_document_json(ops, &[], &[], "[]", fields, false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", fields, false, false).unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v[0]["name"], "pin");
@@ -2572,7 +2597,7 @@ mod tests {
     fn builder_rejects_default_selected_not_in_options() {
         let ops = r#"[{"op":"addPage","width":595,"height":842}]"#;
         let fields = r#"[{"type":"choice","name":"d","page":0,"x":10,"y":10,"width":100,"height":20,"combo":true,"options":["X","Y"],"defaultSelected":"Z"}]"#;
-        let err = create_document_json(ops, &[], &[], "[]", fields, false).unwrap_err();
+        let err = create_document_json(ops, &[], &[], "[]", fields, false, false).unwrap_err();
         assert!(err.contains("defaultSelected"), "got: {err}");
     }
 
@@ -2583,7 +2608,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2599,7 +2624,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2613,7 +2638,7 @@ mod tests {
 
     #[test]
     fn text_drawn_on_created_page() {
-        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"Hello"}]"#, &[], &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -2632,7 +2657,7 @@ mod tests {
             include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
         let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
         let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"fontId":0,"color":[0,0,0],"text":"日本語"}]"#;
-        let out = create_document_json(ops, &[], FONT, &fonts_json, "[]", false).unwrap();
+        let out = create_document_json(ops, &[], FONT, &fonts_json, "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -2652,7 +2677,7 @@ mod tests {
 
     #[test]
     fn multiple_pages_in_order() {
-        let out = create_document_json(r#"[{"op":"addPage","width":100,"height":200},{"op":"addPage","width":300,"height":400}]"#, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(r#"[{"op":"addPage","width":100,"height":200},{"op":"addPage","width":300,"height":400}]"#, &[], &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let pages: Vec<_> = doc.get_pages().into_iter().collect();
         assert_eq!(pages.len(), 2);
@@ -2668,7 +2693,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         );
         assert!(r.is_err());
     }
@@ -2680,7 +2705,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         );
         assert!(r.unwrap_err().contains("page"));
     }
@@ -2692,7 +2717,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         );
         assert!(r.unwrap_err().contains("font"));
     }
@@ -2704,7 +2729,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         )
         .unwrap();
         assert!(out.starts_with(b"%PDF-"));
@@ -2718,7 +2743,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = create_document_json(&json, png, &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(&json, png, &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -2745,7 +2770,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = create_document_json(&json, png, &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(&json, png, &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -2784,7 +2809,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = create_document_json(&json, png, &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(&json, png, &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -2809,7 +2834,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len},"rotate":90}}]"#
         );
-        let out = create_document_json(&json, png, &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(&json, png, &[], "[]", "[]", false, false).unwrap();
         let s = String::from_utf8_lossy(&out);
         // 90°: cos=0, sin=1 → "0 1 -1 0 0 0 cm"; plus the translate to (50,50).
         assert!(
@@ -2829,7 +2854,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = create_document_json(&json, png, &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(&json, png, &[], "[]", "[]", false, false).unwrap();
         let s = String::from_utf8_lossy(&out);
         assert!(
             s.contains("100 0 0 80 50 50 cm"),
@@ -2840,7 +2865,7 @@ mod tests {
     #[test]
     fn rectangle_dash_emits_dash_op() {
         let json = r#"[{"op":"addPage","width":595,"height":842},{"op":"rectangle","page":0,"x":10,"y":10,"width":100,"height":50,"borderColor":[0,0,0],"borderWidth":1,"dash":[4,2]}]"#;
-        let out = create_document_json(json, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(json, &[], &[], "[]", "[]", false, false).unwrap();
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("[4 2] 0 d"), "expected dash pattern op");
     }
@@ -2848,7 +2873,7 @@ mod tests {
     #[test]
     fn line_without_dash_has_no_dash_op() {
         let json = r#"[{"op":"addPage","width":595,"height":842},{"op":"line","page":0,"x1":0,"y1":0,"x2":50,"y2":50,"color":[0,0,0],"thickness":1}]"#;
-        let out = create_document_json(json, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(json, &[], &[], "[]", "[]", false, false).unwrap();
         let s = String::from_utf8_lossy(&out);
         assert!(!s.contains(" d\n"), "solid line should emit no dash op");
     }
@@ -2860,7 +2885,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len},"opacity":0.5}}]"#
         );
-        let out = create_document_json(&json, png, &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(&json, png, &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -2891,7 +2916,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = create_document_json(&json, png, &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(&json, png, &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -2909,7 +2934,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{len},"opacity":1.5}}]"#
         );
-        let r = create_document_json(&json, png, &[], "[]", "[]", false);
+        let r = create_document_json(&json, png, &[], "[]", "[]", false, false);
         assert!(r.unwrap_err().contains("opacity"));
     }
 
@@ -2920,7 +2945,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":1,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let r = create_document_json(&json, png, &[], "[]", "[]", false);
+        let r = create_document_json(&json, png, &[], "[]", "[]", false, false);
         assert!(r.unwrap_err().contains("page"));
     }
 
@@ -2932,7 +2957,7 @@ mod tests {
             r#"[{{"op":"addPage","width":595,"height":842}},{{"op":"image","page":0,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{}}}]"#,
             len + 1
         );
-        let r = create_document_json(&json, png, &[], "[]", "[]", false);
+        let r = create_document_json(&json, png, &[], "[]", "[]", false, false);
         assert!(r.unwrap_err().contains("out of bounds"));
     }
 
@@ -2951,7 +2976,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2971,7 +2996,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3005,7 +3030,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3030,7 +3055,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            fields, false
+            fields, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3049,7 +3074,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            fields, false
+            fields, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3075,7 +3100,7 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false
+                f, false, false
             )
             .is_err()
         );
@@ -3090,7 +3115,7 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false
+                f, false, false
             )
             .is_err()
         );
@@ -3104,7 +3129,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
@@ -3120,7 +3145,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         assert!(crate::forms::read_fields_json(&out).unwrap().contains("On"));
@@ -3134,7 +3159,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
@@ -3164,7 +3189,7 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false
+                f, false, false
             )
             .is_err()
         );
@@ -3179,7 +3204,7 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false
+                f, false, false
             )
             .is_err()
         );
@@ -3193,7 +3218,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
@@ -3212,7 +3237,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         assert!(
@@ -3231,7 +3256,7 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false
+                f, false, false
             )
             .is_err()
         );
@@ -3245,7 +3270,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
@@ -3270,7 +3295,7 @@ mod tests {
     #[test]
     fn creates_outline() {
         let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"addPage","width":595,"height":842},{"op":"outline","items":[{"title":"Cover","page":0},{"title":"Body","page":1,"children":[{"title":"Sub","page":1}]}]}]"#;
-        let out = create_document_json(ops, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let cat = doc.catalog().unwrap();
         let outlines = doc
@@ -3285,7 +3310,7 @@ mod tests {
     #[test]
     fn outline_rejects_bad_page() {
         let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"outline","items":[{"title":"x","page":9}]}]"#;
-        assert!(create_document_json(ops, &[], &[], "[]", "[]", false).is_err());
+        assert!(create_document_json(ops, &[], &[], "[]", "[]", false, false).is_err());
     }
 
     fn get_first_field_dict(doc: &Document) -> Dictionary {
@@ -3312,7 +3337,7 @@ mod tests {
             {"type":"checkBox","name":"c","page":0,"x":10,"y":40,"size":12},
             {"type":"choice","name":"d","page":0,"x":10,"y":70,"width":100,"height":20,"options":["a","b"],"combo":true}
         ]"#;
-        let out = create_document_json(ops, &[], &[], "[]", fields, false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", fields, false, false).unwrap();
         // Structural assertions (stable across environments):
         let doc = Document::load_mem(&out).unwrap();
         assert!(doc.catalog().unwrap().has(b"AcroForm"));
@@ -3328,7 +3353,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3351,7 +3376,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3369,7 +3394,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3385,7 +3410,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3405,7 +3430,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3425,7 +3450,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3450,7 +3475,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3470,7 +3495,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3491,7 +3516,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3516,7 +3541,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3534,7 +3559,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         );
         assert!(r.unwrap_err().contains("comb field requires maxLength"));
     }
@@ -3547,7 +3572,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         );
         assert!(r.unwrap_err().contains("comb field cannot be multiline"));
     }
@@ -3563,7 +3588,7 @@ mod tests {
             &[],
             FONT,
             &fonts_json,
-            f, false
+            f, false, false
         );
         assert!(r.unwrap_err().contains("plain and multiline text fields only"));
     }
@@ -3577,7 +3602,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3596,7 +3621,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3614,7 +3639,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3632,7 +3657,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3651,7 +3676,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3669,7 +3694,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3689,7 +3714,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3707,7 +3732,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3727,7 +3752,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3755,7 +3780,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3776,7 +3801,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3791,7 +3816,7 @@ mod tests {
     #[test]
     fn created_doc_has_metadata() {
         let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"metadata","title":"Generated","author":"better-pdf"}]"#;
-        let out = create_document_json(ops, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", "[]", false, false).unwrap();
         let json = crate::metadata::read_metadata_json(&out).unwrap();
         assert!(json.contains("Generated"), "json was {json}");
         assert!(json.contains("better-pdf"), "json was {json}");
@@ -3800,7 +3825,7 @@ mod tests {
     #[test]
     fn created_page_rotation_applied() {
         let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"setRotation","page":0,"degrees":90}]"#;
-        let out = create_document_json(ops, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         assert_eq!(
@@ -3817,7 +3842,7 @@ mod tests {
     #[test]
     fn created_page_media_box_override() {
         let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"setMediaBox","page":0,"box":[0,0,200,300]}]"#;
-        let out = create_document_json(ops, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let mb = doc
@@ -3833,13 +3858,13 @@ mod tests {
     #[test]
     fn created_page_rotation_rejects_non_multiple() {
         let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"setRotation","page":0,"degrees":33}]"#;
-        assert!(create_document_json(ops, &[], &[], "[]", "[]", false).is_err());
+        assert!(create_document_json(ops, &[], &[], "[]", "[]", false, false).is_err());
     }
 
     #[test]
     fn created_page_with_link_has_link_annot() {
         let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"link","page":0,"rect":[50,50,200,80],"uri":"https://example.com"}]"#;
-        let out = create_document_json(ops, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
@@ -3871,7 +3896,7 @@ mod tests {
                 {"t":"z"}
             ],"fill":[0,0,1],"stroke":[0,0,0],"strokeWidth":1.5}
         ]"#;
-        let out = create_document_json(ops, &[], &[], "[]", "[]", false).unwrap();
+        let out = create_document_json(ops, &[], &[], "[]", "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();
         let contents = doc.get_dictionary(pid).unwrap().get(b"Contents").unwrap();
@@ -3906,7 +3931,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3943,7 +3968,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3965,7 +3990,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3985,7 +4010,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -4009,7 +4034,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -4043,7 +4068,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false
+            f, false, false
         );
         assert!(r.is_err(), "unknown font must be rejected");
     }
@@ -4059,7 +4084,7 @@ mod tests {
             &[],
             FONT,
             &fonts_json,
-            f, false
+            f, false, false
         );
         assert!(r.unwrap_err().contains("out of range"));
     }

@@ -11,6 +11,7 @@
 
 import * as wasm from "./core/wasm.js";
 import { PdfDocumentBase } from "./core/document.js";
+import type { ManipulateOptions } from "./core/document.js";
 
 /**
  * Represents a loaded PDF document.
@@ -66,6 +67,8 @@ export class PdfDocument extends PdfDocumentBase {
    * @param docs - Array of source PDF byte arrays.
    * @param selections - Ordered list of `{docIndex, pageIndex}` entries describing
    *   which page from which document to include. Indices are zero-based.
+   * @param options - Optional; `{ objectStreams?: boolean }` packs object streams
+   *   for smaller output (default false).
    * @returns A new PDF containing only the selected pages in the given order.
    *
    * @example
@@ -80,14 +83,17 @@ export class PdfDocument extends PdfDocumentBase {
   static async assemble(
     docs: Uint8Array[],
     selections: { docIndex: number; pageIndex: number }[],
+    options?: ManipulateOptions,
   ): Promise<Uint8Array> {
-    return PdfDocumentBase.assembleImpl(wasm, docs, selections);
+    return PdfDocumentBase.assembleImpl(wasm, docs, selections, options?.objectStreams ?? false);
   }
 
   /**
    * Merge multiple PDF documents into a single PDF, preserving all pages in order.
    *
    * @param docs - Array of source PDF byte arrays to merge.
+   * @param options - Optional; `{ objectStreams?: boolean }` packs object streams
+   *   for smaller output (default false).
    * @returns A new PDF containing all pages from all source documents in order.
    *
    * @example
@@ -95,8 +101,8 @@ export class PdfDocument extends PdfDocumentBase {
    * const merged = await PdfDocument.merge([docA, docB, docC]);
    * ```
    */
-  static async merge(docs: Uint8Array[]): Promise<Uint8Array> {
-    return PdfDocumentBase.mergeImpl(wasm, docs);
+  static async merge(docs: Uint8Array[], options?: ManipulateOptions): Promise<Uint8Array> {
+    return PdfDocumentBase.mergeImpl(wasm, docs, options?.objectStreams ?? false);
   }
 }
 

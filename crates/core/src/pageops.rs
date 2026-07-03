@@ -257,6 +257,7 @@ pub fn manipulate_pages_json(
     docs_json: &str,
     plan_json: &str,
     compress: bool,
+    object_streams: bool,
 ) -> Result<Vec<u8>, String> {
     let descs: Vec<DocDesc> =
         serde_json::from_str(docs_json).map_err(|e| format!("invalid docs: {e}"))?;
@@ -370,13 +371,7 @@ pub fn manipulate_pages_json(
     // their content/resources/annots) is retained.
     merged.prune_objects();
 
-    if compress {
-        crate::compress::compress_generated_streams(&mut merged);
-    }
-
-    let mut out = Vec::new();
-    merged.save_to(&mut out).map_err(|e| e.to_string())?;
-    Ok(out)
+    crate::compress::serialize_document(&mut merged, compress, object_streams)
 }
 
 #[cfg(test)]
@@ -424,14 +419,14 @@ mod tests {
             }
         }
         plan.push(']');
-        let out = manipulate_pages_json(&blob, &docs, &plan, false).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, &plan, false, false).unwrap();
         assert_eq!(page_count(&out), 2 * n);
     }
 
     #[test]
     fn extract_single_page() {
         let (blob, docs) = pack(&[FICHA]);
-        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0}]"#, false).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0}]"#, false, false).unwrap();
         assert_eq!(page_count(&out), 1);
         // MediaBox present on the extracted page (inherited attrs resolved)
         let doc = Document::load_mem(&out).unwrap();
@@ -448,7 +443,7 @@ mod tests {
         if n >= 2 {
             let (blob, docs) = pack(&[FICHA]);
             let out =
-                manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":1},{"doc":0,"page":0}]"#, false)
+                manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":1},{"doc":0,"page":0}]"#, false, false)
                     .unwrap();
             assert_eq!(page_count(&out), 2);
         }
@@ -457,20 +452,20 @@ mod tests {
     #[test]
     fn errors_on_empty_plan() {
         let (blob, docs) = pack(&[FICHA]);
-        assert!(manipulate_pages_json(&blob, &docs, "[]", false).is_err());
+        assert!(manipulate_pages_json(&blob, &docs, "[]", false, false).is_err());
     }
 
     #[test]
     fn errors_on_page_out_of_range() {
         let (blob, docs) = pack(&[FICHA]);
-        let r = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":9999}]"#, false);
+        let r = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":9999}]"#, false, false);
         assert!(r.unwrap_err().contains("page"));
     }
 
     #[test]
     fn errors_on_doc_out_of_range() {
         let (blob, docs) = pack(&[FICHA]);
-        let r = manipulate_pages_json(&blob, &docs, r#"[{"doc":5,"page":0}]"#, false);
+        let r = manipulate_pages_json(&blob, &docs, r#"[{"doc":5,"page":0}]"#, false, false);
         assert!(r.unwrap_err().contains("doc"));
     }
 
@@ -490,7 +485,7 @@ mod tests {
             }
         }
         plan.push(']');
-        let out = manipulate_pages_json(&blob, &docs, &plan, false).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, &plan, false, false).unwrap();
 
         let doc = Document::load_mem(&out).unwrap();
         let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
@@ -528,7 +523,7 @@ mod tests {
             }
         }
         plan.push(']');
-        let out = manipulate_pages_json(&blob, &docs, &plan, false).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, &plan, false, false).unwrap();
 
         let doc = Document::load_mem(&out).unwrap();
         let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
@@ -572,7 +567,7 @@ mod tests {
             }
         }
         plan.push(']');
-        let out = manipulate_pages_json(&blob, &docs, &plan, false).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, &plan, false, false).unwrap();
 
         let doc = Document::load_mem(&out).unwrap();
         let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
@@ -623,7 +618,7 @@ mod tests {
     #[test]
     fn duplicate_page_selection_produces_two_distinct_pages() {
         let (blob, docs) = pack(&[FICHA]);
-        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0},{"doc":0,"page":0}]"#, false)
+        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0},{"doc":0,"page":0}]"#, false, false)
             .unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let ids: Vec<_> = doc.get_pages().into_values().collect();
@@ -632,5 +627,40 @@ mod tests {
             ids[0], ids[1],
             "duplicate selection must yield distinct page objects"
         );
+    }
+
+    #[test]
+    fn manipulate_pages_object_streams_shrinks_merge() {
+        // Merge two copies of the FICHA form (many field/annotation dicts to pack).
+        // Build the concatenated blob + offset table exactly as the existing merge
+        // tests do (two entries, both FICHA), and a plan selecting every page of
+        // both docs. Reuse whatever helper/inline shape the neighbouring merge test
+        // uses; the assertion below is size + /ObjStm + round-trip, not exact bytes.
+        let blob = [FICHA, FICHA].concat();
+        let docs_json = format!(
+            r#"[{{"offset":0,"length":{}}},{{"offset":{},"length":{}}}]"#,
+            FICHA.len(),
+            FICHA.len(),
+            FICHA.len()
+        );
+        // Select page 0 of each doc (both fixtures have at least one page).
+        let plan_json = r#"[{"doc":0,"page":0},{"doc":1,"page":0}]"#;
+
+        let packed =
+            manipulate_pages_json(&blob, &docs_json, plan_json, true, true).unwrap();
+        let plain =
+            manipulate_pages_json(&blob, &docs_json, plan_json, true, false).unwrap();
+
+        assert!(
+            packed.len() < plain.len(),
+            "object-stream merge {} should be smaller than {}",
+            packed.len(),
+            plain.len()
+        );
+        assert!(
+            packed.windows(6).any(|w| w == b"ObjStm"),
+            "expected an /ObjStm in object-stream merge output"
+        );
+        assert_eq!(Document::load_mem(&packed).unwrap().get_pages().len(), 2);
     }
 }

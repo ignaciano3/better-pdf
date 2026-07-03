@@ -129,6 +129,7 @@ export interface CoreWasm {
     fontsJson?: string,
     fieldsJson?: string,
     compress?: boolean,
+    objectStreams?: boolean,
   ): Uint8Array;
   imageInfo(data: Uint8Array): string;
   measureText(font: string, size: number, text: string): number;
@@ -140,6 +141,7 @@ export interface CoreWasm {
     docsJson: string,
     planJson: string,
     compress?: boolean,
+    objectStreams?: boolean,
   ): Uint8Array;
   setOutline(data: Uint8Array, json: string, compress?: boolean): Uint8Array;
   insertPages(data: Uint8Array, opsJson: string, compress?: boolean): Uint8Array;
@@ -164,6 +166,23 @@ export interface CoreWasm {
 export interface SaveOptions {
   /** Deflate-compress generated streams. Defaults to `true`. */
   compress?: boolean;
+  /**
+   * Pack non-stream objects into PDF object streams (+ cross-reference streams)
+   * for smaller output. Defaults to `false`. Honored only for created documents
+   * saved directly via `save()` (a created document materialized by `getForm()`
+   * becomes sealed and takes the incremental path, which ignores this flag).
+   * Ignored for loaded-document (incremental) saves.
+   */
+  objectStreams?: boolean;
+}
+
+/** Options for the full-document assembly operations (merge/assemble/copy/split). */
+export interface ManipulateOptions {
+  /**
+   * Pack non-stream objects into PDF object streams (+ cross-reference streams)
+   * for smaller output. Defaults to `false`.
+   */
+  objectStreams?: boolean;
 }
 
 export class PdfDocumentBase {
@@ -211,10 +230,11 @@ export class PdfDocumentBase {
    */
   async save(options: SaveOptions = {}): Promise<Uint8Array> {
     const compress = options.compress ?? true;
+    const objectStreams = options.objectStreams ?? false;
 
     if (this.mode === "create" && !this.sealed) {
       try {
-        return this.buildCreatedBytes(compress);
+        return this.buildCreatedBytes(compress, objectStreams);
       } catch (e) {
         throw toPdfError(e);
       }
@@ -312,7 +332,7 @@ export class PdfDocumentBase {
    * and outline, then run the single-pass createDocument with all fields.
    * Shared by `save()` (create mode) and `getForm()` materialization.
    */
-  private buildCreatedBytes(compress = true): Uint8Array {
+  private buildCreatedBytes(compress = true, objectStreams = false): Uint8Array {
     if (this.meta.dirty) {
       this.drawQueue.pushMetadata(this.meta.wire);
     }
@@ -327,6 +347,7 @@ export class PdfDocumentBase {
       fontsJson,
       JSON.stringify(this.fieldDefs),
       compress,
+      objectStreams,
     );
   }
 
@@ -755,12 +776,17 @@ export class PdfDocumentBase {
    * @returns A new PDF containing only the selected pages.
    * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
    */
-  async copyPages(indices: number[]): Promise<Uint8Array> {
+  async copyPages(indices: number[], options: ManipulateOptions = {}): Promise<Uint8Array> {
     if (this.mode !== "load") {
       throw new PdfError("copyPages is only available on documents opened with PdfDocument.load()");
     }
     const selections = indices.map((i) => ({ docIndex: 0, pageIndex: i }));
-    return PdfDocumentBase.runAssemble([this.bytes], selections, this.wasm);
+    return PdfDocumentBase.runAssemble(
+      [this.bytes],
+      selections,
+      this.wasm,
+      options.objectStreams ?? false,
+    );
   }
 
   /**
@@ -771,12 +797,13 @@ export class PdfDocumentBase {
    * @returns An array of PDF byte arrays, one per page, in document order.
    * @throws `PdfError` when called on a document created with `PdfDocument.create()`.
    */
-  async splitPages(): Promise<Uint8Array[]> {
+  async splitPages(options: ManipulateOptions = {}): Promise<Uint8Array[]> {
     if (this.mode !== "load") {
       throw new PdfError(
         "splitPages is only available on documents opened with PdfDocument.load()",
       );
     }
+    const objectStreams = options.objectStreams ?? false;
     const count = this.getPageCount();
     const results: Uint8Array[] = [];
     for (let i = 0; i < count; i++) {
@@ -785,6 +812,7 @@ export class PdfDocumentBase {
           [this.bytes],
           [{ docIndex: 0, pageIndex: i }],
           this.wasm,
+          objectStreams,
         ),
       );
     }
@@ -799,6 +827,7 @@ export class PdfDocumentBase {
     docs: Uint8Array[],
     selections: { docIndex: number; pageIndex: number }[],
     wasmBinding: CoreWasm,
+    objectStreams = false,
   ): Uint8Array {
     // Build a single concatenated blob and an offset/length table
     let totalLength = 0;
@@ -815,7 +844,9 @@ export class PdfDocumentBase {
     const planJson = JSON.stringify(
       selections.map((s) => ({ doc: s.docIndex, page: s.pageIndex })),
     );
-    return callBytes(() => wasmBinding.manipulatePages(blob, docsJson, planJson));
+    return callBytes(() =>
+      wasmBinding.manipulatePages(blob, docsJson, planJson, true, objectStreams),
+    );
   }
 
   /**
@@ -839,12 +870,17 @@ export class PdfDocumentBase {
     wasmBinding: CoreWasm,
     docs: Uint8Array[],
     selections: { docIndex: number; pageIndex: number }[],
+    objectStreams = false,
   ): Uint8Array {
-    return PdfDocumentBase.runAssemble(docs, selections, wasmBinding);
+    return PdfDocumentBase.runAssemble(docs, selections, wasmBinding, objectStreams);
   }
 
   /** @internal Shared `PdfDocument.merge` body: every page of every doc, in order. */
-  protected static mergeImpl(wasmBinding: CoreWasm, docs: Uint8Array[]): Uint8Array {
+  protected static mergeImpl(
+    wasmBinding: CoreWasm,
+    docs: Uint8Array[],
+    objectStreams = false,
+  ): Uint8Array {
     const selections: { docIndex: number; pageIndex: number }[] = [];
     for (let docIndex = 0; docIndex < docs.length; docIndex++) {
       const pageInfos = callJson<PageInfo[]>(() => wasmBinding.readPages(docs[docIndex]!));
@@ -852,6 +888,6 @@ export class PdfDocumentBase {
         selections.push({ docIndex, pageIndex });
       }
     }
-    return PdfDocumentBase.runAssemble(docs, selections, wasmBinding);
+    return PdfDocumentBase.runAssemble(docs, selections, wasmBinding, objectStreams);
   }
 }

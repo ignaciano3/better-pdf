@@ -13,6 +13,7 @@
 import * as wasm from "./core/wasm-browser.js";
 import { initializeWasm } from "./core/wasm-browser.js";
 import { PdfDocumentBase } from "./core/document.js";
+import type { ManipulateOptions } from "./core/document.js";
 
 /**
  * Represents a loaded PDF document.
@@ -67,19 +68,28 @@ export class PdfDocument extends PdfDocumentBase {
   /**
    * Assemble a new PDF from an ordered selection of pages across one or more
    * source documents. See {@link PdfDocument.assemble} in the Node build.
+   *
+   * @param options - Optional; `{ objectStreams?: boolean }` packs object streams
+   *   for smaller output (default false).
    */
   static async assemble(
     docs: Uint8Array[],
     selections: { docIndex: number; pageIndex: number }[],
+    options?: ManipulateOptions,
   ): Promise<Uint8Array> {
     await initializeWasm();
-    return PdfDocumentBase.assembleImpl(wasm, docs, selections);
+    return PdfDocumentBase.assembleImpl(wasm, docs, selections, options?.objectStreams ?? false);
   }
 
-  /** Merge multiple PDFs into one, preserving all pages in order. */
-  static async merge(docs: Uint8Array[]): Promise<Uint8Array> {
+  /**
+   * Merge multiple PDFs into one, preserving all pages in order.
+   *
+   * @param options - Optional; `{ objectStreams?: boolean }` packs object streams
+   *   for smaller output (default false).
+   */
+  static async merge(docs: Uint8Array[], options?: ManipulateOptions): Promise<Uint8Array> {
     await initializeWasm();
-    return PdfDocumentBase.mergeImpl(wasm, docs);
+    return PdfDocumentBase.mergeImpl(wasm, docs, options?.objectStreams ?? false);
   }
 }
 

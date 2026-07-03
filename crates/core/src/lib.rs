@@ -95,6 +95,9 @@ pub fn apply_all(
 /// `fonts` is the concatenated font blob that embedded-font text ops index into
 /// via `fonts_json` descriptors (pass `&[]` / "[]" for none).
 /// `fields_json` is a JSON array of field definitions (pass "[]" for none).
+/// `compress` deflates generated streams (default-on at the TS layer);
+/// `object_streams` packs non-stream objects into PDF object streams for
+/// smaller output (default-off).
 #[wasm_bindgen]
 pub fn create_document(
     ops_json: &str,
@@ -103,9 +106,12 @@ pub fn create_document(
     fonts_json: &str,
     fields_json: &str,
     compress: bool,
+    object_streams: bool,
 ) -> Result<Vec<u8>, JsError> {
-    create::create_document_json(ops_json, images, fonts, fonts_json, fields_json, compress)
-        .map_err(|e| JsError::new(&e))
+    create::create_document_json(
+        ops_json, images, fonts, fonts_json, fields_json, compress, object_streams,
+    )
+    .map_err(|e| JsError::new(&e))
 }
 
 /// Inject new AcroForm fields (JSON array of field defs, same schema as
@@ -133,8 +139,9 @@ pub fn manipulate_pages(
     docs_json: &str,
     plan_json: &str,
     compress: bool,
+    object_streams: bool,
 ) -> Result<Vec<u8>, JsError> {
-    pageops::manipulate_pages_json(docs_blob, docs_json, plan_json, compress)
+    pageops::manipulate_pages_json(docs_blob, docs_json, plan_json, compress, object_streams)
         .map_err(|e| JsError::new(&e))
 }
 

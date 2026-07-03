@@ -22,7 +22,7 @@ generated from source with TypeDoc — run `bun run docs` in the repo (output in
 - `doc.embedPng(bytes: Uint8Array): Promise<PdfImage>`
 - `doc.getForm(): PdfForm`
 - `doc.createForm(): FormBuilder` — created documents only
-- `doc.save(options?: SaveOptions): Promise<Uint8Array>` — `SaveOptions = { compress?: boolean }`; `compress` defaults to `true`
+- `doc.save(options?: SaveOptions): Promise<Uint8Array>` — `SaveOptions = { compress?: boolean; objectStreams?: boolean }`; `compress` defaults to `true`, `objectStreams` to `false` (full-document/created saves only)
 
 `save()` applies queued fills first, then queued flattens. With no queued
 operations it returns a byte-identical round trip. It always starts from the
@@ -35,6 +35,17 @@ output (e.g. debugging or byte-level assertions). Already-compressed streams
 (images, embedded fonts) are left untouched, and incremental saves only compress
 the newly appended section, so existing signatures on the original revision stay
 valid.
+
+`doc.save({ objectStreams: true })` additionally packs non-stream objects into
+PDF object streams (+ cross-reference streams) for smaller output. It defaults
+to `false` and only applies to created documents saved via `save()`; it is
+ignored on loaded-document (incremental) saves.
+
+The full-document assembly operations — `PdfDocument.merge(docs, options?)`,
+`PdfDocument.assemble(...)`, `doc.copyPages(indices, options?)`, and
+`doc.splitPages(options?)` — accept an optional `ManipulateOptions = {
+objectStreams?: boolean }` as their trailing argument, with the same
+`objectStreams` semantics as `SaveOptions` (defaults to `false`).
 
 **`PageSizes`**: `A3`, `A4`, `A5`, `Letter`, `Legal`, `Tabloid` — each a
 `[width, height]` tuple in PDF points.

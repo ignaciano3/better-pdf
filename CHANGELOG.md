@@ -33,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      appended section — the original revision's bytes are preserved, so existing
      digital signatures on that revision stay valid.
 
+- **Object streams (opt-in structural compression).** On full-document saves you
+  can now pack non-stream objects into PDF object streams + cross-reference
+  streams for smaller output: `doc.save({ objectStreams: true })` (created
+  documents) and `PdfDocument.merge` / `assemble` / `copyPages` / `splitPages`
+  via a new `ManipulateOptions` (`{ objectStreams?: boolean }`). New
+  `SaveOptions.objectStreams`, default `false`.
+  - Applies only to full-document paths (create/merge/assemble/copyPages/splitPages).
+    Incremental (loaded-document) saves ignore the flag and remain append-only.
+  - Object streams require and enable cross-reference streams and raise the
+    output to PDF 1.5+. The result is **not** PDF/A-1 conformant; leave the option
+    off (the default) if you need PDF/A-1 or maximum consumer compatibility.
+
 ## [1.9.0] - 2026-07-02
 
 ### Added
