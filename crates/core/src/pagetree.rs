@@ -42,7 +42,7 @@ enum Entry {
 
 /// Apply page-tree ops from a JSON string to `data` and return new PDF bytes
 /// (incremental save: the original bytes are preserved as a prefix).
-pub fn insert_pages_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String> {
+pub fn insert_pages_json(data: &[u8], ops_json: &str, compress: bool) -> Result<Vec<u8>, String> {
     let ops: Vec<PageOp> =
         serde_json::from_str(ops_json).map_err(|e| format!("invalid page ops: {e}"))?;
 
@@ -177,6 +177,10 @@ pub fn insert_pages_json(data: &[u8], ops_json: &str) -> Result<Vec<u8>, String>
     root.set("Kids", Object::Array(kids));
     root.set("Count", Object::Integer(count));
 
+    if compress {
+        crate::compress::compress_generated_streams(&mut inc.new_document);
+    }
+
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
@@ -196,7 +200,7 @@ mod tests {
     fn append_blank_adds_a_page() {
         let n = count(FICHA);
         let out =
-            insert_pages_json(FICHA, r#"[{"op":"appendBlank","width":595,"height":842}]"#).unwrap();
+            insert_pages_json(FICHA, r#"[{"op":"appendBlank","width":595,"height":842}]"#, false).unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental
         assert_eq!(count(&out), n + 1);
         // the new last page has the requested MediaBox
@@ -216,7 +220,7 @@ mod tests {
         let n = count(FICHA);
         let out = insert_pages_json(
             FICHA,
-            r#"[{"op":"insertBlank","index":0,"width":100,"height":100}]"#,
+            r#"[{"op":"insertBlank","index":0,"width":100,"height":100}]"#, false
         )
         .unwrap();
         assert_eq!(count(&out), n + 1);
@@ -238,7 +242,7 @@ mod tests {
     fn remove_page_drops_one() {
         let n = count(FICHA);
         if n >= 1 {
-            let out = insert_pages_json(FICHA, r#"[{"op":"removePage","index":0}]"#).unwrap();
+            let out = insert_pages_json(FICHA, r#"[{"op":"removePage","index":0}]"#, false).unwrap();
             assert_eq!(count(&out), n - 1);
         }
     }
@@ -246,13 +250,13 @@ mod tests {
     fn move_page_reorders() {
         let n = count(FICHA);
         if n >= 2 {
-            let out = insert_pages_json(FICHA, r#"[{"op":"movePage","from":0,"to":1}]"#).unwrap();
+            let out = insert_pages_json(FICHA, r#"[{"op":"movePage","from":0,"to":1}]"#, false).unwrap();
             assert_eq!(count(&out), n);
         }
     }
     #[test]
     fn errors_on_out_of_range_index() {
-        assert!(insert_pages_json(FICHA, r#"[{"op":"removePage","index":9999}]"#).is_err());
+        assert!(insert_pages_json(FICHA, r#"[{"op":"removePage","index":9999}]"#, false).is_err());
     }
 
     #[test]
@@ -263,7 +267,7 @@ mod tests {
         let had_acroform = orig.catalog().unwrap().has(b"AcroForm");
         let out = insert_pages_json(
             FICHA,
-            r#"[{"op":"appendBlank","width":200,"height":300},{"op":"movePage","from":0,"to":1}]"#,
+            r#"[{"op":"appendBlank","width":200,"height":300},{"op":"movePage","from":0,"to":1}]"#, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();

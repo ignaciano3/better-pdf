@@ -56,6 +56,7 @@ pub fn apply_all_json(
     fill_images: &[u8],
     draw_images: &[u8],
     fonts: &[u8],
+    compress: bool,
 ) -> Result<Vec<u8>, String> {
     let plan: ApplyPlan =
         serde_json::from_str(plan_json).map_err(|e| format!("invalid apply plan: {e}"))?;
@@ -100,6 +101,10 @@ pub fn apply_all_json(
         outline::outline_apply(&mut inc, items, prep)?;
     }
 
+    if compress {
+        crate::compress::compress_generated_streams(&mut inc.new_document);
+    }
+
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
@@ -131,6 +136,26 @@ mod tests {
     }
 
     #[test]
+    fn apply_all_compresses_drawn_content_when_enabled() {
+        // Repeat the drawn text so the incremental content stream is worth deflating.
+        let plan = r#"{
+            "draw": { "ops": [
+                {"op":"text","page":0,"x":72,"y":72,"size":12,"font":"Helvetica","color":[0,0,0],"text":"The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog."}
+            ] }
+        }"#;
+        let compressed =
+            apply_all_json(FICHA, plan, &[], &[], &[], true).expect("apply_all should succeed");
+        let raw =
+            apply_all_json(FICHA, plan, &[], &[], &[], false).expect("apply_all should succeed");
+        assert!(
+            compressed.len() < raw.len(),
+            "compressed {} should be smaller than raw {}",
+            compressed.len(),
+            raw.len()
+        );
+    }
+
+    #[test]
     fn apply_all_composes_draw_metadata_outline_in_one_pass() {
         let plan = r#"{
             "draw": { "ops": [
@@ -140,7 +165,7 @@ mod tests {
             "outline": [ {"title":"Section","page":0} ]
         }"#;
 
-        let out = apply_all_json(FICHA, plan, &[], &[], &[]).expect("apply_all should succeed");
+        let out = apply_all_json(FICHA, plan, &[], &[], &[], false).expect("apply_all should succeed");
         let doc = Document::load_mem(&out).expect("output must be a valid PDF");
 
         // draw landed on page 0
@@ -182,7 +207,7 @@ mod tests {
             ] }
         }"#;
 
-        let out = apply_all_json(FICHA, plan, &[], &[], &[]).expect("apply_all should succeed");
+        let out = apply_all_json(FICHA, plan, &[], &[], &[], false).expect("apply_all should succeed");
         let doc = Document::load_mem(&out).expect("output must be a valid PDF");
 
         assert!(
@@ -198,7 +223,7 @@ mod tests {
 
     #[test]
     fn apply_all_empty_plan_roundtrips() {
-        let out = apply_all_json(FICHA, "{}", &[], &[], &[]).expect("empty plan should succeed");
+        let out = apply_all_json(FICHA, "{}", &[], &[], &[], false).expect("empty plan should succeed");
         Document::load_mem(&out).expect("output must be a valid PDF");
     }
 }

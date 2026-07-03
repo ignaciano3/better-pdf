@@ -22,13 +22,21 @@ pub(crate) struct RawWidget {
     pub(crate) rect: [f32; 4],
 }
 
-pub fn flatten_fields_json(data: &[u8], names_json: &str) -> Result<Vec<u8>, String> {
+pub fn flatten_fields_json(
+    data: &[u8],
+    names_json: &str,
+    compress: bool,
+) -> Result<Vec<u8>, String> {
     let names: Vec<String> = serde_json::from_str(names_json).map_err(|e| e.to_string())?;
     let doc = crate::doc_io::load_pdf(data)?;
     let (field_ids, stamps) = flatten_resolve(&doc, &names)?;
 
     let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
     flatten_apply(&mut inc, &field_ids, &stamps)?;
+
+    if compress {
+        crate::compress::compress_generated_streams(&mut inc.new_document);
+    }
 
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
@@ -191,7 +199,7 @@ fn stamp_widget(
     let ty = s.rect[1] - bbox[1] * sy;
     let draw = format!("q {sx:.4} 0 0 {sy:.4} {tx:.2} {ty:.2} cm /{name} Do Q");
     let draw_id = inc.new_document.add_object(Object::Stream(
-        Stream::new(Dictionary::new(), draw.into_bytes()).with_compression(false),
+        Stream::new(Dictionary::new(), draw.into_bytes()),
     ));
 
     inc.opt_clone_object_to_new_document(s.page_id)
@@ -352,10 +360,10 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             r#"[{"name":"beneficiario.apellidos_nombres","value":"FLAT"}]"#,
-            &[],
+            &[], false
         )
         .unwrap();
-        let out = flatten_fields_json(&filled, r#"["beneficiario.apellidos_nombres"]"#).unwrap();
+        let out = flatten_fields_json(&filled, r#"["beneficiario.apellidos_nombres"]"#, false).unwrap();
 
         // Append-only over the filled bytes.
         assert!(out.len() > filled.len());
@@ -377,7 +385,7 @@ mod tests {
 
     #[test]
     fn flatten_unknown_field_errors() {
-        let err = flatten_fields_json(FICHA, r#"["nope.nope"]"#).unwrap_err();
+        let err = flatten_fields_json(FICHA, r#"["nope.nope"]"#, false).unwrap_err();
         assert!(err.contains("no such field"), "got: {err}");
     }
 
@@ -385,7 +393,7 @@ mod tests {
     fn rejects_xfa_forms_on_flatten() {
         const FICHA_XFA: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
         let err =
-            flatten_fields_json(FICHA_XFA, r#"["beneficiario.apellidos_nombres"]"#).unwrap_err();
+            flatten_fields_json(FICHA_XFA, r#"["beneficiario.apellidos_nombres"]"#, false).unwrap_err();
         assert!(err.contains("XFA"), "got: {err}");
     }
 }

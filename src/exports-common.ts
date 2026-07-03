@@ -30,6 +30,7 @@ export { StandardFonts } from "./generate/fonts.js";
 export { rgb, grayscale } from "./generate/color.js";
 export type { Color } from "./generate/color.js";
 export { PageOutOfRangeError } from "./core/errors.js";
+export type { SaveOptions } from "./core/document.js";
 export { PdfForm } from "./forms/form.js";
 export type { FieldInfo, FieldType, FieldWidget } from "./forms/form.js";
 export {

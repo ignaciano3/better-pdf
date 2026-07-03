@@ -18,6 +18,7 @@ pub fn inject_fields_json(
     fields_json: &str,
     fonts: &[u8],
     fonts_json: &str,
+    compress: bool,
 ) -> Result<Vec<u8>, String> {
     let fields: Vec<FieldDef> =
         serde_json::from_str(fields_json).map_err(|e| format!("invalid fields JSON: {e}"))?;
@@ -101,6 +102,10 @@ pub fn inject_fields_json(
     // Merge into an existing /AcroForm (append /Fields, merge /DR/Font) or
     // create a fresh one when the document has none.
     merge_or_create_acroform(&mut inc, &acro_field_ids, &dr_additions)?;
+
+    if compress {
+        crate::compress::compress_generated_streams(&mut inc.new_document);
+    }
 
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
@@ -633,7 +638,7 @@ mod tests {
         assert!(!before.is_empty(), "fixture must already have fields");
         let fields =
             r#"[{"type":"text","name":"bpf_new_field","page":0,"x":10,"y":10,"width":80,"height":18}]"#;
-        let out = inject_fields_json(FICHA, fields, &[], "[]").unwrap();
+        let out = inject_fields_json(FICHA, fields, &[], "[]", false).unwrap();
         let after = top_field_names(&out);
         // Every pre-existing field survives, and our new one is present.
         for name in &before {
@@ -652,7 +657,7 @@ mod tests {
         let fields = format!(
             r#"[{{"type":"text","name":"{existing}","page":0,"x":1,"y":1,"width":10,"height":10}}]"#
         );
-        let err = inject_fields_json(FICHA, &fields, &[], "[]").unwrap_err();
+        let err = inject_fields_json(FICHA, &fields, &[], "[]", false).unwrap_err();
         assert!(err.contains("already exists"), "got: {err}");
     }
 
@@ -668,7 +673,7 @@ mod tests {
             {"type":"choice","name":"lb","page":0,"x":10,"y":170,"width":100,"height":40,"options":["x","y"],"combo":false},
             {"type":"signature","name":"sig","page":0,"x":10,"y":220,"width":100,"height":40}
         ]"#;
-        let out = inject_fields_json(&base, fields, &[], "[]").unwrap();
+        let out = inject_fields_json(&base, fields, &[], "[]", false).unwrap();
         let names = top_field_names(&out);
         for n in ["txt", "ml", "cb", "rg", "dd", "lb", "sig"] {
             assert!(names.contains(n), "missing field {n}");
@@ -682,7 +687,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]",
+            "[]", false
         )
         .unwrap()
     }
@@ -696,7 +701,7 @@ mod tests {
 
         let fields =
             r#"[{"type":"text","name":"total","page":0,"x":10,"y":10,"width":100,"height":20,"value":"hi"}]"#;
-        let out = inject_fields_json(&base, fields, &[], "[]").unwrap();
+        let out = inject_fields_json(&base, fields, &[], "[]", false).unwrap();
 
         let doc = Document::load_mem(&out).unwrap();
         let cat = doc.catalog().unwrap();
@@ -721,7 +726,7 @@ mod tests {
     fn rejects_bad_page_index() {
         let base = blank_page_pdf();
         let fields = r#"[{"type":"text","name":"t","page":5,"x":1,"y":1,"width":10,"height":10}]"#;
-        let err = inject_fields_json(&base, fields, &[], "[]").unwrap_err();
+        let err = inject_fields_json(&base, fields, &[], "[]", false).unwrap_err();
         assert!(err.contains("page"), "expected page-range error, got: {err}");
     }
 
@@ -735,7 +740,7 @@ mod tests {
             {"value":"a","page":0,"x":1,"y":1,"size":10},
             {"value":"b","page":9,"x":1,"y":30,"size":10}
         ]}]"#;
-        let err = inject_fields_json(&base, fields, &[], "[]").unwrap_err();
+        let err = inject_fields_json(&base, fields, &[], "[]", false).unwrap_err();
         assert!(
             err.contains("page") || err.contains("out of range"),
             "expected page-range error, got: {err}"
@@ -746,7 +751,7 @@ mod tests {
     fn rejects_empty_options_radio_group() {
         let base = blank_page_pdf();
         let fields = r#"[{"type":"radioGroup","name":"r","options":[]}]"#;
-        let err = inject_fields_json(&base, fields, &[], "[]").unwrap_err();
+        let err = inject_fields_json(&base, fields, &[], "[]", false).unwrap_err();
         assert!(
             err.contains("option"),
             "expected empty-options error, got: {err}"

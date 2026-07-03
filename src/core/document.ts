@@ -111,8 +111,8 @@ function buildPageIndexResolver(
 export interface CoreWasm {
   decryptPdf(data: Uint8Array, password: string): Uint8Array;
   readFields(data: Uint8Array): string;
-  fillFields(data: Uint8Array, opsJson: string, images: Uint8Array): Uint8Array;
-  flattenFields(data: Uint8Array, namesJson: string): Uint8Array;
+  fillFields(data: Uint8Array, opsJson: string, images: Uint8Array, compress?: boolean): Uint8Array;
+  flattenFields(data: Uint8Array, namesJson: string, compress?: boolean): Uint8Array;
   readPages(data: Uint8Array): string;
   applyDrawOps(
     data: Uint8Array,
@@ -120,6 +120,7 @@ export interface CoreWasm {
     images: Uint8Array,
     fonts?: Uint8Array,
     fontsJson?: string,
+    compress?: boolean,
   ): Uint8Array;
   createDocument(
     opsJson: string,
@@ -127,20 +128,27 @@ export interface CoreWasm {
     fonts?: Uint8Array,
     fontsJson?: string,
     fieldsJson?: string,
+    compress?: boolean,
   ): Uint8Array;
   imageInfo(data: Uint8Array): string;
   measureText(font: string, size: number, text: string): number;
   measureTextEmbedded(font: Uint8Array, size: number, text: string): number;
   readMetadata(data: Uint8Array): string;
-  setMetadata(data: Uint8Array, metaJson: string): Uint8Array;
-  manipulatePages(docsBlob: Uint8Array, docsJson: string, planJson: string): Uint8Array;
-  setOutline(data: Uint8Array, json: string): Uint8Array;
-  insertPages(data: Uint8Array, opsJson: string): Uint8Array;
+  setMetadata(data: Uint8Array, metaJson: string, compress?: boolean): Uint8Array;
+  manipulatePages(
+    docsBlob: Uint8Array,
+    docsJson: string,
+    planJson: string,
+    compress?: boolean,
+  ): Uint8Array;
+  setOutline(data: Uint8Array, json: string, compress?: boolean): Uint8Array;
+  insertPages(data: Uint8Array, opsJson: string, compress?: boolean): Uint8Array;
   injectFields(
     data: Uint8Array,
     fieldsJson: string,
     fonts?: Uint8Array,
     fontsJson?: string,
+    compress?: boolean,
   ): Uint8Array;
   applyAll(
     data: Uint8Array,
@@ -148,7 +156,14 @@ export interface CoreWasm {
     fillImages: Uint8Array,
     drawImages: Uint8Array,
     fonts: Uint8Array,
+    compress?: boolean,
   ): Uint8Array;
+}
+
+/** Options for {@link PdfDocumentBase.save}. */
+export interface SaveOptions {
+  /** Deflate-compress generated streams. Defaults to `true`. */
+  compress?: boolean;
 }
 
 export class PdfDocumentBase {
@@ -194,16 +209,18 @@ export class PdfDocumentBase {
    * await Bun.write("filled.pdf", pdfBytes);
    * ```
    */
-  async save(): Promise<Uint8Array> {
+  async save(options: SaveOptions = {}): Promise<Uint8Array> {
+    const compress = options.compress ?? true;
+
     if (this.mode === "create" && !this.sealed) {
       try {
-        return this.buildCreatedBytes();
+        return this.buildCreatedBytes(compress);
       } catch (e) {
         throw toPdfError(e);
       }
     }
 
-    this.injectPendingFields(); // load-mode: bake any pending builder fields
+    this.injectPendingFields(compress); // load-mode: bake any pending builder fields
 
     const form = this.form;
 
@@ -211,7 +228,7 @@ export class PdfDocumentBase {
     // single-pass applyAll cannot compose with draw's page-index resolution.
     // Fall back to the chained pipeline (one WASM call per operation) only then.
     if (this.structureOps.length > 0) {
-      return this.saveChained(form);
+      return this.saveChained(form, compress);
     }
 
     // Fast path: apply every queued operation in one parse → mutate → save pass.
@@ -248,7 +265,7 @@ export class PdfDocumentBase {
     }
 
     return callBytes(() =>
-      this.wasm.applyAll(this.bytes, JSON.stringify(plan), fillImages, drawImages, fonts),
+      this.wasm.applyAll(this.bytes, JSON.stringify(plan), fillImages, drawImages, fonts, compress),
     );
   }
 
@@ -257,29 +274,29 @@ export class PdfDocumentBase {
    * page-structure ops are queued (see `save()`), since those cannot be merged
    * into the single-pass `applyAll`.
    */
-  private async saveChained(form: PdfForm | undefined): Promise<Uint8Array> {
+  private async saveChained(form: PdfForm | undefined, compress: boolean): Promise<Uint8Array> {
     let bytes = this.bytes;
     try {
       if (form && form[kFormQueue].length > 0) {
         const { opsJson, images } = form[kFormQueue].toPayload();
-        bytes = this.wasm.fillFields(bytes, opsJson, images);
+        bytes = this.wasm.fillFields(bytes, opsJson, images, compress);
       }
       if (form && form[kFlattenQueue].length > 0) {
-        bytes = this.wasm.flattenFields(bytes, JSON.stringify(form[kFlattenQueue]));
+        bytes = this.wasm.flattenFields(bytes, JSON.stringify(form[kFlattenQueue]), compress);
       }
       if (this.structureOps.length > 0) {
-        bytes = this.wasm.insertPages(bytes, JSON.stringify(this.structureOps));
+        bytes = this.wasm.insertPages(bytes, JSON.stringify(this.structureOps), compress);
       }
       if (!this.sealed && this.drawQueue.length > 0) {
         const resolve = this.buildPageIndexResolver();
         const { opsJson, images, fonts, fontsJson } = this.drawQueue.toDrawPayload(resolve);
-        bytes = this.wasm.applyDrawOps(bytes, opsJson, images, fonts, fontsJson);
+        bytes = this.wasm.applyDrawOps(bytes, opsJson, images, fonts, fontsJson, compress);
       }
       if (this.meta.dirty) {
-        bytes = this.wasm.setMetadata(bytes, JSON.stringify(this.meta.wire));
+        bytes = this.wasm.setMetadata(bytes, JSON.stringify(this.meta.wire), compress);
       }
       if (this.outlineItems !== undefined) {
-        bytes = this.wasm.setOutline(bytes, JSON.stringify(this.outlineItems));
+        bytes = this.wasm.setOutline(bytes, JSON.stringify(this.outlineItems), compress);
       }
     } catch (e) {
       throw toPdfError(e);
@@ -295,7 +312,7 @@ export class PdfDocumentBase {
    * and outline, then run the single-pass createDocument with all fields.
    * Shared by `save()` (create mode) and `getForm()` materialization.
    */
-  private buildCreatedBytes(): Uint8Array {
+  private buildCreatedBytes(compress = true): Uint8Array {
     if (this.meta.dirty) {
       this.drawQueue.pushMetadata(this.meta.wire);
     }
@@ -309,6 +326,7 @@ export class PdfDocumentBase {
       fonts,
       fontsJson,
       JSON.stringify(this.fieldDefs),
+      compress,
     );
   }
 
@@ -690,12 +708,18 @@ export class PdfDocumentBase {
    * created documents (handled by `materializeCreatedForm`) and when nothing
    * was queued, so the hot load→mutate→save path is untouched.
    */
-  private injectPendingFields(): void {
+  private injectPendingFields(compress = true): void {
     if (this.mode !== "load" || this.fieldDefs.length === 0) return;
     const { fonts, fontsJson } = this.drawQueue.toCreatePayload();
     let bytes: Uint8Array;
     try {
-      bytes = this.wasm.injectFields(this.bytes, JSON.stringify(this.fieldDefs), fonts, fontsJson);
+      bytes = this.wasm.injectFields(
+        this.bytes,
+        JSON.stringify(this.fieldDefs),
+        fonts,
+        fontsJson,
+        compress,
+      );
     } catch (e) {
       throw toPdfError(e);
     }

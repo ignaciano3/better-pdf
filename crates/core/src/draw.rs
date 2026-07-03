@@ -974,6 +974,7 @@ pub fn apply_draw_ops_json(
     images: &[u8],
     fonts: &[u8],
     fonts_json: &str,
+    compress: bool,
 ) -> Result<Vec<u8>, String> {
     let ops: Vec<DrawOp> =
         serde_json::from_str(ops_json).map_err(|e| format!("invalid draw ops: {e}"))?;
@@ -983,6 +984,10 @@ pub fn apply_draw_ops_json(
     let doc = crate::doc_io::load_pdf(data)?;
     let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
     draw_apply(&mut inc, &ops, images, fonts, &font_descs)?;
+
+    if compress {
+        crate::compress::compress_generated_streams(&mut inc.new_document);
+    }
 
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
@@ -1924,7 +1929,7 @@ mod tests {
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
 
     fn ops(json: &str, images: &[u8]) -> Vec<u8> {
-        apply_draw_ops_json(FICHA, json, images, &[], "[]").unwrap()
+        apply_draw_ops_json(FICHA, json, images, &[], "[]", false).unwrap()
     }
 
     fn last_draw_stream_content(out: &[u8]) -> String {
@@ -2009,7 +2014,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"page","page":0,"x":0,"y":0,"width":300,"height":400,"imageOffset":0,"imageLength":{len},"srcPage":0}}]"#
         );
-        let out = apply_draw_ops_json(FICHA, &json, src, &[], "[]").unwrap();
+        let out = apply_draw_ops_json(FICHA, &json, src, &[], "[]", false).unwrap();
         assert!(
             page0_has_form_xobject(&out),
             "page 0 must carry a Form XObject"
@@ -2028,7 +2033,7 @@ mod tests {
             r#"[{"op":"setRotation","page":0,"degrees":90}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2050,7 +2055,7 @@ mod tests {
             r#"[{"op":"setRotation","page":0,"degrees":-90}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2073,7 +2078,7 @@ mod tests {
             r#"[{"op":"setRotation","page":0,"degrees":45}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         assert!(r.unwrap_err().contains("90"));
     }
@@ -2085,7 +2090,7 @@ mod tests {
             r#"[{"op":"setMediaBox","page":0,"box":[0,0,200,300]}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2108,7 +2113,7 @@ mod tests {
             r#"[{"op":"setMediaBox","page":0,"box":[100,0,50,300]}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         assert!(r.is_err());
     }
@@ -2121,7 +2126,7 @@ mod tests {
             r#"[{"op":"setRotation","page":0,"degrees":180}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         )
         .unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental
@@ -2160,7 +2165,7 @@ mod tests {
             include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
         let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
         let ops = r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"fontId":0,"color":[0,0,0],"text":"Héllo"}]"#;
-        let out = apply_draw_ops_json(FICHA, ops, &[], FONT, &fonts_json).unwrap();
+        let out = apply_draw_ops_json(FICHA, ops, &[], FONT, &fonts_json, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, first) = doc.get_pages().into_iter().next().unwrap();
         let res_dict = doc.get_dictionary(first).unwrap();
@@ -2246,7 +2251,7 @@ mod tests {
             r#"[{"op":"text","page":999,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         assert!(r.unwrap_err().contains("page"));
     }
@@ -2258,7 +2263,7 @@ mod tests {
             r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         assert!(r.unwrap_err().contains("font"));
     }
@@ -2302,7 +2307,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"image","page":0,"x":50,"y":50,"width":100,"height":80,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = apply_draw_ops_json(FICHA, &json, png, &[], "[]").unwrap();
+        let out = apply_draw_ops_json(FICHA, &json, png, &[], "[]", false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, first) = doc.get_pages().into_iter().next().unwrap();
         let dict = doc.get_dictionary(first).unwrap();
@@ -2345,7 +2350,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"image","page":0,"x":10,"y":10,"width":20,"height":20,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = apply_draw_ops_json(FICHA, &json, png, &[], "[]").unwrap();
+        let out = apply_draw_ops_json(FICHA, &json, png, &[], "[]", false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, first) = doc.get_pages().into_iter().next().unwrap();
         let dict = doc.get_dictionary(first).unwrap();
@@ -2392,7 +2397,7 @@ mod tests {
         let json = format!(
             r#"[{{"op":"image","page":0,"x":10,"y":10,"width":20,"height":20,"imageOffset":0,"imageLength":{len}}}]"#
         );
-        let out = apply_draw_ops_json(FICHA, &json, png, &[], "[]").unwrap();
+        let out = apply_draw_ops_json(FICHA, &json, png, &[], "[]", false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, first) = doc.get_pages().into_iter().next().unwrap();
         let dict = doc.get_dictionary(first).unwrap();
@@ -2427,7 +2432,7 @@ mod tests {
             r#"[{{"op":"image","page":0,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{}}}]"#,
             len + 1
         );
-        let r = apply_draw_ops_json(FICHA, &json, png, &[], "[]");
+        let r = apply_draw_ops_json(FICHA, &json, png, &[], "[]", false);
         assert!(r.unwrap_err().contains("out of bounds"));
     }
 
@@ -2438,7 +2443,7 @@ mod tests {
             r#"[{{"op":"image","page":0,"x":0,"y":0,"width":10,"height":10,"imageOffset":0,"imageLength":{}}}]"#,
             bad_bytes.len()
         );
-        let r = apply_draw_ops_json(FICHA, &json, bad_bytes, &[], "[]");
+        let r = apply_draw_ops_json(FICHA, &json, bad_bytes, &[], "[]", false);
         assert!(r.is_err(), "expected error for invalid image bytes");
     }
 
@@ -2551,7 +2556,7 @@ mod tests {
             r#"[{"op":"rectangle","page":0,"x":0,"y":0,"width":10,"height":10,"color":[0,0,0],"opacity":1.5}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         let err = r.unwrap_err();
         assert!(
@@ -2634,7 +2639,7 @@ mod tests {
             r#"[{"op":"text","page":0,"x":50,"y":700,"size":12,"font":"Helvetica","color":[0,0,0],"text":"hi"}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         )
         .expect("apply_draw_ops_json should succeed");
 
@@ -2697,7 +2702,7 @@ mod tests {
             r#"[{"op":"ellipse","page":0,"x":100,"y":100,"xScale":0,"yScale":50,"color":[0,0,1]}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         let err = r.unwrap_err();
         assert!(
@@ -2714,7 +2719,7 @@ mod tests {
             r#"[{"op":"rectangle","page":0,"x":10,"y":10,"width":0,"height":30,"color":[0,0,1]}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         let err = r.unwrap_err();
         assert!(
@@ -2762,7 +2767,7 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[50,50,200,80],"uri":"https://example.com"}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2789,7 +2794,7 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[10,10,100,40],"goToPage":0}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2809,7 +2814,7 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[0,0,10,10],"uri":"x","goToPage":0}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         assert!(r.is_err());
     }
@@ -2821,7 +2826,7 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[0,0,10,10]}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         assert!(r.is_err());
     }
@@ -2832,7 +2837,7 @@ mod tests {
             {"t":"m","x":50,"y":50},{"t":"l","x":150,"y":50},
             {"t":"c","x1":160,"y1":60,"x2":160,"y2":140,"x":150,"y":150},
             {"t":"z"}],"fill":[1,0,0],"stroke":[0,0,0],"strokeWidth":2}]"#;
-        let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap();
+        let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]", false).unwrap();
         let s = last_draw_stream_content(&out);
         assert!(s.contains("50 50 m"), "content: {s}");
         assert!(s.contains(" l"), "content: {s}");
@@ -2846,7 +2851,7 @@ mod tests {
     #[test]
     fn path_fill_only_uses_f() {
         let json = r#"[{"op":"path","page":0,"segments":[{"t":"m","x":0,"y":0},{"t":"l","x":10,"y":0},{"t":"l","x":10,"y":10},{"t":"z"}],"fill":[0,0,1]}]"#;
-        let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap();
+        let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]", false).unwrap();
         let s = last_draw_stream_content(&out);
         assert!(
             s.split_whitespace().any(|w| w == "f"),
@@ -2857,7 +2862,7 @@ mod tests {
     #[test]
     fn path_opacity_registers_extgstate() {
         let json = r#"[{"op":"path","page":0,"segments":[{"t":"m","x":0,"y":0},{"t":"l","x":10,"y":10}],"stroke":[0,0,0],"opacity":0.5}]"#;
-        let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap();
+        let out = apply_draw_ops_json(FICHA, json, &[], &[], "[]", false).unwrap();
         let s = last_draw_stream_content(&out);
         assert!(
             s.contains("/BPG"),
@@ -2869,13 +2874,13 @@ mod tests {
     fn path_rejects_non_finite_coord() {
         // serde_json rejects 1e999 (inf) before we even validate, so either way we get an error
         let json = r#"[{"op":"path","page":0,"segments":[{"t":"m","x":0,"y":0},{"t":"l","x":1e999,"y":0}],"stroke":[0,0,0]}]"#;
-        assert!(apply_draw_ops_json(FICHA, json, &[], &[], "[]").is_err());
+        assert!(apply_draw_ops_json(FICHA, json, &[], &[], "[]", false).is_err());
     }
 
     #[test]
     fn path_rejects_empty_segments() {
         let json = r#"[{"op":"path","page":0,"segments":[],"stroke":[0,0,0]}]"#;
-        let err = apply_draw_ops_json(FICHA, json, &[], &[], "[]").unwrap_err();
+        let err = apply_draw_ops_json(FICHA, json, &[], &[], "[]", false).unwrap_err();
         assert!(
             err.contains("segment"),
             "expected segment error, got: {err}"
@@ -2888,7 +2893,7 @@ mod tests {
     fn rotated_text_emits_matrix() {
         let out = apply_draw_ops_json(FICHA,
             r#"[{"op":"text","page":0,"x":100,"y":100,"size":12,"font":"Helvetica","color":[0,0,0],"text":"hi","rotate":90}]"#,
-            &[], &[], "[]").unwrap();
+            &[], &[], "[]", false).unwrap();
         let s = last_draw_stream_content(&out);
         assert!(s.contains(" cm"), "rotation must emit a cm matrix: {s}");
         assert!(
@@ -2905,7 +2910,7 @@ mod tests {
     fn translucent_text_registers_extgstate() {
         let out = apply_draw_ops_json(FICHA,
             r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"wm","opacity":0.3}]"#,
-            &[], &[], "[]").unwrap();
+            &[], &[], "[]", false).unwrap();
         let s = last_draw_stream_content(&out);
         assert!(
             s.contains("/BPG"),
@@ -2917,7 +2922,7 @@ mod tests {
     fn plain_text_unchanged_no_wrap() {
         let out = apply_draw_ops_json(FICHA,
             r#"[{"op":"text","page":0,"x":50,"y":700,"size":24,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#,
-            &[], &[], "[]").unwrap();
+            &[], &[], "[]", false).unwrap();
         let s = last_draw_stream_content(&out);
         assert!(s.contains("50 700 Td"), "plain text keeps x y Td: {s}");
     }
@@ -2932,7 +2937,7 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[10,10,100,30],"goToPage":99}]"#,
             &[],
             &[],
-            "[]",
+            "[]", false
         );
         let err = r.unwrap_err();
         assert!(
