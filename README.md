@@ -59,6 +59,7 @@ See the [per-runtime guide](docs/site/src/content/docs/guides/runtimes.md) and [
 - Palette (indexed-color) PNG embedding: `embedPng` handles color-type-3 PNGs with `tRNS` transparency — transparency is stored as a soft mask, same as RGBA PNGs. No API change.
 - Decrypt and modify encrypted PDFs: `PdfDocument.load(bytes, { password })` decrypts RC4 / AES-128 / AES-256 encrypted PDFs (use `{ password: "" }` for owner-locked / empty-user-password files). Decryption is opt-in — bare `load(bytes)` is unchanged. Saving an edited encrypted PDF produces a **decrypted** output. Re-encryption and creating encrypted PDFs are still unsupported.
 - Deflate-compress generated content, appearance, and font streams on save — on by default, opt out with `doc.save({ compress: false })`. Streams already compressed (images, embedded fonts) are left untouched.
+- Optionally pack non-stream objects into PDF object streams for even smaller files on full-document saves — opt in with `doc.save({ objectStreams: true })` (created docs) or `PdfDocument.merge(docs, { objectStreams: true })`. Off by default; not applied to incremental (loaded-document) saves.
 
 ## Install
 
@@ -115,6 +116,20 @@ Streams that are already compressed (images, embedded fonts) are left
 untouched, and incremental saves only compress the newly appended section — the
 original revision's bytes are preserved, so existing digital signatures on it
 stay valid.
+
+For created and merged documents you can also pack the object structure into
+object streams (PDF 1.5+), shrinking object-heavy files further:
+
+```ts
+const doc = await PdfDocument.create();
+// ... add pages / fields ...
+const small = await doc.save({ objectStreams: true });      // + object streams
+const merged = await PdfDocument.merge([a, b], { objectStreams: true });
+```
+
+`objectStreams` defaults to `false`. It applies only to full-document saves
+(`create()`, `merge`, `assemble`, `copyPages`, `splitPages`); it is ignored on
+incremental (loaded-document) saves, which stay append-only.
 
 ## Generating & drawing
 

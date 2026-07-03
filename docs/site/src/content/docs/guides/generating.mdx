@@ -61,6 +61,21 @@ so there is no double-compression. On incremental saves — stamping onto a load
 PDF — only the newly appended section is compressed; the original revision's
 bytes are preserved, so existing digital signatures on it stay valid.
 
+### Object streams
+
+For created and merged documents, `objectStreams` additionally packs the PDF's
+object structure into compressed object streams (PDF 1.5+) — a further size win
+on object-heavy files (large forms, many pages, big merges):
+
+```ts
+const small = await doc.save({ objectStreams: true });
+const merged = await PdfDocument.merge([a, b], { objectStreams: true });
+```
+
+It is **off by default** and applies only to full-document saves — `create()`,
+`merge`, `assemble`, `copyPages`, `splitPages`. Incremental (loaded-document)
+saves ignore it and remain append-only, so existing signatures stay valid.
+
 ## Stamp onto an existing PDF
 
 ```ts
