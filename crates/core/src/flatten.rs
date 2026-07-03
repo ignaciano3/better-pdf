@@ -191,7 +191,7 @@ fn stamp_widget(
     let ty = s.rect[1] - bbox[1] * sy;
     let draw = format!("q {sx:.4} 0 0 {sy:.4} {tx:.2} {ty:.2} cm /{name} Do Q");
     let draw_id = inc.new_document.add_object(Object::Stream(
-        Stream::new(Dictionary::new(), draw.into_bytes()).with_compression(false),
+        Stream::new(Dictionary::new(), draw.into_bytes()),
     ));
 
     inc.opt_clone_object_to_new_document(s.page_id)

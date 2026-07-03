@@ -438,7 +438,7 @@ pub fn build_appearance_xobject(
         ]),
     );
     dict.set("Resources", Object::Dictionary(resources));
-    Stream::new(dict, content).with_compression(false)
+    Stream::new(dict, content)
 }
 
 #[derive(Debug)]
@@ -580,7 +580,7 @@ fn image_xobject_dict(width: i64, height: i64, color_space: &str, filter: &[u8])
 
 pub fn build_jpeg_image_xobject(data: Vec<u8>, info: &JpegInfo) -> Stream {
     let dict = image_xobject_dict(info.width, info.height, info.color_space, b"DCTDecode");
-    Stream::new(dict, data).with_compression(false)
+    Stream::new(dict, data)
 }
 
 pub fn build_signature_image_xobject(image: SignatureImage) -> Stream {
@@ -965,7 +965,7 @@ pub fn build_signature_appearance_xobject(
         ]),
     );
     dict.set("Resources", Object::Dictionary(resources));
-    Stream::new(dict, content).with_compression(false)
+    Stream::new(dict, content)
 }
 
 /// Build the content stream for a multi-select list box appearance: one row per

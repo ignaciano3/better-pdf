@@ -404,7 +404,7 @@ fn button_xobject(size: f32, content: Vec<u8>) -> Stream {
             Object::Real(size),
         ]),
     );
-    Stream::new(dict, content).with_compression(false)
+    Stream::new(dict, content)
 }
 
 /// Off appearance: empty stream (blank).
