@@ -36,6 +36,7 @@ export interface RawBindings {
     fontsJson: string,
     fieldsJson: string,
     compress: boolean,
+    objectStreams: boolean,
   ): Uint8Array;
   image_info(data: Uint8Array): string;
   measure_text(font: string, size: number, text: string): number;
@@ -47,6 +48,7 @@ export interface RawBindings {
     docsJson: string,
     planJson: string,
     compress: boolean,
+    objectStreams: boolean,
   ): Uint8Array;
   set_outline(data: Uint8Array, json: string, compress: boolean): Uint8Array;
   insert_pages(data: Uint8Array, opsJson: string, compress: boolean): Uint8Array;
@@ -92,7 +94,10 @@ export function makeBindings(raw: RawBindings, guard: () => void = () => {}): Co
       fontsJson = "[]",
       fieldsJson = "[]",
       compress = true,
-    ) => (guard(), raw.create_document(opsJson, images, fonts, fontsJson, fieldsJson, compress)),
+      objectStreams = false,
+    ) =>
+      (guard(),
+      raw.create_document(opsJson, images, fonts, fontsJson, fieldsJson, compress, objectStreams)),
     imageInfo: (data) => (guard(), raw.image_info(data)),
     measureText: (font, size, text) => (guard(), raw.measure_text(font, size, text)),
     measureTextEmbedded: (font, size, text) =>
@@ -100,8 +105,8 @@ export function makeBindings(raw: RawBindings, guard: () => void = () => {}): Co
     readMetadata: (data) => (guard(), raw.read_metadata(data)),
     setMetadata: (data, metaJson, compress = true) =>
       (guard(), raw.set_metadata(data, metaJson, compress)),
-    manipulatePages: (docsBlob, docsJson, planJson, compress = true) =>
-      (guard(), raw.manipulate_pages(docsBlob, docsJson, planJson, compress)),
+    manipulatePages: (docsBlob, docsJson, planJson, compress = true, objectStreams = false) =>
+      (guard(), raw.manipulate_pages(docsBlob, docsJson, planJson, compress, objectStreams)),
     setOutline: (data, json, compress = true) => (guard(), raw.set_outline(data, json, compress)),
     insertPages: (data, opsJson, compress = true) =>
       (guard(), raw.insert_pages(data, opsJson, compress)),

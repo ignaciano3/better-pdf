@@ -129,6 +129,7 @@ export interface CoreWasm {
     fontsJson?: string,
     fieldsJson?: string,
     compress?: boolean,
+    objectStreams?: boolean,
   ): Uint8Array;
   imageInfo(data: Uint8Array): string;
   measureText(font: string, size: number, text: string): number;
@@ -140,6 +141,7 @@ export interface CoreWasm {
     docsJson: string,
     planJson: string,
     compress?: boolean,
+    objectStreams?: boolean,
   ): Uint8Array;
   setOutline(data: Uint8Array, json: string, compress?: boolean): Uint8Array;
   insertPages(data: Uint8Array, opsJson: string, compress?: boolean): Uint8Array;
