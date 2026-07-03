@@ -91,8 +91,9 @@ pub fn create_document(
     fonts: &[u8],
     fonts_json: &str,
     fields_json: &str,
+    compress: bool,
 ) -> Result<Vec<u8>, JsError> {
-    create::create_document_json(ops_json, images, fonts, fonts_json, fields_json)
+    create::create_document_json(ops_json, images, fonts, fonts_json, fields_json, compress)
         .map_err(|e| JsError::new(&e))
 }
 
