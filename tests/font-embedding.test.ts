@@ -92,7 +92,9 @@ test("maxWidth wraps text rendered with an embedded font", async () => {
     font,
     maxWidth: 80,
   });
-  const out = await doc.save();
+  // Grep the raw content stream for the Tj operators, so opt out of the
+  // default deflate compression.
+  const out = await doc.save({ compress: false });
   const s = new TextDecoder("latin1").decode(out);
   // Embedded text renders as hex <....> Tj; wrapping yields more than one.
   const tjCount = (s.match(/> Tj/g) ?? []).length;

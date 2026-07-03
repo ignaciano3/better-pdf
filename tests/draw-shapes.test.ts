@@ -55,7 +55,9 @@ describe("drawEllipse", () => {
       radiusY: 40,
       fill: rgb(0, 0, 1),
     });
-    const out = await doc.save();
+    // Inspect the raw content stream for the bezier operator, so opt out of
+    // the default deflate compression.
+    const out = await doc.save({ compress: false });
     const reloaded = await PdfDocument.load(out);
     expect(reloaded.getPageCount()).toBe(1);
     const s = new TextDecoder("latin1").decode(out);
