@@ -103,9 +103,12 @@ pub fn create_document(
     fonts_json: &str,
     fields_json: &str,
     compress: bool,
+    object_streams: bool,
 ) -> Result<Vec<u8>, JsError> {
-    create::create_document_json(ops_json, images, fonts, fonts_json, fields_json, compress)
-        .map_err(|e| JsError::new(&e))
+    create::create_document_json(
+        ops_json, images, fonts, fonts_json, fields_json, compress, object_streams,
+    )
+    .map_err(|e| JsError::new(&e))
 }
 
 /// Inject new AcroForm fields (JSON array of field defs, same schema as

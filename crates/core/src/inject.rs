@@ -687,7 +687,7 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false
+            "[]", false, false
         )
         .unwrap()
     }

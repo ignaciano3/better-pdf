@@ -1943,7 +1943,7 @@ mod tests {
         let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
         let fields = r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20,"value":"A","fontId":0}]"#;
         let ops = r#"[{"op":"addPage","width":300,"height":300}]"#;
-        let doc = crate::create::create_document_json(ops, &[], FONT, &fonts_json, fields, false).unwrap();
+        let doc = crate::create::create_document_json(ops, &[], FONT, &fonts_json, fields, false, false).unwrap();
 
         // Attempt to re-fill the field through the fill path.
         let ops_json = r#"[{"name":"n","value":"B"}]"#;

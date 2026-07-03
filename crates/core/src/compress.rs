@@ -15,9 +15,6 @@ pub fn compress_generated_streams(doc: &mut Document) {
 /// The two axes act on disjoint objects, so any combination is valid. Only
 /// callable on a full `Document` — `IncrementalDocument` cannot emit object
 /// streams.
-// Not yet called outside tests: Tasks 2/3 wire this into `create.rs` and
-// `pageops.rs`. Remove this allow once those call sites land.
-#[allow(dead_code)]
 pub fn serialize_document(
     doc: &mut Document,
     compress: bool,
