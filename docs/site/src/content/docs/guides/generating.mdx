@@ -45,6 +45,22 @@ covered by WinAnsi — embed a TTF or OTF font with `doc.embedFont()`. See
 [Custom fonts](#custom-fonts) below.
 :::
 
+## Compression
+
+`save()` deflate-compresses the content, appearance, and font streams it
+generates, producing much smaller PDFs. It is **on by default** — opt out to
+keep the streams plaintext (e.g. for debugging or byte-level assertions):
+
+```ts
+const small = await doc.save();                    // compressed (default)
+const plain = await doc.save({ compress: false }); // uncompressed
+```
+
+Streams that are already compressed (images, embedded fonts) are left untouched,
+so there is no double-compression. On incremental saves — stamping onto a loaded
+PDF — only the newly appended section is compressed; the original revision's
+bytes are preserved, so existing digital signatures on it stay valid.
+
 ## Stamp onto an existing PDF
 
 ```ts

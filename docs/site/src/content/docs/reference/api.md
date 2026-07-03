@@ -22,12 +22,19 @@ generated from source with TypeDoc — run `bun run docs` in the repo (output in
 - `doc.embedPng(bytes: Uint8Array): Promise<PdfImage>`
 - `doc.getForm(): PdfForm`
 - `doc.createForm(): FormBuilder` — created documents only
-- `doc.save(): Promise<Uint8Array>`
+- `doc.save(options?: SaveOptions): Promise<Uint8Array>` — `SaveOptions = { compress?: boolean }`; `compress` defaults to `true`
 
 `save()` applies queued fills first, then queued flattens. With no queued
 operations it returns a byte-identical round trip. It always starts from the
 originally loaded bytes (calling it twice returns the same result), and
 `FieldInfo.value` reflects queued mutations as soon as they are made.
+
+By default `save()` deflate-compresses the content, appearance, and font streams
+it generates, producing smaller PDFs. Pass `{ compress: false }` for plaintext
+output (e.g. debugging or byte-level assertions). Already-compressed streams
+(images, embedded fonts) are left untouched, and incremental saves only compress
+the newly appended section, so existing signatures on the original revision stay
+valid.
 
 **`PageSizes`**: `A3`, `A4`, `A5`, `Letter`, `Legal`, `Tabloid` — each a
 `[width, height]` tuple in PDF points.
