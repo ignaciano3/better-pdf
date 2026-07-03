@@ -109,7 +109,7 @@ pub fn read_metadata_json(data: &[u8]) -> Result<String, String> {
 
 /// Apply metadata changes from a JSON string to `data` and return new PDF bytes
 /// (incremental update). Unspecified keys from the existing Info dict are preserved.
-pub fn set_metadata_json(data: &[u8], meta_json: &str) -> Result<Vec<u8>, String> {
+pub fn set_metadata_json(data: &[u8], meta_json: &str, compress: bool) -> Result<Vec<u8>, String> {
     let meta: Metadata =
         serde_json::from_str(meta_json).map_err(|e| format!("invalid metadata json: {e}"))?;
 
@@ -118,6 +118,10 @@ pub fn set_metadata_json(data: &[u8], meta_json: &str) -> Result<Vec<u8>, String
 
     let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
     metadata_apply(&mut inc, existing_info, &meta);
+
+    if compress {
+        crate::compress::compress_generated_streams(&mut inc.new_document);
+    }
 
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
@@ -167,7 +171,7 @@ mod tests {
     #[test]
     fn set_then_read_round_trips() {
         let out =
-            set_metadata_json(FICHA, r#"{"title":"Quarterly Report","author":"ACME"}"#).unwrap();
+            set_metadata_json(FICHA, r#"{"title":"Quarterly Report","author":"ACME"}"#, false).unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental: original preserved
         let json = read_metadata_json(&out).unwrap();
         assert!(json.contains("Quarterly Report"), "json was {json}");
@@ -177,7 +181,7 @@ mod tests {
     #[test]
     fn non_ascii_metadata_round_trips() {
         let out =
-            set_metadata_json(FICHA, r#"{"title":"日本語のタイトル","author":"Renée"}"#).unwrap();
+            set_metadata_json(FICHA, r#"{"title":"日本語のタイトル","author":"Renée"}"#, false).unwrap();
         let json = read_metadata_json(&out).unwrap();
         assert!(json.contains("日本語のタイトル"), "json: {json}");
         assert!(json.contains("Renée"), "json: {json}");
@@ -185,7 +189,7 @@ mod tests {
 
     #[test]
     fn ascii_metadata_still_round_trips() {
-        let out = set_metadata_json(FICHA, r#"{"title":"Plain ASCII"}"#).unwrap();
+        let out = set_metadata_json(FICHA, r#"{"title":"Plain ASCII"}"#, false).unwrap();
         assert!(read_metadata_json(&out).unwrap().contains("Plain ASCII"));
     }
 }

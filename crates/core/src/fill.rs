@@ -58,13 +58,22 @@ impl FieldFlagOps {
 
 /// Apply the given fill ops to `data` and return new PDF bytes (incremental
 /// save). `images` is the concatenated image blob the ops' offsets index into.
-pub fn fill_fields_json(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, String> {
+pub fn fill_fields_json(
+    data: &[u8],
+    ops_json: &str,
+    images: &[u8],
+    compress: bool,
+) -> Result<Vec<u8>, String> {
     let ops: Vec<FillOp> = serde_json::from_str(ops_json).map_err(|e| e.to_string())?;
     let doc = crate::doc_io::load_pdf(data)?;
     let plan = fill_resolve(&doc, &ops, images)?;
 
     let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
     fill_apply(&mut inc, &plan)?;
+
+    if compress {
+        crate::compress::compress_generated_streams(&mut inc.new_document);
+    }
 
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
@@ -1174,7 +1183,7 @@ mod tests {
     #[test]
     fn sets_default_value_on_text_field_without_touching_value() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","defaultValue":"DEFAULT"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         assert_eq!(
             reparse_default_value(&out, "beneficiario.apellidos_nombres").as_deref(),
             Some("DEFAULT")
@@ -1190,7 +1199,7 @@ mod tests {
     #[test]
     fn sets_default_value_on_dropdown() {
         let ops = r#"[{"name":"beneficiario.estado_civil","defaultValue":"Casado"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         assert_eq!(
             reparse_default_value(&out, "beneficiario.estado_civil").as_deref(),
             Some("Casado")
@@ -1200,7 +1209,7 @@ mod tests {
     #[test]
     fn sets_default_value_on_radio_as_name() {
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","defaultValue":"Titular"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, field) = find_field(&doc, "beneficiario.tipo_beneficiario").unwrap();
         // For button fields /DV is a Name, not a string.
@@ -1210,14 +1219,14 @@ mod tests {
     #[test]
     fn rejects_value_and_default_value_in_same_op() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"X","defaultValue":"Y"}]"#;
-        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, &[], false).unwrap_err();
         assert!(err.contains("cannot combine defaultValue"), "got: {err}");
     }
 
     #[test]
     fn rejects_invalid_default_option_for_dropdown() {
         let ops = r#"[{"name":"beneficiario.estado_civil","defaultValue":"NotAnOption"}]"#;
-        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, &[], false).unwrap_err();
         assert!(err.contains("is not a valid option"), "got: {err}");
     }
 
@@ -1228,20 +1237,20 @@ mod tests {
         let with_dv = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{name}","defaultValue":"DEF"}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         let filled = fill_fields_json(
             &with_dv,
             &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_value(&filled, name).as_deref(), Some("OTHER"));
         let reset = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{name}","reset":true}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_value(&reset, name).as_deref(), Some("DEF"));
@@ -1254,13 +1263,13 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         let reset = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{name}","reset":true}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         let v = reparse_value(&reset, name);
@@ -1276,13 +1285,13 @@ mod tests {
         let with_dv = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{name}","defaultValue":"Titular"}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         let reset = fill_fields_json(
             &with_dv,
             &format!(r#"[{{"name":"{name}","reset":true}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_value(&reset, name).as_deref(), Some("Titular"));
@@ -1294,14 +1303,14 @@ mod tests {
     #[test]
     fn rejects_reset_combined_with_value() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"X","reset":true}]"#;
-        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, &[], false).unwrap_err();
         assert!(err.contains("reset op cannot be combined"), "got: {err}");
     }
 
     #[test]
     fn fills_text_field() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA, IGNACIO"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         // Append-only: output starts with the original bytes.
         assert!(out.len() > FICHA.len());
         assert_eq!(&out[..FICHA.len()], FICHA);
@@ -1317,7 +1326,7 @@ mod tests {
     #[test]
     fn fills_accented_text_value_as_pdf_text_string() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"Juan P\u00e9rez"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, field) = find_field(&doc, "beneficiario.apellidos_nombres").unwrap();
         let v = field.get(b"V").unwrap();
@@ -1348,7 +1357,7 @@ mod tests {
     #[test]
     fn fills_radio_group() {
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Titular"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         assert_eq!(
             reparse_value(&out, "beneficiario.tipo_beneficiario").as_deref(),
             Some("Titular")
@@ -1358,7 +1367,7 @@ mod tests {
     #[test]
     fn fills_dropdown() {
         let ops = r#"[{"name":"beneficiario.estado_civil","value":"Casado"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         assert_eq!(
             reparse_value(&out, "beneficiario.estado_civil").as_deref(),
             Some("Casado")
@@ -1368,14 +1377,14 @@ mod tests {
     #[test]
     fn rejects_unknown_field() {
         let ops = r#"[{"name":"does.not.exist","value":"x"}]"#;
-        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, &[], false).unwrap_err();
         assert!(err.contains("no such field"), "got: {err}");
     }
 
     #[test]
     fn rejects_invalid_radio_state() {
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Nope"}]"#;
-        let err = fill_fields_json(FICHA, ops, &[]).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, &[], false).unwrap_err();
         assert!(err.contains("on-state"), "got: {err}");
     }
 
@@ -1456,7 +1465,7 @@ mod tests {
         // value is long with spaces so greedy wrapping must break it across lines.
         let base = with_multiline_flag(FICHA, "beneficiario.apellidos_nombres");
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"the quick brown fox jumps over the lazy dog several times to overflow"}]"#;
-        let out = fill_fields_json(&base, ops, &[]).unwrap();
+        let out = fill_fields_json(&base, ops, &[], false).unwrap();
         Document::load_mem(&out).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let ap = ap_content(&doc, "beneficiario.apellidos_nombres").expect("AP/N present");
@@ -1470,7 +1479,7 @@ mod tests {
     #[test]
     fn text_fill_generates_appearance() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let ap = ap_content(&doc, "beneficiario.apellidos_nombres").expect("AP/N present");
         assert!(ap.contains("(GARCIA) Tj"), "got: {ap}");
@@ -1480,7 +1489,7 @@ mod tests {
     #[test]
     fn fill_flips_need_appearances_false() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"X"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         assert_eq!(need_appearances(&doc), Some(false));
     }
@@ -1489,7 +1498,7 @@ mod tests {
     fn radio_fill_does_not_add_appearance_stream() {
         // Buttons already have /AP; we must not overwrite with a text stream.
         let ops = r#"[{"name":"beneficiario.tipo_beneficiario","value":"Titular"}]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         Document::load_mem(&out).unwrap(); // still valid
         assert_eq!(
             reparse_value(&out, "beneficiario.tipo_beneficiario").as_deref(),
@@ -1503,7 +1512,7 @@ mod tests {
             {"name":"beneficiario.apellidos_nombres","value":"A"},
             {"name":"beneficiario.tipo_beneficiario","value":"Familiar"}
         ]"#;
-        let out = fill_fields_json(FICHA, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA, ops, &[], false).unwrap();
         let f = reparse_field(&out);
         let by = |n: &str| {
             f.as_array()
@@ -1520,7 +1529,7 @@ mod tests {
     #[test]
     fn visual_signature_generates_image_appearance() {
         let ops = r#"[{"name":"firma.titular","imageOffset":0,"imageLength":21}]"#;
-        let out = fill_fields_json(ANEXO, ops, TINY_JPEG).unwrap();
+        let out = fill_fields_json(ANEXO, ops, TINY_JPEG, false).unwrap();
         assert!(out.len() > ANEXO.len());
         assert_eq!(&out[..ANEXO.len()], ANEXO);
 
@@ -1536,21 +1545,21 @@ mod tests {
     #[test]
     fn visual_signature_rejects_non_signature_field() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","imageOffset":0,"imageLength":21}]"#;
-        let err = fill_fields_json(FICHA, ops, TINY_JPEG).unwrap_err();
+        let err = fill_fields_json(FICHA, ops, TINY_JPEG, false).unwrap_err();
         assert!(err.contains("cannot set image on field"), "got: {err}");
     }
 
     #[test]
     fn rejects_out_of_bounds_image_range() {
         let ops = r#"[{"name":"firma.titular","imageOffset":10,"imageLength":100}]"#;
-        let err = fill_fields_json(ANEXO, ops, TINY_JPEG).unwrap_err();
+        let err = fill_fields_json(ANEXO, ops, TINY_JPEG, false).unwrap_err();
         assert!(err.contains("image range"), "got: {err}");
     }
 
     #[test]
     fn rejects_xfa_forms_on_fill() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"x"}]"#;
-        let err = fill_fields_json(FICHA_XFA, ops, &[]).unwrap_err();
+        let err = fill_fields_json(FICHA_XFA, ops, &[], false).unwrap_err();
         assert!(err.contains("XFA"), "got: {err}");
     }
 
@@ -1590,7 +1599,7 @@ mod tests {
         let base = with_multiselect(FICHA, "beneficiario.estado_civil");
         // Provide values out of /Opt order; expect /I sorted ascending.
         let ops = r#"[{"name":"beneficiario.estado_civil","values":["Viudo","Casado"]}]"#;
-        let out = fill_fields_json(&base, ops, &[]).unwrap();
+        let out = fill_fields_json(&base, ops, &[], false).unwrap();
         // Check /V is an Array of 2 entries and /I == [1, 3].
         let doc = Document::load_mem(&out).unwrap();
         let (_, field) = find_field(&doc, "beneficiario.estado_civil").unwrap();
@@ -1623,7 +1632,7 @@ mod tests {
         doc.save_to(&mut base).unwrap();
 
         let ops = r#"[{"name":"beneficiario.estado_civil","values":["Casado","Viudo"]}]"#;
-        let err = fill_fields_json(&base, ops, &[]).unwrap_err();
+        let err = fill_fields_json(&base, ops, &[], false).unwrap_err();
         assert!(
             err.contains("does not accept multiple values"),
             "got: {err}"
@@ -1634,7 +1643,7 @@ mod tests {
     fn rejects_invalid_option_in_multivalue_fill() {
         let base = with_multiselect(FICHA, "beneficiario.estado_civil");
         let ops = r#"[{"name":"beneficiario.estado_civil","values":["Casado","Nope"]}]"#;
-        let err = fill_fields_json(&base, ops, &[]).unwrap_err();
+        let err = fill_fields_json(&base, ops, &[], false).unwrap_err();
         assert!(err.contains("not a valid option"), "got: {err}");
     }
 
@@ -1642,7 +1651,7 @@ mod tests {
     fn multiselect_fill_generates_highlight_appearance() {
         let base = with_multiselect(FICHA, "beneficiario.estado_civil");
         let ops = r#"[{"name":"beneficiario.estado_civil","values":["Viudo","Casado"]}]"#;
-        let out = fill_fields_json(&base, ops, &[]).unwrap();
+        let out = fill_fields_json(&base, ops, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let ap = ap_content(&doc, "beneficiario.estado_civil").expect("AP/N present");
         assert!(ap.contains("0.60 0.75 0.85 rg"), "no highlight: {ap}");
@@ -1653,7 +1662,7 @@ mod tests {
     #[test]
     fn fills_xref_stream_pdf_incrementally() {
         let ops = r#"[{"name":"beneficiario.apellidos_nombres","value":"GARCIA"}]"#;
-        let out = fill_fields_json(FICHA_OBJSTREAMS, ops, &[]).unwrap();
+        let out = fill_fields_json(FICHA_OBJSTREAMS, ops, &[], false).unwrap();
         // Still append-only.
         assert_eq!(&out[..FICHA_OBJSTREAMS.len()], FICHA_OBJSTREAMS);
         // Re-parses with the new value.
@@ -1699,7 +1708,7 @@ mod tests {
         let on = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"readOnly":true}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_flag(&on, TEXT_FIELD, "readOnly"), Some(true));
@@ -1709,7 +1718,7 @@ mod tests {
         let off = fill_fields_json(
             &on,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"readOnly":false}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_flag(&off, TEXT_FIELD, "readOnly"), Some(false));
@@ -1720,7 +1729,7 @@ mod tests {
         let out = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"required":true,"noExport":true}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_flag(&out, TEXT_FIELD, "required"), Some(true));
@@ -1733,13 +1742,13 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"GARCIA"}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         let out = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"readOnly":true}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_value(&out, TEXT_FIELD).as_deref(), Some("GARCIA"));
@@ -1751,7 +1760,7 @@ mod tests {
         let hidden = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"hidden":true}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(
@@ -1762,7 +1771,7 @@ mod tests {
         let shown = fill_fields_json(
             &hidden,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"hidden":false}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(
@@ -1776,7 +1785,7 @@ mod tests {
         let out = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"print":true,"noView":true}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_widget_flag(&out, TEXT_FIELD, "print"), Some(true));
@@ -1792,13 +1801,13 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"GARCIA"}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         let on = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"multiline":true}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_flag(&on, TEXT_FIELD, "multiline"), Some(true));
@@ -1815,7 +1824,7 @@ mod tests {
         let off = fill_fields_json(
             &on,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"multiline":false}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_flag(&off, TEXT_FIELD, "multiline"), Some(false));
@@ -1834,7 +1843,7 @@ mod tests {
             &format!(
                 r#"[{{"name":"{TEXT_FIELD}","value":"AB","flags":{{"comb":true,"combMaxLen":5}}}}]"#
             ),
-            &[],
+            &[], false
         );
         // A flags op cannot carry a value, so set value first, then toggle comb.
         assert!(on.is_err(), "value+flags must be rejected");
@@ -1842,13 +1851,13 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"AB"}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         let on = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"comb":true,"combMaxLen":5}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_flag(&on, TEXT_FIELD, "comb"), Some(true));
@@ -1870,7 +1879,7 @@ mod tests {
         let err = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"comb":true}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap_err();
         assert!(err.contains("comb requires a maxLen"), "got: {err}");
@@ -1881,13 +1890,13 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"SECRET"}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         let on = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"password":true}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap();
         assert_eq!(reparse_flag(&on, TEXT_FIELD, "password"), Some(true));
@@ -1909,7 +1918,7 @@ mod tests {
         let err = fill_fields_json(
             FICHA,
             r#"[{"name":"beneficiario.estado_civil","flags":{"multiline":true}}]"#,
-            &[],
+            &[], false
         )
         .unwrap_err();
         assert!(err.contains("apply only to text fields"), "got: {err}");
@@ -1920,7 +1929,7 @@ mod tests {
         let err = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"X","flags":{{"readOnly":true}}}}]"#),
-            &[],
+            &[], false
         )
         .unwrap_err();
         assert!(err.contains("cannot be combined"), "got: {err}");
@@ -1938,7 +1947,7 @@ mod tests {
 
         // Attempt to re-fill the field through the fill path.
         let ops_json = r#"[{"name":"n","value":"B"}]"#;
-        let err = fill_fields_json(&doc, ops_json, &[]).unwrap_err();
+        let err = fill_fields_json(&doc, ops_json, &[], false).unwrap_err();
         assert!(err.contains("not yet supported"), "got: {err}");
     }
 }

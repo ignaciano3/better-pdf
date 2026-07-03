@@ -127,7 +127,7 @@ pub fn build_outline(
 /// Apply an outline (parsed from `json`, a JSON array of `OutlineItem`) to a
 /// loaded PDF `data` and return new PDF bytes (incremental update). Bookmark
 /// destinations point at the existing pages by index.
-pub fn set_outline_json(data: &[u8], json: &str) -> Result<Vec<u8>, String> {
+pub fn set_outline_json(data: &[u8], json: &str, compress: bool) -> Result<Vec<u8>, String> {
     let items: Vec<OutlineItem> =
         serde_json::from_str(json).map_err(|e| format!("invalid outline json: {e}"))?;
 
@@ -136,6 +136,10 @@ pub fn set_outline_json(data: &[u8], json: &str) -> Result<Vec<u8>, String> {
 
     let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
     outline_apply(&mut inc, &items, &prep)?;
+
+    if compress {
+        crate::compress::compress_generated_streams(&mut inc.new_document);
+    }
 
     let mut out = Vec::new();
     inc.save_to(&mut out).map_err(|e| e.to_string())?;
@@ -202,7 +206,7 @@ mod tests {
     fn sets_outline_with_dest() {
         let out = set_outline_json(
             FICHA,
-            r#"[{"title":"Intro","page":0},{"title":"End","page":0}]"#,
+            r#"[{"title":"Intro","page":0},{"title":"End","page":0}]"#, false
         )
         .unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental
@@ -219,7 +223,7 @@ mod tests {
     fn nested_outline_links_parent() {
         let out = set_outline_json(
             FICHA,
-            r#"[{"title":"Ch1","page":0,"children":[{"title":"1.1","page":0}]}]"#,
+            r#"[{"title":"Ch1","page":0,"children":[{"title":"1.1","page":0}]}]"#, false
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -239,6 +243,6 @@ mod tests {
 
     #[test]
     fn outline_rejects_bad_page() {
-        assert!(set_outline_json(FICHA, r#"[{"title":"x","page":9999}]"#).is_err());
+        assert!(set_outline_json(FICHA, r#"[{"title":"x","page":9999}]"#, false).is_err());
     }
 }

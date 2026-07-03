@@ -29,14 +29,23 @@ pub fn read_fields(data: &[u8]) -> Result<String, JsError> {
 /// PDF and return new bytes. `images` is the concatenated image blob the
 /// offsets index into.
 #[wasm_bindgen]
-pub fn fill_fields(data: &[u8], ops_json: &str, images: &[u8]) -> Result<Vec<u8>, JsError> {
-    fill::fill_fields_json(data, ops_json, images).map_err(|e| JsError::new(&e))
+pub fn fill_fields(
+    data: &[u8],
+    ops_json: &str,
+    images: &[u8],
+    compress: bool,
+) -> Result<Vec<u8>, JsError> {
+    fill::fill_fields_json(data, ops_json, images, compress).map_err(|e| JsError::new(&e))
 }
 
 /// Flatten the named fields (JSON array of names) and return new PDF bytes.
 #[wasm_bindgen]
-pub fn flatten_fields(data: &[u8], names_json: &str) -> Result<Vec<u8>, JsError> {
-    flatten::flatten_fields_json(data, names_json).map_err(|e| JsError::new(&e))
+pub fn flatten_fields(
+    data: &[u8],
+    names_json: &str,
+    compress: bool,
+) -> Result<Vec<u8>, JsError> {
+    flatten::flatten_fields_json(data, names_json, compress).map_err(|e| JsError::new(&e))
 }
 
 /// Read the pages of a PDF, returned as a JSON array of `{index, width, height, rotation}`.
@@ -55,8 +64,9 @@ pub fn apply_draw_ops(
     images: &[u8],
     fonts: &[u8],
     fonts_json: &str,
+    compress: bool,
 ) -> Result<Vec<u8>, JsError> {
-    draw::apply_draw_ops_json(data, ops_json, images, fonts, fonts_json)
+    draw::apply_draw_ops_json(data, ops_json, images, fonts, fonts_json, compress)
         .map_err(|e| JsError::new(&e))
 }
 
@@ -73,8 +83,9 @@ pub fn apply_all(
     fill_images: &[u8],
     draw_images: &[u8],
     fonts: &[u8],
+    compress: bool,
 ) -> Result<Vec<u8>, JsError> {
-    apply::apply_all_json(data, plan_json, fill_images, draw_images, fonts)
+    apply::apply_all_json(data, plan_json, fill_images, draw_images, fonts, compress)
         .map_err(|e| JsError::new(&e))
 }
 
@@ -106,8 +117,10 @@ pub fn inject_fields(
     fields_json: &str,
     fonts: &[u8],
     fonts_json: &str,
+    compress: bool,
 ) -> Result<Vec<u8>, JsError> {
-    inject::inject_fields_json(data, fields_json, fonts, fonts_json).map_err(|e| JsError::new(&e))
+    inject::inject_fields_json(data, fields_json, fonts, fonts_json, compress)
+        .map_err(|e| JsError::new(&e))
 }
 
 /// Assemble a new PDF from an ordered page selection across source PDFs.
@@ -119,15 +132,17 @@ pub fn manipulate_pages(
     docs_blob: &[u8],
     docs_json: &str,
     plan_json: &str,
+    compress: bool,
 ) -> Result<Vec<u8>, JsError> {
-    pageops::manipulate_pages_json(docs_blob, docs_json, plan_json).map_err(|e| JsError::new(&e))
+    pageops::manipulate_pages_json(docs_blob, docs_json, plan_json, compress)
+        .map_err(|e| JsError::new(&e))
 }
 
 /// Width in points of `text` in standard-14 `font` at `size`.
 /// Incrementally append/insert/remove/move blank pages on a loaded PDF.
 #[wasm_bindgen]
-pub fn insert_pages(data: &[u8], ops_json: &str) -> Result<Vec<u8>, JsError> {
-    pagetree::insert_pages_json(data, ops_json).map_err(|e| JsError::new(&e))
+pub fn insert_pages(data: &[u8], ops_json: &str, compress: bool) -> Result<Vec<u8>, JsError> {
+    pagetree::insert_pages_json(data, ops_json, compress).map_err(|e| JsError::new(&e))
 }
 
 #[wasm_bindgen]
@@ -160,15 +175,15 @@ pub fn read_metadata(data: &[u8]) -> Result<String, JsError> {
 
 /// Set Info-dictionary metadata; returns new PDF bytes (incremental update).
 #[wasm_bindgen]
-pub fn set_metadata(data: &[u8], meta_json: &str) -> Result<Vec<u8>, JsError> {
-    metadata::set_metadata_json(data, meta_json).map_err(|e| JsError::new(&e))
+pub fn set_metadata(data: &[u8], meta_json: &str, compress: bool) -> Result<Vec<u8>, JsError> {
+    metadata::set_metadata_json(data, meta_json, compress).map_err(|e| JsError::new(&e))
 }
 
 /// Set the document outline (bookmarks) from a JSON array of outline items;
 /// returns new PDF bytes (incremental update).
 #[wasm_bindgen]
-pub fn set_outline(data: &[u8], json: &str) -> Result<Vec<u8>, JsError> {
-    outline::set_outline_json(data, json).map_err(|e| JsError::new(&e))
+pub fn set_outline(data: &[u8], json: &str, compress: bool) -> Result<Vec<u8>, JsError> {
+    outline::set_outline_json(data, json, compress).map_err(|e| JsError::new(&e))
 }
 
 /// Decrypt an encrypted PDF with `password` (empty string for the common

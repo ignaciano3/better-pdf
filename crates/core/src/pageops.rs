@@ -256,6 +256,7 @@ pub fn manipulate_pages_json(
     docs_blob: &[u8],
     docs_json: &str,
     plan_json: &str,
+    compress: bool,
 ) -> Result<Vec<u8>, String> {
     let descs: Vec<DocDesc> =
         serde_json::from_str(docs_json).map_err(|e| format!("invalid docs: {e}"))?;
@@ -369,6 +370,10 @@ pub fn manipulate_pages_json(
     // their content/resources/annots) is retained.
     merged.prune_objects();
 
+    if compress {
+        crate::compress::compress_generated_streams(&mut merged);
+    }
+
     let mut out = Vec::new();
     merged.save_to(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
@@ -419,14 +424,14 @@ mod tests {
             }
         }
         plan.push(']');
-        let out = manipulate_pages_json(&blob, &docs, &plan).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, &plan, false).unwrap();
         assert_eq!(page_count(&out), 2 * n);
     }
 
     #[test]
     fn extract_single_page() {
         let (blob, docs) = pack(&[FICHA]);
-        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0}]"#).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0}]"#, false).unwrap();
         assert_eq!(page_count(&out), 1);
         // MediaBox present on the extracted page (inherited attrs resolved)
         let doc = Document::load_mem(&out).unwrap();
@@ -443,7 +448,7 @@ mod tests {
         if n >= 2 {
             let (blob, docs) = pack(&[FICHA]);
             let out =
-                manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":1},{"doc":0,"page":0}]"#)
+                manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":1},{"doc":0,"page":0}]"#, false)
                     .unwrap();
             assert_eq!(page_count(&out), 2);
         }
@@ -452,20 +457,20 @@ mod tests {
     #[test]
     fn errors_on_empty_plan() {
         let (blob, docs) = pack(&[FICHA]);
-        assert!(manipulate_pages_json(&blob, &docs, "[]").is_err());
+        assert!(manipulate_pages_json(&blob, &docs, "[]", false).is_err());
     }
 
     #[test]
     fn errors_on_page_out_of_range() {
         let (blob, docs) = pack(&[FICHA]);
-        let r = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":9999}]"#);
+        let r = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":9999}]"#, false);
         assert!(r.unwrap_err().contains("page"));
     }
 
     #[test]
     fn errors_on_doc_out_of_range() {
         let (blob, docs) = pack(&[FICHA]);
-        let r = manipulate_pages_json(&blob, &docs, r#"[{"doc":5,"page":0}]"#);
+        let r = manipulate_pages_json(&blob, &docs, r#"[{"doc":5,"page":0}]"#, false);
         assert!(r.unwrap_err().contains("doc"));
     }
 
@@ -485,7 +490,7 @@ mod tests {
             }
         }
         plan.push(']');
-        let out = manipulate_pages_json(&blob, &docs, &plan).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, &plan, false).unwrap();
 
         let doc = Document::load_mem(&out).unwrap();
         let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
@@ -523,7 +528,7 @@ mod tests {
             }
         }
         plan.push(']');
-        let out = manipulate_pages_json(&blob, &docs, &plan).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, &plan, false).unwrap();
 
         let doc = Document::load_mem(&out).unwrap();
         let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
@@ -567,7 +572,7 @@ mod tests {
             }
         }
         plan.push(']');
-        let out = manipulate_pages_json(&blob, &docs, &plan).unwrap();
+        let out = manipulate_pages_json(&blob, &docs, &plan, false).unwrap();
 
         let doc = Document::load_mem(&out).unwrap();
         let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
@@ -618,7 +623,7 @@ mod tests {
     #[test]
     fn duplicate_page_selection_produces_two_distinct_pages() {
         let (blob, docs) = pack(&[FICHA]);
-        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0},{"doc":0,"page":0}]"#)
+        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0},{"doc":0,"page":0}]"#, false)
             .unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let ids: Vec<_> = doc.get_pages().into_values().collect();
