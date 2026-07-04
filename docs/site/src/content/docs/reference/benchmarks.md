@@ -68,3 +68,28 @@ direct `pdf-lib` one-liner equivalent.
 In the `error` rows, `pdf-lib` threw `Unexpected N type: undefined` while
 flattening real-world fixtures. Absolute timings vary by machine; reproduce them
 on yours with `bun run bench` (set `BENCH_ITER` to change the iteration count).
+
+## Output size
+
+How small the *saved bytes* are, not how fast they are produced. Both libraries
+build the same document from scratch, then save.
+
+better-pdf deflates content streams by default (`save({ compress })`, on) and can
+additionally pack structural objects into object streams
+(`save({ objectStreams })`, opt-in, off by default). pdf-lib compresses by
+default and cannot deflate content streams *without* also using object streams,
+so its two columns are "structure uncompressed" (`useObjectStreams: false`)
+versus its fully-default save.
+
+| Scenario | bp raw | bp `compress` | bp `compress` + `objectStreams` | pdf-lib `useObjectStreams:false` | pdf-lib default |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 20 pages, ~45 text lines each | 99.0 KB | 11.3 KB | 11.1 KB | 43.4 KB | 20.7 KB |
+| 10 pages, 300 rectangles each | 111.4 KB | 16.9 KB | 16.8 KB | 20.6 KB | 18.5 KB |
+
+At default settings (`bp compress` vs `pdf-lib default`) better-pdf produces the
+smaller file in both workloads — markedly so on text-heavy pages (11.3 KB vs
+20.7 KB), modestly on vector-heavy ones (16.9 KB vs 18.5 KB). The `objectStreams`
+flag shaves only a little more on top of stream compression here, because it
+compresses structural objects, which are a small share of a content-heavy
+document; it earns its keep on documents with many small objects and little
+content. Reproduce with `bun run bench`.

@@ -420,4 +420,123 @@ for (const scenario of generationScenarios) {
 
 console.log("");
 
+// ---------------------------------------------------------------------------
+// Output size scenarios — how small the saved bytes are, not how fast.
+//
+// better-pdf deflates content streams by default (`compress`, on) and can also
+// pack structural objects into object streams (`objectStreams`, opt-in off).
+// pdf-lib compresses by default and cannot deflate content streams without also
+// using object streams, so its two columns are "structure uncompressed" vs the
+// fully-default save.
+// ---------------------------------------------------------------------------
+
+const LOREM = "The quick brown fox jumps over the lazy dog. 0123456789";
+
+interface SizeScenario {
+  name: string;
+  betterRaw: () => Promise<Uint8Array>;
+  betterCompress: () => Promise<Uint8Array>;
+  betterBoth: () => Promise<Uint8Array>;
+  pdflibRaw: () => Promise<Uint8Array>;
+  pdflibDefault: () => Promise<Uint8Array>;
+}
+
+async function betterTextDoc(options: { compress: boolean; objectStreams: boolean }) {
+  const doc = await PdfDocument.create();
+  for (let p = 0; p < 20; p++) {
+    const page = doc.addPage(PageSizes.A4);
+    for (let i = 0; i < 45; i++) page.drawText(LOREM, { x: 40, y: 780 - i * 16, size: 10 });
+  }
+  return doc.save(options);
+}
+
+async function pdflibTextDoc(useObjectStreams: boolean) {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let p = 0; p < 20; p++) {
+    const page = doc.addPage([595.28, 841.89]);
+    for (let i = 0; i < 45; i++) page.drawText(LOREM, { x: 40, y: 780 - i * 16, size: 10, font });
+  }
+  return new Uint8Array(await doc.save({ useObjectStreams }));
+}
+
+async function betterVectorDoc(options: { compress: boolean; objectStreams: boolean }) {
+  const doc = await PdfDocument.create();
+  for (let p = 0; p < 10; p++) {
+    const page = doc.addPage(PageSizes.A4);
+    for (let i = 0; i < 300; i++) {
+      page.drawRectangle({
+        x: (i * 7) % 500,
+        y: (i * 13) % 700,
+        width: 30,
+        height: 20,
+        fill: bpRgb((i % 10) / 10, 0.3, 0.6),
+      });
+    }
+  }
+  return doc.save(options);
+}
+
+async function pdflibVectorDoc(useObjectStreams: boolean) {
+  const doc = await PDFDocument.create();
+  for (let p = 0; p < 10; p++) {
+    const page = doc.addPage([595.28, 841.89]);
+    for (let i = 0; i < 300; i++) {
+      page.drawRectangle({
+        x: (i * 7) % 500,
+        y: (i * 13) % 700,
+        width: 30,
+        height: 20,
+        color: plRgb((i % 10) / 10, 0.3, 0.6),
+      });
+    }
+  }
+  return new Uint8Array(await doc.save({ useObjectStreams }));
+}
+
+const sizeScenarios: SizeScenario[] = [
+  {
+    name: "20 pages, ~45 text lines each",
+    betterRaw: () => betterTextDoc({ compress: false, objectStreams: false }),
+    betterCompress: () => betterTextDoc({ compress: true, objectStreams: false }),
+    betterBoth: () => betterTextDoc({ compress: true, objectStreams: true }),
+    pdflibRaw: () => pdflibTextDoc(false),
+    pdflibDefault: () => pdflibTextDoc(true),
+  },
+  {
+    name: "10 pages, 300 rectangles each",
+    betterRaw: () => betterVectorDoc({ compress: false, objectStreams: false }),
+    betterCompress: () => betterVectorDoc({ compress: true, objectStreams: false }),
+    betterBoth: () => betterVectorDoc({ compress: true, objectStreams: true }),
+    pdflibRaw: () => pdflibVectorDoc(false),
+    pdflibDefault: () => pdflibVectorDoc(true),
+  },
+];
+
+function kb(bytes: Uint8Array): string {
+  return `${(bytes.length / 1024).toFixed(1)} KB`;
+}
+
+console.log("### Output size");
+console.log("(no fixture — build from scratch, then measure saved bytes)\n");
+console.log(
+  "| Scenario | bp raw | bp compress | bp compress + objStm | pdf-lib no-objstm | pdf-lib default |",
+);
+console.log("| --- | ---: | ---: | ---: | ---: | ---: |");
+
+for (const scenario of sizeScenarios) {
+  const raw = await scenario.betterRaw();
+  const compress = await scenario.betterCompress();
+  const both = await scenario.betterBoth();
+  const plRaw = await scenario.pdflibRaw();
+  const plDefault = await scenario.pdflibDefault();
+  remember(raw);
+  remember(both);
+  console.log(
+    `| ${scenario.name} | ${kb(raw)} | ${kb(compress)} | ${kb(both)} | ${kb(plRaw)} | ${kb(plDefault)} |`,
+  );
+}
+
+console.log("");
+
 if (sink === Number.MIN_SAFE_INTEGER) console.log("ignore", sink);
