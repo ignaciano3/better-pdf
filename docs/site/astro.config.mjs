@@ -59,7 +59,33 @@ export default defineConfig({
 				src: './src/assets/logo.svg',
 				alt: 'better-pdf',
 			},
-			customCss: ['./src/styles/custom.css'],
+			components: {
+				PageTitle: './src/components/PageTitle.astro',
+			},
+			customCss: [
+				'@fontsource/ibm-plex-sans/400.css',
+				'@fontsource/ibm-plex-sans/500.css',
+				'@fontsource/ibm-plex-sans/600.css',
+				'@fontsource/ibm-plex-mono/400.css',
+				'@fontsource/ibm-plex-mono/500.css',
+				'@fontsource/ibm-plex-mono/600.css',
+				'./src/styles/custom.css',
+			],
+			expressiveCode: {
+				styleOverrides: {
+					borderColor: 'var(--sl-color-gray-5)',
+					borderRadius: '0.5rem',
+					codeBackground: 'var(--sl-color-gray-6)',
+					codeFontFamily: 'var(--sl-font-mono)',
+					uiFontFamily: 'var(--sl-font-mono)',
+					frames: {
+						editorActiveTabBackground: 'var(--sl-color-gray-6)',
+						editorTabBarBackground: 'var(--sl-color-black)',
+						terminalBackground: 'var(--sl-color-gray-6)',
+						terminalTitlebarBackground: 'var(--sl-color-black)',
+					},
+				},
+			},
 			social: [
 				{
 					icon: 'github',

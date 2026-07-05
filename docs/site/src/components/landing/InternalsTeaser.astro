@@ -1,0 +1,36 @@
+---
+// "How PDFs work" teaser. NOT rendered on the landing page until the
+// phase-2 internals section exists — see the phase-1 spec (§Landing, item 6).
+---
+
+<section class="teaser">
+	<pre aria-hidden="true">xref
+0 21
+0000000000 65535 f
+0000000017 00000 n</pre>
+	<div>
+		<h2 id="internals">How PDFs actually work</h2>
+		<p>Objects, xref tables, incremental updates — written down properly.</p>
+		<a href="/better-pdf/internals/">Read the internals section</a>
+	</div>
+</section>
+
+<style>
+	.teaser {
+		display: flex;
+		gap: 2rem;
+		align-items: center;
+		border: 1px solid var(--bp-border);
+		border-radius: 0.5rem;
+		padding: 1.5rem 2rem;
+		margin: 3rem 0;
+	}
+	pre {
+		color: var(--bp-texture);
+		font-size: 0.8rem;
+		user-select: none;
+		background: none;
+		border: none;
+	}
+	.teaser a { color: var(--bp-accent-text); }
+</style>

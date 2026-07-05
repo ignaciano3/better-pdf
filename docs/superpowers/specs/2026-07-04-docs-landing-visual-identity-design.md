@@ -67,7 +67,7 @@ Rationale: the proof bar and code tabs *show* what the cards only claimed.
    (maintained pdf-lib alternative; Rust/WASM core; TypeScript API; Node &
    browser). CTAs: **Get started** (blue fill) and `$ npm i better-pdf`
    (copy-on-click). Faint PDF-syntax texture behind.
-2. **Proof bar** — 5–8× faster fills · 186× faster no-op round-trip ·
+2. **Proof bar** — 4–7× faster fills · up to 186× faster no-op round-trip ·
    0 runtime deps · up to 45% smaller output (11.3 KB vs 20.7 KB, text-heavy
    default-settings scenario from `reference/benchmarks`). Each stat links to
    the benchmarks page. Numbers must match the benchmarks page; update together.

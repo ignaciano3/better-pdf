@@ -1,0 +1,58 @@
+---
+// Tabbed API showcase. Static in phase 1; phase 3 swaps internals to make
+// these runnable without touching index.mdx.
+import { Tabs, TabItem, Code } from '@astrojs/starlight/components';
+
+const fill = `import { PdfDocument } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.load(bytes);
+const form = doc.getForm();
+
+form.getTextField("beneficiario.apellidos_nombres").setText("GARCIA, IGNACIO");
+form.getCheckBox("declaracion.acepta").check();
+form.flattenField("beneficiario.apellidos_nombres");
+
+const output = await doc.save(); // incremental, append-only`;
+
+const generate = `import { PdfDocument, PageSizes, StandardFonts, rgb } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+const page = doc.addPage(PageSizes.A4);
+
+page.drawText("Hello, world!", {
+  x: 180, y: 750, size: 24,
+  font: doc.getFont(StandardFonts.Helvetica),
+  color: rgb(0.1, 0.2, 0.8),
+});
+
+const output = await doc.save();`;
+
+const typed = `// bunx better-pdf-generate-types form.pdf src/form-types.ts
+import { myFormFields } from "./form-types.js";
+
+const form = doc.getForm<typeof myFormFields>();
+form.getTextField("beneficiario.apellidos_nombres").setText("GARCIA");
+form.getDropdown("beneficiario.estado_civil").select("Casado");
+// Unknown names, wrong types, invalid options: compile errors.`;
+
+const sign = `const signature = new Uint8Array(await Bun.file("signature.png").arrayBuffer());
+
+form.getSignature("firma.titular").setImage(signature);
+// Visual appearance only — not a cryptographic signature.
+
+const output = await doc.save();`;
+---
+
+<section class="code-tabs">
+	<h2 id="the-api">The API is the pitch</h2>
+	<Tabs>
+		<TabItem label="Fill & flatten"><Code code={fill} lang="ts" title="fill.ts" /></TabItem>
+		<TabItem label="Generate"><Code code={generate} lang="ts" title="generate.ts" /></TabItem>
+		<TabItem label="Typed forms"><Code code={typed} lang="ts" title="typed.ts" /></TabItem>
+		<TabItem label="Sign"><Code code={sign} lang="ts" title="sign.ts" /></TabItem>
+	</Tabs>
+</section>
+
+<style>
+	.code-tabs { margin: 3rem 0; }
+</style>

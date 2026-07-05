@@ -1,40 +1,87 @@
-/* better-pdf — indigo accent theme */
+/* better-pdf — engineering-dark identity, blue brand family.
+   Contrast rules (measured, WCAG):
+   - #2563eb is a FILL on dark (3.67:1 as text — fails AA); accent text on dark is #60a5fa (7.5:1).
+   - Muted text on #101014 is never darker than #8b8b96 (5.6:1). */
+
 :root {
-	--sl-color-accent-low: #1c1e54;
-	--sl-color-accent: #5a5fe0;
-	--sl-color-accent-high: #c7c9f5;
+	--sl-font: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+	--sl-font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-	--sl-color-white: #ffffff;
-	--sl-color-gray-1: #e9e9f3;
-	--sl-color-gray-2: #c0c1d4;
-	--sl-color-gray-3: #888bab;
-	--sl-color-gray-4: #565882;
-	--sl-color-gray-5: #353857;
-	--sl-color-gray-6: #24263f;
-	--sl-color-black: #181a2c;
+	/* Dark (designed-first) */
+	--sl-color-accent-low: #16233f;
+	--sl-color-accent: #2563eb;
+	--sl-color-accent-high: #60a5fa;
+
+	--sl-color-white: #e4e4e7;
+	--sl-color-gray-1: #d4d4d8;
+	--sl-color-gray-2: #b8b8c0;
+	--sl-color-gray-3: #8b8b96;
+	--sl-color-gray-4: #55555f;
+	--sl-color-gray-5: #2e2e38;
+	--sl-color-gray-6: #17171d;
+	--sl-color-black: #101014;
+
+	/* Landing tokens */
+	--bp-accent-text: #60a5fa;
+	--bp-accent-fill: #2563eb;
+	--bp-accent-fill-hover: #1d4ed8;
+	--bp-surface: #17171d;
+	--bp-border: #2e2e38;
+	--bp-texture: #26262e;
 }
 
-/* Light mode overrides */
 :root[data-theme='light'] {
-	--sl-color-accent-low: #dfe0fb;
-	--sl-color-accent: #4f53d6;
-	--sl-color-accent-high: #25275c;
+	--sl-color-accent-low: #dbeafe;
+	--sl-color-accent: #2563eb;
+	--sl-color-accent-high: #1e40af;
 
-	--sl-color-white: #181a2c;
-	--sl-color-gray-1: #24263f;
-	--sl-color-gray-2: #353857;
-	--sl-color-gray-3: #565882;
-	--sl-color-gray-4: #888bab;
-	--sl-color-gray-5: #c0c1d4;
-	--sl-color-gray-6: #e9e9f3;
-	--sl-color-gray-7: #f3f3fa;
+	--sl-color-white: #1c1c22;
+	--sl-color-gray-1: #2a2a32;
+	--sl-color-gray-2: #3f3f49;
+	--sl-color-gray-3: #5c5c66;
+	--sl-color-gray-4: #8b8b96;
+	--sl-color-gray-5: #d8d8de;
+	--sl-color-gray-6: #f7f7f9;
+	--sl-color-gray-7: #f2f2f5;
 	--sl-color-black: #ffffff;
+
+	--bp-accent-text: #2563eb;
+	--bp-accent-fill: #2563eb;
+	--bp-accent-fill-hover: #1d4ed8;
+	--bp-surface: #f7f7f9;
+	--bp-border: #e4e4e7;
+	--bp-texture: #ececf0;
 }
 
-/* Hero gradient accent on the splash page */
-.hero h1 {
-	background: linear-gradient(90deg, var(--sl-color-accent), #8b5cf6);
-	-webkit-background-clip: text;
-	background-clip: text;
-	color: transparent;
+/* Monospace voice: headings, site title, sidebar nav */
+h1, h2, h3, h4, h5, h6,
+.site-title,
+.sidebar-pane {
+	font-family: var(--sl-font-mono);
+}
+
+/* Visible keyboard focus in accent blue */
+:focus-visible {
+	outline: 2px solid var(--bp-accent-text);
+	outline-offset: 2px;
+}
+
+/* Screen-reader-only utility (used by landing components) */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
 }

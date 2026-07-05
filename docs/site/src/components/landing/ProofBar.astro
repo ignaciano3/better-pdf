@@ -1,0 +1,52 @@
+---
+// Benchmark stat tiles. Numbers MUST match
+// src/content/docs/reference/benchmarks.md — update both together.
+const stats = [
+	{ value: '4–7×', label: 'faster form fills than pdf-lib' },
+	{ value: '186×', label: 'faster no-op round-trip (best case)' },
+	{ value: '0', label: 'runtime dependencies' },
+	{ value: '45%', label: 'smaller output (text-heavy, defaults)' },
+];
+---
+
+<section class="proof" aria-label="Benchmark highlights">
+	{stats.map((s) => (
+		<a class="stat" href="/better-pdf/reference/benchmarks/">
+			<span class="value">{s.value}</span>
+			<span class="label">{s.label}</span>
+		</a>
+	))}
+</section>
+
+<style>
+	.proof {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+		gap: 1px;
+		background: var(--bp-border);
+		border: 1px solid var(--bp-border);
+		border-radius: 0.5rem;
+		overflow: hidden;
+		margin: 2rem 0;
+	}
+	.stat {
+		background: var(--bp-surface);
+		padding: 1.25rem 1rem;
+		text-decoration: none;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+	.stat:hover .value { text-decoration: underline; }
+	.value {
+		font-family: var(--sl-font-mono);
+		font-weight: 600;
+		font-size: 1.6rem;
+		color: var(--bp-accent-text);
+	}
+	.label {
+		font-family: var(--sl-font);
+		font-size: 0.85rem;
+		color: var(--sl-color-gray-3);
+	}
+</style>

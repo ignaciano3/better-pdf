@@ -1,0 +1,9 @@
+---
+// Override: the landing page (template: splash) renders its own <h1> inside
+// <Hero />, so suppress Starlight's default PageTitle there to avoid a
+// duplicate h1. Every other route keeps the default title unchanged.
+import Default from '@astrojs/starlight/components/PageTitle.astro';
+const isLanding = Astro.locals.starlightRoute.id === '';
+---
+
+{!isLanding && <Default {...Astro.props}><slot /></Default>}
