@@ -68,6 +68,21 @@ export default defineConfig({
 				'@fontsource/ibm-plex-mono/600.css',
 				'./src/styles/custom.css',
 			],
+			expressiveCode: {
+				styleOverrides: {
+					borderColor: 'var(--sl-color-gray-5)',
+					borderRadius: '0.5rem',
+					codeBackground: 'var(--sl-color-gray-6)',
+					codeFontFamily: 'var(--sl-font-mono)',
+					uiFontFamily: 'var(--sl-font-mono)',
+					frames: {
+						editorActiveTabBackground: 'var(--sl-color-gray-6)',
+						editorTabBarBackground: 'var(--sl-color-black)',
+						terminalBackground: 'var(--sl-color-gray-6)',
+						terminalTitlebarBackground: 'var(--sl-color-black)',
+					},
+				},
+			},
 			social: [
 				{
 					icon: 'github',
