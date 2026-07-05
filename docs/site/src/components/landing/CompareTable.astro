@@ -1,0 +1,44 @@
+---
+// Honest comparison vs pdf-lib. Claims verified against README and
+// reference/benchmarks.md — keep factual, no strawmen.
+const rows = [
+	['Maintenance', 'Actively maintained', 'Last release 2021'],
+	['Form fills', '5–8× faster', 'baseline'],
+	['Unknown fields / bad options', 'Typed errors', 'Silent or generic throw'],
+	['Saving', 'Incremental, append-only (original bytes preserved)', 'Full rewrite'],
+	['Typed form schemas', 'Generated module — wrong names are compile errors', 'None'],
+	['Output size (defaults, text-heavy)', '11.3 KB', '20.7 KB'],
+];
+---
+
+<section class="compare">
+	<h2 id="vs-pdf-lib">vs pdf-lib</h2>
+	<table>
+		<thead>
+			<tr><th scope="col"></th><th scope="col">better-pdf</th><th scope="col">pdf-lib</th></tr>
+		</thead>
+		<tbody>
+			{rows.map(([k, us, them]) => (
+				<tr><th scope="row">{k}</th><td class="us">{us}</td><td>{them}</td></tr>
+			))}
+		</tbody>
+	</table>
+	<p class="migrate">
+		Coming from pdf-lib? Most code ports in minutes —
+		<a href="/better-pdf/migrating/from-pdf-lib/">migration guide</a>.
+	</p>
+</section>
+
+<style>
+	.compare { margin: 3rem 0; }
+	table { width: 100%; }
+	th[scope='row'] {
+		font-family: var(--sl-font);
+		font-weight: 500;
+		color: var(--sl-color-gray-3);
+		text-align: left;
+	}
+	.us { color: var(--sl-color-white); font-weight: 500; }
+	.migrate { color: var(--sl-color-gray-3); }
+	.migrate a { color: var(--bp-accent-text); }
+</style>
