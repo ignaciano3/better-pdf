@@ -59,7 +59,15 @@ export default defineConfig({
 				src: './src/assets/logo.svg',
 				alt: 'better-pdf',
 			},
-			customCss: ['./src/styles/custom.css'],
+			customCss: [
+				'@fontsource/ibm-plex-sans/400.css',
+				'@fontsource/ibm-plex-sans/500.css',
+				'@fontsource/ibm-plex-sans/600.css',
+				'@fontsource/ibm-plex-mono/400.css',
+				'@fontsource/ibm-plex-mono/500.css',
+				'@fontsource/ibm-plex-mono/600.css',
+				'./src/styles/custom.css',
+			],
 			social: [
 				{
 					icon: 'github',
