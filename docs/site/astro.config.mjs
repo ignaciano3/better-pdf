@@ -146,6 +146,7 @@ export default defineConfig({
 					label: 'How PDFs work',
 					items: [
 						{ label: 'Overview', slug: 'internals' },
+						{ label: 'File anatomy', slug: 'internals/file-anatomy' },
 					],
 				},
 				{
