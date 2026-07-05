@@ -24,7 +24,7 @@ startxref
 		</p>
 		<div class="ctas">
 			<a class="btn" href="/better-pdf/getting-started/introduction/">Get started</a>
-			<button class="install" type="button" data-install={install}>
+			<button class="install" type="button" data-install={install} aria-label="Copy install command to clipboard: npm i @ignaciano3/better-pdf">
 				<span aria-hidden="true">$&nbsp;</span>{install}
 			</button>
 			<span class="sr-only" role="status" data-copy-status></span>
@@ -36,9 +36,13 @@ startxref
 	const btn = document.querySelector<HTMLButtonElement>('.install');
 	const status = document.querySelector<HTMLElement>('[data-copy-status]');
 	btn?.addEventListener('click', async () => {
-		await navigator.clipboard.writeText(btn.dataset.install ?? '');
-		btn.classList.add('copied');
-		if (status) status.textContent = 'Install command copied to clipboard';
+		try {
+			await navigator.clipboard.writeText(btn.dataset.install ?? '');
+			btn.classList.add('copied');
+			if (status) status.textContent = 'Install command copied to clipboard';
+		} catch {
+			if (status) status.textContent = 'Copy failed — select and copy the command manually';
+		}
 		setTimeout(() => {
 			btn.classList.remove('copied');
 			if (status) status.textContent = '';
