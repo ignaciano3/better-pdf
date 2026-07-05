@@ -57,11 +57,11 @@ startxref
 ## Header
 
 The first line, `%PDF-1.7`, is the header: a comment (PDF comments start with
-`%`) declaring which version of the PDF specification the file follows. A
-reader checks this line to decide which features it can expect — later
-versions add capabilities (object streams, newer encryption, and so on) that
-older readers won't understand. `1.7` is by far the most common version in
-the wild and is what better-pdf's writer targets.
+`%`) declaring which version of the PDF specification the file follows. It's
+a hint about which features the file may use — later versions add
+capabilities (object streams, newer encryption, and so on) — though in
+practice readers parse whatever they find rather than gating features on
+this line. `1.7` is by far the most common version in the wild.
 
 The second line is stranger: `%âãÏÓ`, four bytes whose values are all above
 127. This isn't a version number or metadata — it exists purely so that
@@ -113,8 +113,9 @@ The `xref` section is a lookup table: for every object number, the exact byte
 offset from the start of the file where that object's `N 0 obj` line begins.
 `0 6` means "6 entries, starting at object 0." Each entry after that is
 exactly 20 bytes wide, always in the form `NNNNNNNNNN GGGGG X` — a 10-digit
-byte offset, a 5-digit generation number, a space, and a one-letter flag,
-padded with a trailing newline sequence to hit 20 bytes on the dot.
+byte offset, a space, a 5-digit generation number, a space, a one-letter
+flag, and a two-byte end-of-line sequence: 10 + 1 + 5 + 1 + 1 + 2 = 20 bytes
+on the dot.
 
 The flag is either `f` (free) or `n` (in use). Object 0 is always the head of
 a linked list of free object slots and is always `f`; PDF writers rarely
