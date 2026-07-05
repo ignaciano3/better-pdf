@@ -143,6 +143,12 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'How PDFs work',
+					items: [
+						{ label: 'Overview', slug: 'internals' },
+					],
+				},
+				{
 					label: 'Reference',
 					items: [
 						{ label: 'API', slug: 'reference/api' },
