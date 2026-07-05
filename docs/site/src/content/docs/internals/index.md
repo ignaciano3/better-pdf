@@ -4,10 +4,14 @@ description: A short, byte-level tour of the PDF file format — objects, xref t
 ---
 
 PDF looks opaque from the outside — a binary blob that opens in a viewer and
-otherwise resists inspection. It isn't. Underneath the icon is a plain-text
-structure you can open in any text editor and read: a flat list of numbered
-objects, a lookup table that finds them, and a handful of small, well-defined
-sub-languages for drawing pages, describing form fields, and encoding text.
+otherwise resists inspection. It's more legible than it looks. The skeleton
+of every PDF is text: a flat list of numbered objects, a lookup table that
+finds them, and a handful of small, well-defined sub-languages for drawing
+pages, describing form fields, and encoding text. In real-world files the
+flesh on that skeleton — page content, fonts, often the lookup table itself —
+is usually deflate-compressed into unreadable bytes, so opening one in a text
+editor shows readable structure interleaved with binary noise (the
+[compression article](/better-pdf/internals/compression/) shows both sides).
 This section is a byte-level tour of that structure, written for developers
 who use PDFs every day but have never had a reason to read the ISO 32000
 specification. Each article opens a real file, points at the bytes that
@@ -31,9 +35,9 @@ where, and why the format is shaped the way it is.
 - **[Incremental updates](/better-pdf/internals/incremental-updates/)** — why
   editing a PDF usually means appending new bytes to the end of the file, not
   rewriting the ones already there.
-- **[Content streams & operators](/better-pdf/internals/content-streams/)**
-  — the tiny postfix language, built from a couple dozen operators, that
-  paints every page you've ever viewed.
+- **[Content streams & operators](/better-pdf/internals/content-streams/)** —
+  the tiny postfix language, built from a couple dozen operators, that paints
+  every page you've ever viewed.
 - **[AcroForms: how fields really work](/better-pdf/internals/forms/)** —
   field dictionaries, the widget annotations that draw them, and what
   "flatten" actually removes.
