@@ -19,7 +19,7 @@
 - `#2563eb` is never used as text on dark backgrounds (3.67:1, fails AA). On dark it is a fill with white text only; accent text on dark is `#60a5fa`.
 - Muted text on `#101014` is never darker than `#8b8b96`.
 - Decorative PDF-syntax texture: `aria-hidden="true"`, `user-select: none`, intentionally < 3:1.
-- Landing stats must match `src/content/docs/reference/benchmarks.md`: 5–8× faster fills, 186× no-op round-trip, 0 runtime dependencies, up to 45% smaller output (11.3 KB vs 20.7 KB).
+- Landing stats must match `src/content/docs/reference/benchmarks.md`: 4–7× faster fills, up to 186× no-op round-trip, 0 runtime dependencies, up to 45% smaller output (11.3 KB vs 20.7 KB).
 - Do not fork or eject Starlight components; theme via CSS custom properties and documented config options only.
 - Keep the existing light/dark toggle working; every change must look right in both themes.
 

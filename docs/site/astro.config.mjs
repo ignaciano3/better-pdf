@@ -59,6 +59,9 @@ export default defineConfig({
 				src: './src/assets/logo.svg',
 				alt: 'better-pdf',
 			},
+			components: {
+				PageTitle: './src/components/PageTitle.astro',
+			},
 			customCss: [
 				'@fontsource/ibm-plex-sans/400.css',
 				'@fontsource/ibm-plex-sans/500.css',

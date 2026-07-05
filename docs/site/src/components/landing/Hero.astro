@@ -17,14 +17,14 @@ trailer &lt;&lt; /Root 1 0 R /Prev 41230 &gt;&gt;
 startxref
 %%EOF</pre>
 	<div class="inner">
-		<h1>&gt; Understands PDFs<br />&nbsp;&nbsp;down to the <span class="accent">byte</span>.</h1>
+		<h1 id="_top">&gt; Understands PDFs<br />&nbsp;&nbsp;down to the <span class="accent">byte</span>.</h1>
 		<p class="sub">
 			The maintained, fast alternative to pdf-lib — fill, flatten, sign, and
 			generate PDFs. Rust/WebAssembly core, TypeScript API, Node &amp; browser.
 		</p>
 		<div class="ctas">
 			<a class="btn" href="/better-pdf/getting-started/introduction/">Get started</a>
-			<button class="install" type="button" data-install={install} aria-label="Copy install command to clipboard: npm i @ignaciano3/better-pdf">
+			<button class="install" type="button" data-install={install} aria-label={`Copy install command to clipboard: ${install}`}>
 				<span aria-hidden="true">$&nbsp;</span>{install}
 			</button>
 			<span class="sr-only" role="status" data-copy-status></span>
@@ -100,7 +100,7 @@ startxref
 		border-radius: 0.375rem;
 		text-decoration: none;
 	}
-	.btn:hover { background: #1d4ed8; }
+	.btn:hover { background: var(--bp-accent-fill-hover); }
 	.install {
 		background: var(--bp-surface);
 		border: 1px solid var(--bp-border);

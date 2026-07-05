@@ -24,6 +24,7 @@
 	/* Landing tokens */
 	--bp-accent-text: #60a5fa;
 	--bp-accent-fill: #2563eb;
+	--bp-accent-fill-hover: #1d4ed8;
 	--bp-surface: #17171d;
 	--bp-border: #2e2e38;
 	--bp-texture: #26262e;
@@ -46,6 +47,7 @@
 
 	--bp-accent-text: #2563eb;
 	--bp-accent-fill: #2563eb;
+	--bp-accent-fill-hover: #1d4ed8;
 	--bp-surface: #f7f7f9;
 	--bp-border: #e4e4e7;
 	--bp-texture: #ececf0;
