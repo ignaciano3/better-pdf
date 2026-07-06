@@ -1,0 +1,113 @@
+---
+title: Objects & the xref table
+description: A PDF is a random-access database of numbered objects. The cross-reference table is its index — here is how readers jump straight to any object without scanning the file.
+---
+
+import XrefDiagram from '../../../components/internals/XrefDiagram.astro';
+
+The previous article walked through all four parts of a PDF — header, body,
+cross-reference table, trailer — on a single six-object file small enough to
+read start to finish. This one zooms into the two parts that matter most for
+how a PDF actually *behaves*: the body's numbered objects, and the table that
+indexes them. Together they're what make a PDF a random-access database of
+records rather than a document you have to read top to bottom.
+
+## The eight object types
+
+Every value that can appear inside a PDF — no matter how deeply nested inside
+a dictionary or an array — is one of exactly eight types:
+
+```text title="Every PDF value is one of eight types"
+true false            % booleans
+42  -7  3.14          % numbers
+(Hello)               % literal string        <48656C6C6F>  % hex string
+/Type /F1             % names (atoms, start with /)
+[0 0 595 842]         % array
+<< /Kind /Dict >>     % dictionary (the workhorse)
+null                  % null
+5 0 obj … endobj      % any value wrapped as a NUMBERED, reusable object
+```
+
+The last line isn't really a ninth type — it's any of the other seven wrapped
+with an object number and a generation number, which is what makes that value
+individually addressable from elsewhere in the file. A dictionary written
+inline (say, as the value of a `/Font` key) is just a dictionary. The same
+dictionary wrapped as `4 0 obj << ... >> endobj` is that plus a stable
+identity — object 4 — that any other part of the file can point at without
+caring where the bytes physically live.
+
+## Indirect references
+
+That pointing happens through **indirect references**, written `N G R` — for
+example `5 0 R`, meaning "the value of object 5, generation 0." It's PDF's
+only mechanism for one piece of data to refer to another: no memory
+addresses, no requirement that related data sit near each other, just object
+numbers looked up in a table. A Pages dictionary's `/Kids [3 0 R]` doesn't
+contain a Page object inline; it holds the *number* of one, to be resolved on
+demand.
+
+Because every link between objects is a number rather than a physical
+position, objects can appear in the file in any order at all and the
+document still resolves correctly — the Catalog can be object 1 and the page
+content stream can be object 47, or the reverse, and nothing breaks. What
+actually defines the structure of a document isn't the sequence objects were
+written in, it's the graph those references trace: Catalog points at a Pages
+tree, the Pages tree points at Page objects, each Page points at the
+Resources and Contents it needs. A reader that wants to render page one walks
+that graph starting from wherever `/Root` says to start — it never scans the
+file front to back looking for content.
+
+## The xref table is the index
+
+Walking a reference graph only works cheaply if resolving `5 0 R` to "the
+bytes starting at offset X" is fast. That's the cross-reference table's
+entire job: for every object number, the exact byte offset where that
+object's `N 0 obj` line begins. What makes it fast rather than just another
+list to search is that every entry is **exactly 20 bytes** — a fixed width,
+regardless of how large the offset or generation number happens to be. Given
+the byte offset where the table starts, the entry for object *N* sits at
+`table start + N × 20` bytes, computable directly with no scanning at all.
+Look up that one entry, read the offset it contains, and jump straight to the
+object — one seek, not a linear search through the file:
+
+<XrefDiagram />
+
+That's the trade a classic xref table makes: pad every entry to a fixed
+width so the table itself becomes an array a reader can index into, in
+exchange for a file that's some bytes larger than the tightest possible
+encoding. It's what turns "find object 5" from a file-wide scan into a single
+lookup and a single jump — the property that makes a multi-hundred-page PDF
+just as fast to open as a one-page one.
+
+## What can go wrong
+
+Because the whole scheme depends on the table's offsets being correct,
+anything that puts them out of sync with reality breaks it. An editing tool
+that patches bytes in place without recomputing every downstream offset
+leaves stale entries pointing at the wrong location, or past the end of the
+file. A transfer that's interrupted partway through, or a crashed writer,
+can leave a table truncated — fewer entries than objects, or no `%%EOF` at
+all. Some files are also **hybrid**, carrying both a classic xref table and
+a newer xref stream side by side, for compatibility with older and newer
+readers at once, which means there are two possible indexes and no
+guarantee they agree.
+
+Readers split into two camps on what to do about it. Lenient readers fall
+back to scanning: if the table looks broken, ignore it and search the raw
+file for every `N 0 obj` pattern to rebuild an index from scratch, then carry
+on. Strict readers refuse: if the offsets the file claims don't check out,
+that's treated as a corrupt file and rejected rather than patched around.
+Both are defensible engineering choices with real trade-offs — lenient
+readers open more damaged-but-recoverable files; strict readers never render
+content built on offsets they can't verify.
+
+## In better-pdf
+
+better-pdf takes the strict path: "the parser is strict by design and
+rejects broken structure rather than guessing at it" — corrupt xref data is
+an error, not a repair job ([Limitations](/better-pdf/reference/limitations/)).
+
+When the core rejects a file, you get a typed `PdfCoreError` carrying the
+core's original message ([Errors](/better-pdf/reference/errors/)).
+
+Next: [Incremental updates](/better-pdf/internals/incremental-updates/).

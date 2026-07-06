@@ -143,6 +143,19 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'How PDFs work',
+					items: [
+						{ label: 'Overview', slug: 'internals' },
+						{ label: 'File anatomy', slug: 'internals/file-anatomy' },
+						{ label: 'Objects & xref', slug: 'internals/objects-and-xref' },
+						{ label: 'Incremental updates', slug: 'internals/incremental-updates' },
+						{ label: 'Content streams', slug: 'internals/content-streams' },
+						{ label: 'AcroForms', slug: 'internals/forms' },
+						{ label: 'Fonts & encoding', slug: 'internals/fonts' },
+						{ label: 'Compression & object streams', slug: 'internals/compression' },
+					],
+				},
+				{
 					label: 'Reference',
 					items: [
 						{ label: 'API', slug: 'reference/api' },
