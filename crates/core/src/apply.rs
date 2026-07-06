@@ -381,4 +381,32 @@ mod tests {
             "unexpected error message: {err}"
         );
     }
+
+    #[test]
+    fn embedded_fill_then_flatten_in_one_save_stamps_embedded_appearance() {
+        const NOTO: &[u8] =
+            include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+        let base = crate::create::create_document_json(
+            r#"[{"op":"addPage","width":300,"height":300}]"#, &[], &[], "[]",
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+            false, false,
+        ).unwrap();
+        let plan = format!(
+            r#"{{"fill":[{{"name":"n","value":"Añb","fontId":0}}],"flatten":["n"],"draw":{{"ops":[],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
+            NOTO.len()
+        );
+        let out = apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let doc = lopdf::Document::load_mem(&out).unwrap();
+        // Field is gone (flattened)...
+        let fields = crate::forms::read_fields_json(&out).unwrap();
+        assert!(!fields.contains(r#""name":"n""#), "field should be flattened: {fields}");
+        // ...and the page content references the stamped Form XObject whose resources
+        // carry the BPF0 Type0 font.
+        let has_bpf = doc.objects.values().any(|o| {
+            o.as_stream().ok()
+                .map(|s| String::from_utf8_lossy(&format!("{:?}", s.dict).into_bytes()).contains("BPF0"))
+                .unwrap_or(false)
+        });
+        assert!(has_bpf, "flattened output must carry the embedded-font appearance");
+    }
 }
