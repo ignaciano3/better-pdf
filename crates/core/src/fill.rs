@@ -1,21 +1,56 @@
 //! Fill engine: apply {name,value} ops to a PDF and incrementally save.
 
 use crate::appearance;
+use crate::draw::FontDesc;
+use crate::fonts::{self, BuiltFont, MissingGlyphPolicy};
 use crate::forms::{self};
 use lopdf::{
     Dictionary, Document, IncrementalDocument, Object, ObjectId, decode_text_string, text_string,
 };
 use serde::Deserialize;
+use std::collections::HashMap;
+
+/// Everything `fill` needs to resolve/apply embedded-font (`fontId`) fills:
+/// the font descriptors (byte ranges into `bytes`) and the already-built
+/// Type0 object map (built once in `apply.rs`, before any fill fields are
+/// touched, so both Phase A and Phase B can read it).
+pub(crate) struct FontCtx<'a> {
+    pub(crate) descs: &'a [FontDesc],
+    pub(crate) built: &'a HashMap<usize, (ObjectId, BuiltFont)>,
+    pub(crate) bytes: &'a [u8],
+}
+
+impl FontCtx<'_> {
+    fn get(&self, id: usize) -> Result<(ObjectId, &BuiltFont, &[u8]), String> {
+        if id >= self.descs.len() {
+            return Err(format!("font id {id} out of range"));
+        }
+        let (type0_id, built) = self
+            .built
+            .get(&id)
+            .ok_or_else(|| format!("font id {id} out of range"))?;
+        let fd = &self.descs[id];
+        let end = fd
+            .offset
+            .checked_add(fd.length)
+            .ok_or_else(|| "font range out of bounds".to_string())?;
+        let bytes = self
+            .bytes
+            .get(fd.offset..end)
+            .ok_or_else(|| "font range out of bounds".to_string())?;
+        Ok((*type0_id, built, bytes))
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FillOp {
     name: String,
-    value: Option<String>,
+    pub(crate) value: Option<String>,
     values: Option<Vec<String>>,
     /// When present, the op sets the field's default value (`/DV`) rather than
     /// its current value (`/V`). Mutually exclusive with `value`/`values`/image.
-    default_value: Option<String>,
+    pub(crate) default_value: Option<String>,
     /// When true, reset the field: set `/V` to the field's `/DV` (or clear it if
     /// there is none) and redraw. Mutually exclusive with the other op kinds.
     reset: Option<bool>,
@@ -24,6 +59,11 @@ pub(crate) struct FillOp {
     /// When present, change the field's flags rather than its value. Mutually
     /// exclusive with every other op kind.
     flags: Option<FieldFlagOps>,
+    /// Index into `plan.draw.fonts` (the same `FontDesc` list draw ops use).
+    /// When present on a value-setting op, the appearance is rendered with the
+    /// embedded (Type0/Identity-H) font instead of the WinAnsi engine.
+    #[serde(default)]
+    pub(crate) font_id: Option<usize>,
 }
 
 /// Flag mutations requested for one field. Each `Some(true)` sets the bit,
@@ -66,10 +106,12 @@ pub fn fill_fields_json(
 ) -> Result<Vec<u8>, String> {
     let ops: Vec<FillOp> = serde_json::from_str(ops_json).map_err(|e| e.to_string())?;
     let doc = crate::doc_io::load_pdf(data)?;
-    let plan = fill_resolve(&doc, &ops, images)?;
+    // The standalone fill path has no font blob / draw.fonts section, so
+    // embedded-font fills (`fontId`) only flow through `apply_all_json`.
+    let plan = fill_resolve(&doc, &ops, images, None)?;
 
     let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
-    fill_apply(&mut inc, &plan)?;
+    fill_apply(&mut inc, &plan, None)?;
 
     if compress {
         crate::compress::compress_generated_streams(&mut inc.new_document);
@@ -86,6 +128,7 @@ pub(crate) fn fill_resolve(
     doc: &Document,
     ops: &[FillOp],
     images: &[u8],
+    font_ctx: Option<&FontCtx>,
 ) -> Result<Vec<Resolved>, String> {
     if forms::has_xfa(doc) {
         return Err(
@@ -95,13 +138,17 @@ pub(crate) fn fill_resolve(
     }
     let mut plan: Vec<Resolved> = Vec::with_capacity(ops.len());
     for op in ops {
-        plan.push(resolve(doc, op, images)?);
+        plan.push(resolve(doc, op, images, font_ctx)?);
     }
     Ok(plan)
 }
 
 /// Phase B: apply a resolved fill plan to the incremental document.
-pub(crate) fn fill_apply(inc: &mut IncrementalDocument, plan: &[Resolved]) -> Result<(), String> {
+pub(crate) fn fill_apply(
+    inc: &mut IncrementalDocument,
+    plan: &[Resolved],
+    font_ctx: Option<&FontCtx>,
+) -> Result<(), String> {
     let touched_appearance = plan.iter().any(|r| {
         matches!(
             r.apply,
@@ -114,7 +161,7 @@ pub(crate) fn fill_apply(inc: &mut IncrementalDocument, plan: &[Resolved]) -> Re
     });
 
     for r in plan {
-        apply(inc, r)?;
+        apply(inc, r, font_ctx)?;
     }
     if touched_appearance {
         clear_need_appearances(inc)?;
@@ -150,6 +197,11 @@ struct ApInputs {
     password: bool,
     /// Cell count for the comb layout, from `/MaxLen`. Only meaningful when `comb`.
     max_len: i64,
+    /// `Some(font_id)` when this field's appearance must be drawn with an
+    /// embedded (Type0/Identity-H) font instead of the WinAnsi engine. The id
+    /// indexes `plan.draw.fonts`; the actual `(ObjectId, BuiltFont)` + bytes
+    /// are looked up at apply time via the threaded `FontCtx`.
+    embedded: Option<usize>,
 }
 
 enum Apply {
@@ -212,12 +264,30 @@ enum Apply {
 
 /// Locate the field for `op.name`, classify it, and dispatch to the branch that
 /// handles this op's kind (flags / default-value / reset / value or image).
-fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, String> {
+fn resolve(
+    doc: &Document,
+    op: &FillOp,
+    images: &[u8],
+    font_ctx: Option<&FontCtx>,
+) -> Result<Resolved, String> {
     let (field_id, dict) =
         find_field(doc, &op.name).ok_or_else(|| format!("no such field: {}", op.name))?;
     let ft = forms::inherited_name(doc, dict, b"FT").unwrap_or_default();
     let ff = forms::inherited_int(doc, dict, b"Ff").unwrap_or(0);
     let kind = forms::classify(&ft, ff);
+
+    if let Some(fid) = op.font_id {
+        if kind != "text" || forms::is_comb(ff) {
+            return Err(format!(
+                "embedded fonts are supported on plain and multiline text fields only (field '{}')",
+                op.name
+            ));
+        }
+        match font_ctx {
+            Some(ctx) if fid < ctx.descs.len() => {}
+            _ => return Err(format!("font id {fid} out of range")),
+        }
+    }
 
     if let Some(flags) = &op.flags {
         return resolve_flags(doc, op, field_id, dict, kind, ff, flags);
@@ -228,7 +298,7 @@ fn resolve(doc: &Document, op: &FillOp, images: &[u8]) -> Result<Resolved, Strin
     if op.reset == Some(true) {
         return resolve_reset(doc, op, field_id, dict, kind, ff);
     }
-    resolve_value(doc, op, images, field_id, dict, kind, ff)
+    resolve_value(doc, op, images, field_id, dict, kind, ff, font_ctx)
 }
 
 /// Branch: change a field's flags (`/Ff` bits + per-widget `/F` bits). Mutually
@@ -295,7 +365,7 @@ fn resolve_flags(
         }
 
         let value = read_v_string(dict).unwrap_or_default();
-        let mut ap = ap_inputs(doc, field_id, dict, &op.name, new_ff)?;
+        let mut ap = ap_inputs(doc, field_id, dict, &op.name, new_ff, None, None)?;
         if let Some(ml) = write_max_len {
             ap.max_len = ml;
         }
@@ -429,7 +499,7 @@ fn resolve_reset(
                 values,
                 indices,
                 options,
-                ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
+                ap: ap_inputs(doc, field_id, dict, &op.name, ff, None, None)?,
             },
         });
     }
@@ -437,7 +507,7 @@ fn resolve_reset(
         "checkbox" | "radio" => "Off".to_string(),
         _ => String::new(),
     });
-    let apply = value_apply(doc, field_id, dict, kind, ff, &op.name, &value, false)?;
+    let apply = value_apply(doc, field_id, dict, kind, ff, &op.name, &value, false, None, None)?;
     Ok(Resolved { field_id, apply })
 }
 
@@ -452,6 +522,7 @@ fn resolve_value(
     dict: &Dictionary,
     kind: &str,
     ff: i64,
+    font_ctx: Option<&FontCtx>,
 ) -> Result<Resolved, String> {
     let image_bytes = match (op.image_offset, op.image_length) {
         (Some(off), Some(len)) => Some(
@@ -519,7 +590,7 @@ fn resolve_value(
                     values: sorted_values,
                     indices,
                     options,
-                    ap: ap_inputs(doc, field_id, dict, &op.name, ff)?,
+                    ap: ap_inputs(doc, field_id, dict, &op.name, ff, None, None)?,
                 },
             });
         }
@@ -527,7 +598,9 @@ fn resolve_value(
             .value
             .as_ref()
             .ok_or_else(|| format!("missing value for field {}", op.name))?;
-        value_apply(doc, field_id, dict, kind, ff, &op.name, value, true)?
+        value_apply(
+            doc, field_id, dict, kind, ff, &op.name, value, true, op.font_id, font_ctx,
+        )?
     };
     Ok(Resolved { field_id, apply })
 }
@@ -535,7 +608,8 @@ fn resolve_value(
 /// Build the `Apply` for setting a single string `value` on a value-bearing
 /// field. When `validate_option` is true, choice values are checked against the
 /// field's options (the normal fill path); reset passes false because the value
-/// comes from the field's own `/DV`.
+/// comes from the field's own `/DV`. `font_id`/`font_ctx` are only meaningful
+/// for `kind == "text"` (validated by the caller for every other kind).
 #[allow(clippy::too_many_arguments)]
 fn value_apply(
     doc: &Document,
@@ -546,12 +620,27 @@ fn value_apply(
     name: &str,
     value: &str,
     validate_option: bool,
+    font_id: Option<usize>,
+    font_ctx: Option<&FontCtx>,
 ) -> Result<Apply, String> {
     Ok(match kind {
-        "text" => Apply::Text {
-            value: value.to_string(),
-            ap: ap_inputs(doc, field_id, dict, name, ff)?,
-        },
+        "text" => {
+            if let Some(fid) = font_id {
+                // Range already validated by the caller; safe to unwrap here.
+                let ctx = font_ctx.ok_or_else(|| format!("font id {fid} out of range"))?;
+                let (_, built, _) = ctx.get(fid)?;
+                fonts::gids_per_line(
+                    built,
+                    value,
+                    MissingGlyphPolicy::Error,
+                    &format!("field '{name}'"),
+                )?;
+            }
+            Apply::Text {
+                value: value.to_string(),
+                ap: ap_inputs(doc, field_id, dict, name, ff, font_id, font_ctx)?,
+            }
+        }
         "checkbox" | "radio" => {
             let widgets = button_widgets(doc, field_id, dict, value)?;
             Apply::Button {
@@ -567,7 +656,7 @@ fn value_apply(
             Apply::Dropdown {
                 value: value.to_string(),
                 index,
-                ap: ap_inputs(doc, field_id, dict, name, ff)?,
+                ap: ap_inputs(doc, field_id, dict, name, ff, None, None)?,
             }
         }
         other => return Err(format!("cannot fill field {} of type {}", name, other)),
@@ -598,14 +687,38 @@ fn ap_inputs(
     dict: &Dictionary,
     name: &str,
     ff: i64,
+    font_id: Option<usize>,
+    font_ctx: Option<&FontCtx>,
 ) -> Result<ApInputs, String> {
     let acro = forms::acroform(doc).ok_or_else(|| "no AcroForm".to_string())?;
     let da_str = effective_da(doc, dict, acro);
     let da = appearance::parse_da(&da_str);
+
+    if let Some(fid) = font_id {
+        // Embedded path: the DA font resolution below is entirely bypassed —
+        // the field's /DA and appearance will reference /BPF<fid> instead.
+        let ctx = font_ctx.ok_or_else(|| format!("font id {fid} out of range"))?;
+        ctx.get(fid)?; // validates range; the actual lookup happens at apply time.
+        return Ok(ApInputs {
+            q: quadding(doc, dict),
+            font: String::new(),
+            widths: appearance::helvetica_widths(),
+            da,
+            font_ref: (0, 0), // unused for embedded fields
+            widgets: widget_boxes(doc, field_id, dict),
+            multiline: forms::is_multiline(ff),
+            comb: forms::is_comb(ff),
+            password: forms::is_password(ff),
+            max_len: forms::inherited_int(doc, dict, b"MaxLen").unwrap_or(0),
+            embedded: Some(fid),
+        });
+    }
+
     let font_ref = font_ref(doc, acro, &da.font)
         .ok_or_else(|| format!("DA font '{}' not found in /DR for {}", da.font, name))?;
     // Reject Type0 (embedded/composite) DA fonts: the WinAnsi engine below would
-    // mis-encode them. Filling embedded-font fields is a future slice.
+    // mis-encode them. The caller must pass `{ font }` to `setText` so this
+    // field's fill goes through the embedded path above instead.
     if let Some(fd) = font_dict(doc, acro, &da.font)
         && matches!(
             fd.get(b"Subtype").ok().and_then(|o| o.as_name().ok()),
@@ -613,7 +726,7 @@ fn ap_inputs(
         )
     {
         return Err(format!(
-            "filling embedded-font fields through the form API is not yet supported; set the value at build time via createForm(). (field '{name}')"
+            "field '{name}' uses an embedded font; pass {{ font }} to setText with an embedded font"
         ));
     }
     Ok(ApInputs {
@@ -627,6 +740,7 @@ fn ap_inputs(
         comb: forms::is_comb(ff),
         password: forms::is_password(ff),
         max_len: forms::inherited_int(doc, dict, b"MaxLen").unwrap_or(0),
+        embedded: None,
     })
 }
 
@@ -838,14 +952,42 @@ pub(crate) fn find_field<'a>(doc: &'a Document, name: &str) -> Option<(ObjectId,
     None
 }
 
+/// Always encode as UTF-16BE (with BOM), regardless of ASCII-ness. Used for
+/// embedded-font fields, where the value may need to round-trip through a
+/// glyph range PDFDocEncoding can't represent even when the current value
+/// happens to be pure ASCII.
+fn embedded_text_string(value: &str) -> Object {
+    let mut bytes = vec![0xFE, 0xFF]; // BOM
+    for unit in value.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_be_bytes());
+    }
+    Object::String(bytes, lopdf::StringFormat::Hexadecimal)
+}
+
 /// Apply one resolved mutation onto the incremental document.
-fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
+fn apply(
+    inc: &mut IncrementalDocument,
+    r: &Resolved,
+    font_ctx: Option<&FontCtx>,
+) -> Result<(), String> {
     inc.opt_clone_object_to_new_document(r.field_id)
         .map_err(|e| e.to_string())?;
     match &r.apply {
         Apply::Text { value, ap } => {
-            field_dict_mut(inc, r.field_id)?.set("V", text_string(value));
-            draw_appearances(inc, value, ap)?;
+            let v = if ap.embedded.is_some() {
+                embedded_text_string(value)
+            } else {
+                text_string(value)
+            };
+            field_dict_mut(inc, r.field_id)?.set("V", v);
+            if let Some(fid) = ap.embedded {
+                let ctx = font_ctx
+                    .ok_or_else(|| "internal: embedded field missing font context".to_string())?;
+                let (type0_id, _, _) = ctx.get(fid)?;
+                write_embedded_da(inc, r.field_id, fid, &ap.da)?;
+                wire_dr_font(inc, &format!("BPF{fid}"), type0_id)?;
+            }
+            draw_appearances(inc, value, ap, font_ctx)?;
         }
         Apply::Dropdown { value, index, ap } => {
             {
@@ -860,7 +1002,7 @@ fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
                     }
                 }
             }
-            draw_appearances(inc, value, ap)?;
+            draw_appearances(inc, value, ap, None)?;
         }
         Apply::Button { value, widgets } => {
             field_dict_mut(inc, r.field_id)?.set("V", Object::Name(value.as_bytes().to_vec()));
@@ -952,7 +1094,7 @@ fn apply(inc: &mut IncrementalDocument, r: &Resolved) -> Result<(), String> {
                     d.set("MaxLen", Object::Integer(*ml));
                 }
             }
-            draw_appearances(inc, value, ap)?;
+            draw_appearances(inc, value, ap, None)?;
         }
     }
     Ok(())
@@ -970,7 +1112,11 @@ fn draw_appearances(
     inc: &mut IncrementalDocument,
     value: &str,
     ap: &ApInputs,
+    font_ctx: Option<&FontCtx>,
 ) -> Result<(), String> {
+    if let Some(fid) = ap.embedded {
+        return draw_embedded_appearances(inc, value, ap, fid, font_ctx);
+    }
     let text = appearance::encode_winansi(value);
     for wb in &ap.widgets {
         let w = wb.rect[2] - wb.rect[0];
@@ -1036,6 +1182,148 @@ fn draw_appearances(
         d.set("AP", Object::Dictionary(apn));
     }
     Ok(())
+}
+
+/// Embedded-font sibling of the WinAnsi branch in `draw_appearances`: draws
+/// each widget's appearance with the Type0/Identity-H font built for `fid`,
+/// aliased `/BPF<fid>` (matching the field's `/DA`, wired via `write_embedded_da`).
+fn draw_embedded_appearances(
+    inc: &mut IncrementalDocument,
+    value: &str,
+    ap: &ApInputs,
+    fid: usize,
+    font_ctx: Option<&FontCtx>,
+) -> Result<(), String> {
+    let ctx =
+        font_ctx.ok_or_else(|| "internal: embedded field missing font context".to_string())?;
+    let (type0_id, built, bytes) = ctx.get(fid)?;
+    let alias = format!("BPF{fid}");
+    for wb in &ap.widgets {
+        let w = wb.rect[2] - wb.rect[0];
+        let h = wb.rect[3] - wb.rect[1];
+        let content: Vec<u8> = if ap.password {
+            appearance::text_appearance_content_empty()
+        } else if ap.multiline {
+            let size = if ap.da.size > 0.0 {
+                ap.da.size
+            } else {
+                (h - 2.0).clamp(appearance::MIN_AUTO, appearance::MAX_AUTO)
+            };
+            let avail_w = (w - 4.0).max(1.0);
+            let wrapped = fonts::wrap_embedded(bytes, size, avail_w, value)?;
+            let lines: Vec<&str> = wrapped.split('\n').collect();
+            appearance::text_appearance_content_embedded_multiline(
+                &lines,
+                size,
+                w,
+                h,
+                ap.q,
+                &ap.da.color,
+                &alias,
+                built,
+                bytes,
+            )?
+            .into_bytes()
+        } else {
+            let avail_w = (w - 4.0).max(1.0);
+            let size = if ap.da.size > 0.0 {
+                ap.da.size
+            } else {
+                let base = (h - 2.0).clamp(appearance::MIN_AUTO, appearance::MAX_AUTO);
+                let tw = fonts::measure_embedded(bytes, base, value).unwrap_or(0.0);
+                if tw > avail_w && tw > 0.0 {
+                    (base * avail_w / tw).max(appearance::MIN_AUTO)
+                } else {
+                    base
+                }
+            };
+            appearance::text_appearance_content_embedded(
+                value, size, w, h, ap.q, &ap.da.color, &alias, built, bytes,
+            )
+        };
+        let xobj = appearance::build_appearance_xobject(content, w, h, &alias, type0_id);
+        let ap_id = inc.new_document.add_object(Object::Stream(xobj));
+
+        inc.opt_clone_object_to_new_document(wb.id)
+            .map_err(|e| e.to_string())?;
+        let d = field_dict_mut(inc, wb.id)?;
+        let mut apn = Dictionary::new();
+        apn.set("N", Object::Reference(ap_id));
+        d.set("AP", Object::Dictionary(apn));
+    }
+    Ok(())
+}
+
+/// Set the field's `/DA` to reference its embedded font's `/BPF<fid>` alias.
+fn write_embedded_da(
+    inc: &mut IncrementalDocument,
+    field_id: ObjectId,
+    fid: usize,
+    da: &appearance::Da,
+) -> Result<(), String> {
+    let d = field_dict_mut(inc, field_id)?;
+    d.set(
+        "DA",
+        Object::string_literal(format!("/BPF{fid} {} Tf {}", da.size, da.color)),
+    );
+    Ok(())
+}
+
+/// Ensure the AcroForm's `/DR/Font` has `alias -> type0_id`, creating `/DR`
+/// and/or `/DR/Font` if the loaded doc lacks them. Mirrors the cloning
+/// pattern `clear_need_appearances` uses to reach whichever object holds the
+/// AcroForm (the Catalog inline, or the AcroForm's own indirect object).
+fn wire_dr_font(inc: &mut IncrementalDocument, alias: &str, type0_id: ObjectId) -> Result<(), String> {
+    let prev = inc.get_prev_documents();
+    let root = prev
+        .trailer
+        .get(b"Root")
+        .and_then(|o| o.as_reference())
+        .map_err(|e| e.to_string())?;
+    let cat = prev.get_dictionary(root).map_err(|e| e.to_string())?;
+    match cat.get(b"AcroForm") {
+        Ok(Object::Reference(id)) => {
+            let id = *id;
+            inc.opt_clone_object_to_new_document(id)
+                .map_err(|e| e.to_string())?;
+            ensure_dr_font(field_dict_mut(inc, id)?, alias, type0_id);
+        }
+        Ok(Object::Dictionary(_)) => {
+            inc.opt_clone_object_to_new_document(root)
+                .map_err(|e| e.to_string())?;
+            let cat = field_dict_mut(inc, root)?;
+            let acro = cat
+                .get_mut(b"AcroForm")
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
+            ensure_dr_font(acro, alias, type0_id);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Set `alias -> type0_id` in `acro`'s `/DR/Font`, creating either dict if absent.
+fn ensure_dr_font(acro: &mut Dictionary, alias: &str, type0_id: ObjectId) {
+    match acro.get_mut(b"DR").ok().and_then(|o| Object::as_dict_mut(o).ok()) {
+        Some(dr) => match dr.get_mut(b"Font").ok().and_then(|o| Object::as_dict_mut(o).ok()) {
+            Some(fonts) => {
+                fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+            }
+            None => {
+                let mut fonts = Dictionary::new();
+                fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+                dr.set("Font", Object::Dictionary(fonts));
+            }
+        },
+        None => {
+            let mut fonts = Dictionary::new();
+            fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+            let mut dr = Dictionary::new();
+            dr.set("Font", Object::Dictionary(fonts));
+            acro.set("DR", Object::Dictionary(dr));
+        }
+    }
 }
 
 /// Build and attach a multi-row highlight `/AP/N` on each widget.
@@ -1935,19 +2223,136 @@ mod tests {
         assert!(err.contains("cannot be combined"), "got: {err}");
     }
 
-    #[test]
-    fn rejects_filling_a_type0_da_font_field() {
-        // A created doc with a text field bound to an embedded (Type0) font.
-        const FONT: &[u8] =
-            include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
-        let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
-        let fields = r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20,"value":"A","fontId":0}]"#;
-        let ops = r#"[{"op":"addPage","width":300,"height":300}]"#;
-        let doc = crate::create::create_document_json(ops, &[], FONT, &fonts_json, fields, false, false).unwrap();
+    // -- Part C: embedded-font fill (fontId) ---------------------------------
 
-        // Attempt to re-fill the field through the fill path.
-        let ops_json = r#"[{"name":"n","value":"B"}]"#;
-        let err = fill_fields_json(&doc, ops_json, &[], false).unwrap_err();
-        assert!(err.contains("not yet supported"), "got: {err}");
+    const NOTO: &[u8] =
+        include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+
+    /// Base doc: one page + the given field(s), no embedded font at creation
+    /// time (that's what the fill op adds).
+    fn base_with_field(fields: &str) -> Vec<u8> {
+        crate::create::create_document_json(
+            r#"[{"op":"addPage","width":300,"height":300}]"#,
+            &[],
+            &[],
+            "[]",
+            fields,
+            false,
+            false,
+        )
+        .unwrap()
+    }
+
+    fn fill_plan(op_json: &str, font_len: usize) -> String {
+        format!(
+            r#"{{"fill":[{op_json}],"draw":{{"ops":[],"fonts":[{{"offset":0,"length":{font_len},"subset":true}}]}}}}"#
+        )
+    }
+
+    #[test]
+    fn fills_standard14_field_with_embedded_font() {
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        let plan = fill_plan(r#"{"name":"n","value":"Añb","fontId":0}"#, NOTO.len());
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        // /V round-trips via the public reader (UTF-16BE under the hood).
+        let v = crate::forms::read_fields_json(&out).unwrap();
+        assert!(v.contains(r#""value":"Añb""#), "round-trip via read_fields: {v}");
+        // DA references BPF0 and /DR has it as Type0.
+        let field = doc
+            .objects
+            .values()
+            .find_map(|o| {
+                let d = o.as_dict().ok()?;
+                (d.get(b"T").ok()?.as_str().ok()? == b"n").then_some(d)
+            })
+            .unwrap();
+        let da = field.get(b"DA").unwrap().as_str().unwrap();
+        assert!(da.starts_with(b"/BPF0 "), "DA: {}", String::from_utf8_lossy(da));
+    }
+
+    #[test]
+    fn embedded_fill_multiline_wraps() {
+        let base = base_with_field(
+            r#"[{"type":"text","name":"m","page":0,"x":10,"y":10,"width":60,"height":60,"multiline":true}]"#,
+        );
+        let plan = fill_plan(
+            r#"{"name":"m","value":"aaaa bbbb cccc dddd","fontId":0}"#,
+            NOTO.len(),
+        );
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        // Look up field "m"'s own /AP/N (HashMap object iteration order isn't
+        // stable, so scanning all Form XObjects could hit an unrelated one).
+        let ap = ap_content(&doc, "m").expect("AP/N present");
+        let tj_count = ap.as_bytes().windows(2).filter(|w| w == b"Tj").count();
+        assert!(
+            tj_count >= 2,
+            "expected wrapped lines, got content: {ap}"
+        );
+    }
+
+    #[test]
+    fn embedded_fill_missing_glyph_errors_before_write() {
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        let plan = fill_plan(r#"{"name":"n","value":"日本語","fontId":0}"#, NOTO.len()); // Latin subset font
+        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap_err();
+        assert!(err.starts_with("missing glyphs"), "got: {err}");
+        assert!(err.contains("field 'n'"), "got: {err}");
+    }
+
+    #[test]
+    fn embedded_fill_rejects_comb_and_choice() {
+        let base = base_with_field(
+            r#"[{"type":"text","name":"c","page":0,"x":10,"y":10,"width":200,"height":20,"comb":true,"maxLength":4}]"#,
+        );
+        let plan = fill_plan(r#"{"name":"c","value":"ab","fontId":0}"#, NOTO.len());
+        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap_err();
+        assert!(err.contains("plain and multiline text fields only"), "got: {err}");
+    }
+
+    #[test]
+    fn refilling_builder_embedded_field_now_works() {
+        // The fixture from the old rejects_filling_a_type0_da_font_field test -
+        // now with fontId it succeeds.
+        let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, NOTO.len());
+        let fields = r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20,"value":"A","fontId":0}]"#;
+        let base = crate::create::create_document_json(
+            r#"[{"op":"addPage","width":300,"height":300}]"#,
+            &[],
+            NOTO,
+            &fonts_json,
+            fields,
+            false,
+            false,
+        )
+        .unwrap();
+        let plan = fill_plan(r#"{"name":"n","value":"B","fontId":0}"#, NOTO.len());
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let v = crate::forms::read_fields_json(&out).unwrap();
+        assert!(v.contains(r#""value":"B""#), "{v}");
+    }
+
+    #[test]
+    fn type0_da_fill_without_font_gives_actionable_error() {
+        // Same base as above, but fill WITHOUT fontId.
+        let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, NOTO.len());
+        let fields = r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20,"value":"A","fontId":0}]"#;
+        let base = crate::create::create_document_json(
+            r#"[{"op":"addPage","width":300,"height":300}]"#,
+            &[],
+            NOTO,
+            &fonts_json,
+            fields,
+            false,
+            false,
+        )
+        .unwrap();
+        let err = fill_fields_json(&base, r#"[{"name":"n","value":"B"}]"#, &[], false).unwrap_err();
+        assert!(err.contains("pass { font }"), "got: {err}");
     }
 }

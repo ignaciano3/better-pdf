@@ -63,40 +63,76 @@ pub fn apply_all_json(
 
     let doc = crate::doc_io::load_pdf(data)?;
 
-    // Phase A — resolve everything that needs the immutable document, before it
-    // is moved into the IncrementalDocument.
+    // Embedded-font (`fontId`) fill ops share the SAME `draw.fonts` list and
+    // built-font map as draw ops (Task 1). Collect their used chars up front
+    // so the font is built once, before Phase A resolve reads it (fill
+    // validation and glyph-checking need the built `BuiltFont`/ObjectId).
+    let font_descs: &[draw::FontDesc] = plan.draw.as_ref().map_or(&[], |d| d.fonts.as_slice());
+    let mut used = plan
+        .draw
+        .as_ref()
+        .map(|d| draw::draw_used_chars(&d.ops))
+        .unwrap_or_default();
+    if let Some(fill_ops) = &plan.fill {
+        for op in fill_ops {
+            if let Some(fid) = op.font_id {
+                let entry = used.entry(fid).or_default();
+                if let Some(v) = &op.value {
+                    entry.extend(v.chars());
+                }
+                if let Some(v) = &op.default_value {
+                    entry.extend(v.chars());
+                }
+            }
+        }
+    }
+
+    // `inc` is created here (rather than after Phase A) so the embedded fonts
+    // can be built into `inc.new_document` before fill's Phase A resolve runs
+    // — every other Phase-A step reads the pre-mutation state via
+    // `inc.get_prev_documents()` instead of the now-moved `doc`.
+    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
+    let built_fonts = {
+        let mut add = |o| inc.new_document.add_object(o);
+        draw::build_document_fonts(&mut add, font_descs, fonts, &used)?
+    };
+    let font_ctx = fill::FontCtx {
+        descs: font_descs,
+        built: &built_fonts,
+        bytes: fonts,
+    };
+
+    // Phase A — resolve everything that needs the immutable document.
     let fill_plan = match &plan.fill {
-        Some(ops) => Some(fill::fill_resolve(&doc, ops, fill_images)?),
+        Some(ops) => Some(fill::fill_resolve(
+            inc.get_prev_documents(),
+            ops,
+            fill_images,
+            Some(&font_ctx),
+        )?),
         None => None,
     };
     let flatten_plan = match &plan.flatten {
-        Some(names) => Some(flatten::flatten_resolve(&doc, names)?),
+        Some(names) => Some(flatten::flatten_resolve(inc.get_prev_documents(), names)?),
         None => None,
     };
     let meta_info = plan
         .metadata
         .as_ref()
-        .map(|_| metadata::read_existing_info(&doc));
+        .map(|_| metadata::read_existing_info(inc.get_prev_documents()));
     let outline_prep = match &plan.outline {
-        Some(items) => Some(outline::outline_prep(&doc, items)?),
+        Some(items) => Some(outline::outline_prep(inc.get_prev_documents(), items)?),
         None => None,
     };
 
-    let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
-
     // Phase B — apply in the same order as the chained save() pipeline.
     if let Some(plan) = &fill_plan {
-        fill::fill_apply(&mut inc, plan)?;
+        fill::fill_apply(&mut inc, plan, Some(&font_ctx))?;
     }
     if let Some((field_ids, stamps)) = &flatten_plan {
         flatten::flatten_apply(&mut inc, field_ids, stamps)?;
     }
     if let Some(d) = &plan.draw {
-        let used = draw::draw_used_chars(&d.ops);
-        let built_fonts = {
-            let mut add = |o| inc.new_document.add_object(o);
-            draw::build_document_fonts(&mut add, &d.fonts, fonts, &used)?
-        };
         draw::draw_apply(&mut inc, &d.ops, draw_images, fonts, &d.fonts, &built_fonts)?;
     }
     if let (Some(meta), Some(info)) = (&plan.metadata, meta_info) {

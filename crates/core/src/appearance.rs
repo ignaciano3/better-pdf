@@ -326,6 +326,45 @@ pub fn text_appearance_content_embedded(
     out
 }
 
+/// Multi-line sibling of `text_appearance_content_embedded`: one hex `Tj` per
+/// already-wrapped line (see `fonts::wrap_embedded`), stepping the baseline
+/// like `text_appearance_content_multiline`. Propagates a measurement error
+/// from `measure_embedded` if the font can't be parsed.
+#[allow(clippy::too_many_arguments)]
+pub fn text_appearance_content_embedded_multiline(
+    lines: &[&str],
+    size: f32,
+    box_w: f32,
+    box_h: f32,
+    q: i64,
+    color: &str,
+    alias: &str,
+    built: &crate::fonts::BuiltFont,
+    font_bytes: &[u8],
+) -> Result<String, String> {
+    let leading = size * 1.15;
+    let mut out = String::new();
+    out.push_str("/Tx BMC q BT ");
+    write!(out, "/{alias} {size:.2} Tf {color} ").unwrap();
+    write!(out, "{leading:.2} TL ").unwrap();
+
+    let mut ty = box_h - PAD - size;
+    for line in lines {
+        let tw = crate::fonts::measure_embedded(font_bytes, size, line)?;
+        let tx = quad_offset(q, box_w, tw);
+        let mut hex = String::new();
+        for ch in line.chars() {
+            if let Some(&gid) = built.gid_for.get(&ch) {
+                write!(hex, "{gid:04x}").unwrap();
+            }
+        }
+        write!(out, "1 0 0 1 {tx:.2} {ty:.2} Tm <{hex}> Tj ").unwrap();
+        ty -= leading;
+    }
+    out.push_str("ET Q EMC");
+    Ok(out)
+}
+
 /// Build the content stream for a wrapped, multi-line text appearance. `lines`
 /// are pre-wrapped WinAnsi byte strings (see `wrap_lines`). `q` is the quadding
 /// applied per line: 0=left, 1=center, 2=right. Text is top-aligned: the first
