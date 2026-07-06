@@ -301,4 +301,48 @@ mod tests {
         }).count();
         assert_eq!(type0_count, 1, "font must build exactly once");
     }
+
+    #[test]
+    fn apply_all_rejects_out_of_range_font_id() {
+        const FONT: &[u8] =
+            include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+        let base = crate::create::create_document_json(
+            r#"[{"op":"addPage","width":300,"height":300}]"#, &[], &[], "[]", "[]", false, false,
+        ).unwrap();
+        // Only one FontDesc (id 0) is provided, but the op references fontId 5.
+        let plan = format!(
+            r#"{{"draw":{{"ops":[
+                {{"op":"text","page":0,"x":10,"y":40,"size":12,"text":"Ab","fontId":5,"color":[0,0,0]}}
+            ],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
+            FONT.len()
+        );
+        let err = apply_all_json(&base, &plan, &[], &[], FONT, false)
+            .expect_err("out-of-range fontId must return Err, not panic");
+        assert!(
+            err.contains("out of range"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[test]
+    fn apply_all_rejects_font_desc_range_beyond_blob() {
+        const FONT: &[u8] =
+            include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+        let base = crate::create::create_document_json(
+            r#"[{"op":"addPage","width":300,"height":300}]"#, &[], &[], "[]", "[]", false, false,
+        ).unwrap();
+        // FontDesc's offset+length exceeds the fonts blob length.
+        let plan = format!(
+            r#"{{"draw":{{"ops":[
+                {{"op":"text","page":0,"x":10,"y":40,"size":12,"text":"Ab","fontId":0,"color":[0,0,0]}}
+            ],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
+            FONT.len() + 1000
+        );
+        let err = apply_all_json(&base, &plan, &[], &[], FONT, false)
+            .expect_err("out-of-range font byte range must return Err, not panic");
+        assert!(
+            err.contains("out of range") || err.contains("out of bounds"),
+            "unexpected error message: {err}"
+        );
+    }
 }

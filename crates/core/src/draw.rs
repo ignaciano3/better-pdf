@@ -1003,7 +1003,6 @@ pub fn apply_draw_ops_json(
 /// pre-pass followed by per-page content emission. Reads the base page list from
 /// `inc.get_prev_documents()`, so it composes correctly after other mutators
 /// (fill/flatten) on the same `inc`.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_apply(
     inc: &mut IncrementalDocument,
     ops: &[DrawOp],
@@ -1334,8 +1333,18 @@ pub(crate) fn build_document_fonts(
     let mut ids: Vec<usize> = used_per_font.keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
+        if id >= font_descs.len() {
+            return Err(format!("font id {id} out of range"));
+        }
         let fd = &font_descs[id];
-        let bytes = &fonts_blob[fd.offset..fd.offset + fd.length];
+        let end = fd
+            .offset
+            .checked_add(fd.length)
+            .ok_or_else(|| "font range out of bounds".to_string())?;
+        if end > fonts_blob.len() {
+            return Err("font range out of bounds".to_string());
+        }
+        let bytes = &fonts_blob[fd.offset..end];
         let input = EmbeddedFontInput {
             data: bytes,
             subset: fd.subset,
