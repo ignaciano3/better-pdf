@@ -45,6 +45,8 @@ pub(crate) enum DrawOp {
         opacity: Option<f32>,
         #[serde(default, rename = "maxWidth")]
         max_width: Option<f32>,
+        #[serde(default, rename = "onMissingGlyph")]
+        on_missing_glyph: Option<String>,
     },
     Image {
         page: usize,
@@ -1417,7 +1419,8 @@ fn emit_page_ops(
                     rotate,
                     opacity,
                     max_width,
-                    page: _,
+                    on_missing_glyph,
+                    page,
                 } => {
                     // Register ExtGState for opacity if present
                     let gs_key =
@@ -1445,14 +1448,16 @@ fn emit_page_ops(
                         // gids come from BuiltFont.gid_for (the REMAPPED subset ids),
                         // NOT from re-deriving via face.glyph_index.
                         let (_type0_id, built) = embedded_fonts.get(id).unwrap();
-                        let gids_per_line: Vec<Vec<u16>> = text
-                            .split('\n')
-                            .map(|line| {
-                                line.chars()
-                                    .filter_map(|c| built.gid_for.get(&c).copied())
-                                    .collect()
-                            })
-                            .collect();
+                        let policy = match on_missing_glyph.as_deref() {
+                            Some("skip") => crate::fonts::MissingGlyphPolicy::Skip,
+                            _ => crate::fonts::MissingGlyphPolicy::Error,
+                        };
+                        let gids_per_line = crate::fonts::gids_per_line(
+                            built,
+                            text,
+                            policy,
+                            &format!("drawText on page {page}"),
+                        )?;
                         emit_text_block_cid(
                             &mut stream_content,
                             &format!("BPE{id}"),

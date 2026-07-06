@@ -54,6 +54,8 @@ enum CreateOp {
         opacity: Option<f32>,
         #[serde(default, rename = "maxWidth")]
         max_width: Option<f32>,
+        #[serde(default, rename = "onMissingGlyph")]
+        on_missing_glyph: Option<String>,
     },
     Image {
         page: usize,
@@ -1308,6 +1310,7 @@ fn build_pages(
                     rotate,
                     opacity,
                     max_width,
+                    on_missing_glyph,
                 } if *page == page_index => {
                     // Register ExtGState for opacity if present
                     let gs_key = if let Some(o) = opacity {
@@ -1345,14 +1348,16 @@ fn build_pages(
                         if !font_res.has(key.as_bytes()) {
                             font_res.set(key.clone(), Object::Reference(*type0_id));
                         }
-                        let gids_per_line: Vec<Vec<u16>> = text
-                            .split('\n')
-                            .map(|line| {
-                                line.chars()
-                                    .filter_map(|c| built.gid_for.get(&c).copied())
-                                    .collect()
-                            })
-                            .collect();
+                        let policy = match on_missing_glyph.as_deref() {
+                            Some("skip") => crate::fonts::MissingGlyphPolicy::Skip,
+                            _ => crate::fonts::MissingGlyphPolicy::Error,
+                        };
+                        let gids_per_line = crate::fonts::gids_per_line(
+                            built,
+                            text,
+                            policy,
+                            &format!("drawText on page {page}"),
+                        )?;
                         emit_text_block_cid(
                             &mut content,
                             &key,
@@ -2656,7 +2661,7 @@ mod tests {
         const FONT: &[u8] =
             include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
         let fonts_json = format!(r#"[{{"offset":0,"length":{},"subset":true}}]"#, FONT.len());
-        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"fontId":0,"color":[0,0,0],"text":"日本語"}]"#;
+        let ops = r#"[{"op":"addPage","width":595,"height":842},{"op":"text","page":0,"x":50,"y":700,"size":24,"fontId":0,"color":[0,0,0],"text":"日本語","onMissingGlyph":"skip"}]"#;
         let out = create_document_json(ops, &[], FONT, &fonts_json, "[]", false, false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let (_, pid) = doc.get_pages().into_iter().next().unwrap();

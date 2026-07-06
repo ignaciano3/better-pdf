@@ -163,6 +163,66 @@ pub fn build_embedded_font(
     Ok((type0_id, BuiltFont { gid_for }))
 }
 
+/// Whether a missing glyph should abort the operation or be silently dropped.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MissingGlyphPolicy {
+    Error,
+    Skip,
+}
+
+/// Map chars to GIDs per line ('\n'-split). `context` is e.g. "drawText on page 0"
+/// or "field 'name'". Error format (STABLE, TS matches the prefix):
+///   missing glyphs in font for {context}: "㐀" (U+3400), "丂" (U+4E02)
+///
+/// Excluded from the missing-glyph check: `\n` (line split) and any other
+/// `char::is_control` (e.g. `\r`, `\t`). A missing *space* glyph IS an error
+/// under `Error` (a font without space can't render sentences).
+pub fn gids_per_line(
+    built: &BuiltFont,
+    text: &str,
+    policy: MissingGlyphPolicy,
+    context: &str,
+) -> Result<Vec<Vec<u16>>, String> {
+    let mut missing: BTreeSet<char> = Default::default();
+    let lines: Vec<Vec<u16>> = text
+        .split('\n')
+        .map(|line| {
+            line.chars()
+                .filter_map(|c| {
+                    if c.is_control() {
+                        return None;
+                    }
+                    match built.gid_for.get(&c) {
+                        Some(g) => Some(*g),
+                        None => {
+                            missing.insert(c);
+                            None
+                        }
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    if !missing.is_empty() && matches!(policy, MissingGlyphPolicy::Error) {
+        let shown: Vec<String> = missing
+            .iter()
+            .take(8)
+            .map(|c| format!("\"{c}\" (U+{:04X})", *c as u32))
+            .collect();
+        let more = missing.len().saturating_sub(8);
+        let tail = if more > 0 {
+            format!(", … and {more} more")
+        } else {
+            String::new()
+        };
+        return Err(format!(
+            "missing glyphs in font for {context}: {}{tail}",
+            shown.join(", ")
+        ));
+    }
+    Ok(lines)
+}
+
 /// Read the font's PostScript name (name id 6), if present.
 fn font_postscript_name(face: &Face) -> Option<String> {
     face.names()
@@ -217,6 +277,29 @@ mod tests {
     use super::*;
     const FONT: &[u8] =
         include_bytes!("../../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+
+    #[test]
+    fn gids_per_line_errors_on_missing_glyph_with_codepoint() {
+        let mut gid_for = std::collections::HashMap::new();
+        gid_for.insert('A', 1u16);
+        let built = BuiltFont { gid_for };
+        let err = gids_per_line(&built, "A㐀", MissingGlyphPolicy::Error, "drawText on page 0")
+            .unwrap_err();
+        assert!(err.starts_with("missing glyphs"), "got: {err}");
+        assert!(err.contains("U+3400"), "got: {err}");
+        assert!(err.contains("drawText on page 0"), "got: {err}");
+    }
+
+    #[test]
+    fn gids_per_line_skip_matches_old_behavior_and_ignores_control_chars() {
+        let mut gid_for = std::collections::HashMap::new();
+        gid_for.insert('A', 1u16);
+        let built = BuiltFont { gid_for };
+        let lines = gids_per_line(&built, "A㐀\nA", MissingGlyphPolicy::Skip, "x").unwrap();
+        assert_eq!(lines, vec![vec![1u16], vec![1u16]]);
+        // control chars never error
+        assert!(gids_per_line(&built, "A\tA", MissingGlyphPolicy::Error, "x").is_ok());
+    }
 
     #[test]
     fn measures_text_width_positive_and_scales_with_size() {
