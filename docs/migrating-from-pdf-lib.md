@@ -11,6 +11,7 @@ core and stricter validation. This guide maps the APIs.
 | `pdfDoc.getForm()` | `doc.getForm()` |
 | `form.getFields()` | `form.getFields()` → plain `FieldInfo[]` (name/type/value/states/options/…) |
 | `form.getTextField(n).setText(v)` | `form.getTextField(n).setText(v)` |
+| `field.updateAppearances(customFont)` | `form.getTextField(n).setText(v, { font })` — pass the font at fill time; `font` must come from `doc.embedFont(bytes)` (Unicode/CJK), not a standard-14 handle |
 | `form.getCheckBox(n).check()` / `.uncheck()` | same — uses the field's real on-state automatically |
 | `form.getRadioGroup(n).select(v)` | same — `v` must be a real export value (`field.states`) |
 | `form.getDropdown(n).select(v)` | same — `v` must be a real option (`field.options`) |
@@ -32,6 +33,11 @@ core and stricter validation. This guide maps the APIs.
   rendering to the viewer); flattening therefore works on PDFs where pdf-lib
   throws `Unexpected N type: undefined`.
 - **Signatures are visual only** — image appearances, not cryptographic signing.
+- **Missing glyphs throw, not silently blank.** Filling a field with an
+  embedded font that lacks a glyph for some character throws
+  `MissingGlyphError` — pdf-lib's `updateAppearances` silently renders a blank
+  for unsupported characters instead. Comb, dropdown, and listbox fields still
+  reject an embedded font and remain standard-14 only.
 - **Scope (as of 0.2.0):** creation, page drawing, and form filling are all
   covered. Encryption is not supported.
 

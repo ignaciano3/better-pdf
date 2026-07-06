@@ -253,7 +253,9 @@ await Bun.write("unicode.pdf", output);
 
 > **OpenType-CFF:** The subsetter supports TrueType (`glyf`) outlines. `.otf`
 > files with CFF outlines may fail to subset — pass `{ subset: false }` for
-> those. Characters with no glyph are silently skipped.
+> those. **Characters with no glyph throw `MissingGlyphError`** by default —
+> pass `page.drawText(text, { font, onMissingGlyph: "skip" })` to restore the
+> old behavior of silently skipping them.
 
 ### (f) Creating form fields
 
@@ -342,10 +344,28 @@ const output = await doc.save();
 > the loaded PDF on the first `getForm()`/`save()` call, so every
 > `createForm()`-declared field must be added before that first call — calling
 > `createForm()` again afterward throws. A declared field name that collides
-> with a field already in the PDF is rejected. **Current limitation:** filling
-> an embedded-font (CJK/Type0) field created this way is not yet supported —
-> it throws at `save()`; only standard-14 fonts can be filled on
-> loaded-and-injected fields today.
+> with a field already in the PDF is rejected.
+
+### (f2) Filling form fields with embedded fonts (CJK / Unicode)
+
+`field.setText(value, { font })` / `.setDefaultText(value, { font })` accept an
+embedded font from `doc.embedFont(bytes)`, so text-field values can carry any
+Unicode script — not just the standard-14 WinAnsi fonts. Works on plain and
+multiline text fields, on both loaded and builder-created documents.
+
+```ts
+const fontBytes = new Uint8Array(await Bun.file("NotoSansJP-Regular.ttf").arrayBuffer());
+const font = await doc.embedFont(fontBytes);
+
+form.getTextField("full_name").setText("山田太郎", { font });
+```
+
+> Passing `{ font }` with a standard-14 handle throws — embedded-font fill
+> requires a font from `doc.embedFont()`. Comb, dropdown, and listbox fields
+> reject an embedded font (`FieldTypeError`); they remain standard-14 only.
+> A `setText({ font })` call cannot be combined with `insertPage`/`removePage`/
+> `movePage` in the same `save()` — call `save()` separately before or after
+> the page-structure change.
 
 ### (g) Page operations (merge, extract, split, assemble)
 
@@ -644,7 +664,7 @@ import { rgb, grayscale } from "@ignaciano3/better-pdf";
 
 - `form.getFields(): FieldInfo[]`
 - `form.getField(name: string): FieldInfo | undefined`
-- `form.getTextField(name).setText(value)` / `.setDefaultText(value)`
+- `form.getTextField(name).setText(value, { font? })` / `.setDefaultText(value, { font? })` — `font` must be an embedded font from `doc.embedFont()`; omit for the default standard-14 rendering
 - `form.getCheckBox(name).check()`
 - `form.getCheckBox(name).uncheck()`
 - `form.getCheckBox(name).setDefaultChecked(checked)`
@@ -841,6 +861,13 @@ count).
 Gaps better-pdf does not cover **yet** — things we intend to close. (For features
 we will deliberately never add, see [Non-Goals](#non-goals).)
 
+> **Behavioral change in 1.11.0:** `page.drawText()` and embedded-font form
+> fill (`setText(value, { font })`) now **throw `MissingGlyphError`** when the
+> font has no glyph for a character, instead of silently dropping it — a
+> silently-skipped glyph was data loss dressed up as success. Pass
+> `page.drawText(text, { font, onMissingGlyph: "skip" })` to restore the old
+> silent-skip behavior for drawing (there is no skip opt-out for form fill).
+
 - **Encrypted PDF decryption** (RC4, AES-128, AES-256) is supported via `PdfDocument.load(bytes, { password })` (use `{ password: "" }` for owner-locked / empty-user-password files). Decryption is opt-in — bare `load(bytes)` is unchanged; an encrypted file loaded without a password throws `EncryptedPdfError` (nudging you to pass one), and a wrong password throws `IncorrectPasswordError`. Saving an edited encrypted PDF produces a **decrypted** output. **Still unsupported:** producing encrypted output (re-encryption) and encrypting documents you create.
 - No cryptographic signing (the API leaves room to add PAdES later).
 - Appearance-affecting form-field flags (`multiline`, `comb`, `password`) are set
@@ -853,15 +880,19 @@ we will deliberately never add, see [Non-Goals](#non-goals).)
 - Drawing APIs support standard-14 fonts and custom TTF/OTF font embedding via
   `doc.embedFont(bytes)` (Type0/CIDFontType2, full Unicode including CJK).
   OpenType-CFF subsetting may be unsupported — use `{ subset: false }` for CFF-outline `.otf` fonts.
-  Characters with no glyph in the font are silently skipped.
+  Characters with no glyph in the font throw `MissingGlyphError` (see
+  "Behavioral changes in 1.11.0" below).
 - Appearance metrics cover the standard 14 text fonts (with Arial / Times New
   Roman / Courier New aliases and subset-prefix handling) and any simple font
   carrying a `/Widths` array; unrecognized fonts fall back to Helvetica metrics.
-- **Form-field text appearance:** field values render in a **standard-14 font**
-  — selectable per field via the builder `font` option (Helvetica / Times /
-  Courier families), with `fontSize`, `textColor`, and `align` also
-  configurable. **Embedded / non-Latin (CJK) fonts are not supported for
-  form-field values** — only the standard-14 WinAnsi fonts.
+- **Form-field text appearance:** field values render in a standard-14 font by
+  default — selectable per field via the builder `font` option (Helvetica /
+  Times / Courier families), with `fontSize`, `textColor`, and `align` also
+  configurable. `field.setText(value, { font })` / `.setDefaultText(value, {
+  font })` additionally accept an embedded font (`doc.embedFont(bytes)`) for
+  Unicode/CJK values, on plain and multiline text fields of any origin
+  (loaded or builder-created). **Still standard-14 only:** comb, dropdown, and
+  listbox fields reject an embedded font.
 - Color: RGB and grayscale only; CMYK is not supported.
 - XMP metadata streams are not written or modified (only the Info dictionary is
   updated via `doc.setTitle()` / `doc.getMetadata()` etc.).

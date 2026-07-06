@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-06
+
+### Added
+
+- **Embedded-font form fill.** `field.setText(value, { font })` and
+  `.setDefaultText(value, { font })` now accept a font from
+  `doc.embedFont(bytes)`, so text-field values can carry any Unicode script
+  (CJK included) — not just the standard-14 WinAnsi fonts. Works on plain and
+  multiline text fields, on both loaded and builder-created documents. Values
+  are written `/V`/`/DV` as UTF-16BE and round-trip through load/read.
+  Embedded fonts used across `drawText` and form fill in the same `save()`
+  are built once and shared, and subsetting automatically includes glyphs
+  used by fill values. **Still unsupported:** comb, dropdown, and listbox
+  fields reject an embedded font (`FieldTypeError`) — they remain
+  standard-14 only. A `setText({ font })` call also cannot be combined with
+  `insertPage`/`removePage`/`movePage` in the same `save()`; call `save()`
+  separately before or after the page-structure change.
+
+### Changed (behavioral)
+
+- **Missing glyphs now throw instead of being silently dropped.** A
+  silently-skipped glyph in `drawText()` or embedded-font form fill was data
+  loss dressed up as success — text visibly went missing from rendered
+  output with no signal to the caller. Both now throw `MissingGlyphError`
+  when the font has no glyph for a character. `drawText()` gains an opt-out:
+  `page.drawText(text, { font, onMissingGlyph: "skip" })` restores the old
+  silent-skip behavior; there is no skip opt-out for form fill.
+
 ## [1.10.1] - 2026-07-05
 
 ### Fixed
