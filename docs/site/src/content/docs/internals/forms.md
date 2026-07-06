@@ -42,18 +42,19 @@ a piece of data — a text field named `applicant.name` currently holding the
 string "Ada Lovelace." `/Type /Annot`, `/Subtype /Widget`, and `/Rect`
 describe a rectangle on a page, the same annotation mechanism links, popups,
 and other on-page markup use. The PDF spec lets these collapse into a single
-object when a field has exactly one visual appearance, which is why the
+object when a field has exactly one widget annotation, which is why the
 dump above only needs one dictionary rather than two linked by a reference.
 
 ## Data vs pixels
 
 `/V` is the value; `/AP` is what a viewer actually paints, and the two are
 tracked separately on purpose. `/AP` points at a Form XObject — the same
-kind of small, self-contained content stream the previous article described
-for appearance streams — whose `Tj` operator paints the literal glyphs
-"Ada Lovelace" inside a 228×24 box. A viewer rendering this page never reads
-`/V` at all; it walks `/Contents`, hits the widget's appearance, and draws
-whatever content stream `/AP /N` points to.
+kind of small, self-contained content stream the previous article covered —
+whose `Tj` operator paints the literal glyphs "Ada Lovelace" inside a
+228×24 box. A viewer paints the page's `/Contents` first, then walks the
+page's `/Annots` array in a second pass and stamps each widget's `/AP /N`
+appearance at its `/Rect` — at no point in producing pixels does it read
+`/V`.
 
 That split is also the source of a familiar bug. If something sets `/V` to
 a new string but leaves the old `/AP` stream untouched, the field now holds
