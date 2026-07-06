@@ -151,6 +151,7 @@ export default defineConfig({
 						{ label: 'Incremental updates', slug: 'internals/incremental-updates' },
 						{ label: 'Content streams', slug: 'internals/content-streams' },
 						{ label: 'AcroForms', slug: 'internals/forms' },
+						{ label: 'Fonts & encoding', slug: 'internals/fonts' },
 					],
 				},
 				{
