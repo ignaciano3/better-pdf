@@ -75,11 +75,55 @@ pub(crate) fn flatten_apply(
 ) -> Result<(), String> {
     let mut counter = 0usize;
     for s in stamps {
-        stamp_widget(inc, s, &mut counter)?;
+        // Re-resolve the appearance at apply time: a fill earlier in the same
+        // batched save may have just generated the /AP this stamp must use,
+        // and that appearance lives in the incremental overlay, not in the
+        // immutable document the plan was resolved against.
+        let stamp = WidgetStamp {
+            widget_id: s.widget_id,
+            page_id: s.page_id,
+            rect: s.rect,
+            ap: resolve_ap_in_inc(inc, s).or(s.ap),
+        };
+        stamp_widget(inc, &stamp, &mut counter)?;
         remove_annot(inc, s.page_id, s.widget_id)?;
     }
     remove_fields(inc, field_ids)?;
     Ok(())
+}
+
+/// Look up an object in the incremental save: the overlay (objects added or
+/// modified earlier in this save) wins over the loaded document.
+fn inc_object(inc: &IncrementalDocument, id: ObjectId) -> Option<&Object> {
+    inc.new_document
+        .get_object(id)
+        .ok()
+        .or_else(|| inc.get_prev_documents().get_object(id).ok())
+}
+
+/// Apply-time appearance resolution (stream id + BBox) for a widget, seeing
+/// the state fills earlier in the same save produced.
+fn resolve_ap_in_inc(inc: &IncrementalDocument, s: &WidgetStamp) -> Option<(ObjectId, [f32; 4])> {
+    let widget = inc_object(inc, s.widget_id)?.as_dict().ok()?;
+    let ap = match widget.get(b"AP").ok()? {
+        Object::Dictionary(d) => d,
+        Object::Reference(id) => inc_object(inc, *id)?.as_dict().ok()?,
+        _ => return None,
+    };
+    let n_id = match ap.get(b"N").ok()? {
+        Object::Reference(id) => *id, // text/choice: N is the stream
+        Object::Dictionary(states) => {
+            // button: pick the /AS state's stream
+            let as_name = widget.get(b"AS").ok()?.as_name().ok()?;
+            states.get(as_name).ok()?.as_reference().ok()?
+        }
+        _ => return None,
+    };
+    let bbox = inc_object(inc, n_id)
+        .and_then(|o| o.as_stream().ok())
+        .and_then(|st| read_rect(&st.dict))
+        .unwrap_or([0.0, 0.0, s.rect[2] - s.rect[0], s.rect[3] - s.rect[1]]);
+    Some((n_id, bbox))
 }
 
 /// A field's widgets (id + page + rect). A field with no /Kids is its own widget.
