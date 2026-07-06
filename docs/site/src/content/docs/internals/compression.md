@@ -26,10 +26,11 @@ endstream
 endobj
 ```
 
-This is object 5 again — the same slot that held the content stream on the
-anatomy and content-streams pages, playing the same role: a stream of
-drawing operators. There, it was shown in the clear, `/Length 44`, readable
-top to bottom as `BT /F1 24 Tf … Tj ET`. Here it's the same kind of stream,
+This is object 5 again — the same slot that held the content stream in the
+anatomy article's `hello.pdf`, playing the same role: a stream of drawing
+operators, the language the content-streams article showed in the clear.
+On the anatomy page it appeared uncompressed, `/Length 44`, readable top to
+bottom as `BT /F1 24 Tf … Tj ET`. Here it's the same kind of stream,
 run through `/FlateDecode` first: the dictionary now carries a `/Filter`
 entry naming the compression scheme, `/Length` describes the *compressed*
 byte count, and the bytes between `stream` and `endstream` are opaque
@@ -74,8 +75,9 @@ paying the fixed overhead of its own `N 0 obj … endobj` wrapper and its own
 20-byte xref entry. An object stream, `/Type /ObjStm`, is a container: `/N`
 objects' worth of dictionaries, laid end to end and deflated together as one
 stream, indexed by a small header (`/First` plus the object-number/offset
-pairs) so a reader can still pull out object 4 or object 6 individually
-without inflating the others first. Packing many small dictionaries into one
+pairs) so that once the stream is inflated, a reader can jump straight to
+object 4 or object 6 by offset instead of re-parsing the dictionaries before
+it. Packing many small dictionaries into one
 compressed blob compresses the redundancy *between* them — repeated key
 names, similar structure — not just the bytes inside any single one. Object
 streams arrived in PDF 1.5 alongside a companion feature: since an object
