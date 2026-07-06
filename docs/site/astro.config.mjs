@@ -152,6 +152,7 @@ export default defineConfig({
 						{ label: 'Content streams', slug: 'internals/content-streams' },
 						{ label: 'AcroForms', slug: 'internals/forms' },
 						{ label: 'Fonts & encoding', slug: 'internals/fonts' },
+						{ label: 'Compression & object streams', slug: 'internals/compression' },
 					],
 				},
 				{
