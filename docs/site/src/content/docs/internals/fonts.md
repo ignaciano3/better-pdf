@@ -108,7 +108,9 @@ text is selectable and searchable"
 ([Generating & drawing](/better-pdf/guides/generating/)).
 
 Current limitation: re-filling an embedded-font form field through the form
-API is not yet supported and throws; form-field values render with
-standard-14 fonts ([Limitations](/better-pdf/reference/limitations/)).
+API is not yet supported and throws; values filled through the form API
+render with standard-14 fonts — builder-created plain and multiline text
+fields can embed fonts at build time
+([Limitations](/better-pdf/reference/limitations/)).
 
 Next: [Compression](/better-pdf/internals/compression/).

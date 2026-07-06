@@ -8,7 +8,7 @@ the sense a drawing program would use. A page doesn't *contain* text and
 shapes — it contains a small program, a flat sequence of instructions that
 paint text and shapes when a viewer runs them in order, top to bottom, once.
 The anatomy article's `hello.pdf` had one such program sitting in object 5;
-this article opens it up.
+this article opens up what one looks like.
 
 ## A page, painted
 

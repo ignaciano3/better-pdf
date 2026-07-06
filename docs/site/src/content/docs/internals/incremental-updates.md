@@ -106,9 +106,9 @@ shrink a full rewrite even further.
 
 ## In better-pdf
 
-`save()` is an append-only incremental update, and it "always starts from
-the originally loaded bytes — calling it twice returns the same result"
-([API](/better-pdf/reference/api/)).
+On a loaded document, `save()` is an append-only incremental update, and it
+"always starts from the originally loaded bytes — calling it twice returns
+the same result" ([API](/better-pdf/reference/api/)).
 
 "The original revision's bytes are preserved, so existing digital signatures
 on it stay valid" ([API](/better-pdf/reference/api/)).

@@ -103,7 +103,7 @@ at which point it isn't an incremental update anymore.
 
 `compress` (on by default) deflates generated content/appearance/font
 streams and leaves already-compressed streams untouched; on incremental
-saves "only the newly appended section is compressed — the original
+saves "only the newly appended section is compressed; the original
 revision's bytes are preserved" ([Generating & drawing](/better-pdf/guides/generating/),
 [API](/better-pdf/reference/api/)).
 

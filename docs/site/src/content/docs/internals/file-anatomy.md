@@ -128,8 +128,9 @@ having a table at all: a reader can compute the address of object *N*'s xref
 entry directly (`start of table + N × 20 bytes`) without scanning anything.
 That's what makes a PDF a random-access structure instead of one you parse
 top to bottom — the next article in this section, on objects and the xref
-table, covers how that plays out once files get large enough to need
-multiple xref sections.
+table, covers how that index is built, what happens when its offsets go
+stale, and how hybrid files carrying both a classic table and an xref stream
+are handled.
 
 ## Trailer
 
