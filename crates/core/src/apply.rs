@@ -400,13 +400,53 @@ mod tests {
         // Field is gone (flattened)...
         let fields = crate::forms::read_fields_json(&out).unwrap();
         assert!(!fields.contains(r#""name":"n""#), "field should be flattened: {fields}");
-        // ...and the page content references the stamped Form XObject whose resources
-        // carry the BPF0 Type0 font.
-        let has_bpf = doc.objects.values().any(|o| {
-            o.as_stream().ok()
-                .map(|s| String::from_utf8_lossy(&format!("{:?}", s.dict).into_bytes()).contains("BPF0"))
-                .unwrap_or(false)
-        });
-        assert!(has_bpf, "flattened output must carry the embedded-font appearance");
+
+        // ...the page content actually invokes the stamped appearance XObject
+        // (flatten's register_xobject names it "bpdfAp{n}" and inserts it into
+        // /Resources/XObject, then appends a "/{name} Do" op to the content
+        // stream)...
+        let content = page0_content(&doc);
+        assert!(
+            content.contains("/bpdfAp0 Do"),
+            "flatten did not stamp the appearance into the page content: {content}"
+        );
+
+        let pages = doc.get_pages();
+        let (_, page_id) = pages.into_iter().next().unwrap();
+        let page = doc.get_dictionary(page_id).unwrap();
+        let res = match page.get(b"Resources").unwrap() {
+            Object::Reference(id) => doc.get_dictionary(*id).unwrap(),
+            Object::Dictionary(d) => d,
+            other => panic!("unexpected /Resources shape: {other:?}"),
+        };
+        let ap_id = res
+            .get(b"XObject")
+            .and_then(|o| o.as_dict())
+            .expect("page resources must have /XObject")
+            .get(b"bpdfAp0")
+            .and_then(|o| o.as_reference())
+            .expect("bpdfAp0 must be registered");
+
+        // ...and that stamped XObject's own resources carry the BPF0 embedded
+        // Type0 font (proving it's the embedded-font appearance, not some
+        // other stamp).
+        let stream = doc.get_object(ap_id).unwrap().as_stream().unwrap();
+        let ap_res = stream
+            .dict
+            .get(b"Resources")
+            .and_then(|o| match o {
+                Object::Reference(id) => doc.get_dictionary(*id),
+                Object::Dictionary(d) => Ok(d),
+                _ => panic!("unexpected AP /Resources shape"),
+            })
+            .expect("stamped appearance must have /Resources");
+        let fonts = ap_res
+            .get(b"Font")
+            .and_then(|o| o.as_dict())
+            .expect("stamped appearance /Resources must have /Font");
+        assert!(
+            fonts.has(b"BPF0"),
+            "stamped appearance must carry the embedded BPF0 font: {fonts:?}"
+        );
     }
 }
