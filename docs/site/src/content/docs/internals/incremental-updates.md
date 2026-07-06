@@ -100,7 +100,7 @@ that's been incrementally updated many times can end up noticeably larger
 than one written from scratch with the same final content. A full rewrite —
 starting from byte zero rather than appending — is the way to reclaim that
 space, discarding every superseded object and writing one clean xref. The
-[compression article](/better-pdf/internals/content-streams/) in this
+[compression article](/better-pdf/internals/compression/) in this
 section picks up that trade-off from the other side: how object streams
 shrink a full rewrite even further.
 
