@@ -148,6 +148,7 @@ export default defineConfig({
 						{ label: 'Overview', slug: 'internals' },
 						{ label: 'File anatomy', slug: 'internals/file-anatomy' },
 						{ label: 'Objects & xref', slug: 'internals/objects-and-xref' },
+						{ label: 'Incremental updates', slug: 'internals/incremental-updates' },
 					],
 				},
 				{
