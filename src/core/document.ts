@@ -266,7 +266,14 @@ export class PdfDocumentBase {
     if (form && form[kFlattenQueue].length > 0) {
       plan["flatten"] = form[kFlattenQueue];
     }
-    if (!this.sealed && this.drawQueue.length > 0) {
+    // A fill op that carries a fontId indexes into the document's fonts
+    // descriptor list at apply time, so the draw section (even with no draw
+    // ops) must still be present with the full fonts blob whenever any queued
+    // fill op has fontId !== undefined.
+    const fillNeedsFonts =
+      Array.isArray(plan["fill"]) &&
+      (plan["fill"] as Array<{ fontId?: number }>).some((op) => op.fontId !== undefined);
+    if (!this.sealed && (this.drawQueue.length > 0 || fillNeedsFonts)) {
       const resolve = this.buildPageIndexResolver();
       const { opsJson, images, fonts: f, fontsJson } = this.drawQueue.toDrawPayload(resolve);
       plan["draw"] = { ops: JSON.parse(opsJson), fonts: JSON.parse(fontsJson) };

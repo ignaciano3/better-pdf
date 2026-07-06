@@ -134,10 +134,11 @@ test("re-filling an embedded-font field via the form API throws", async () => {
     font,
   });
 
-  // getForm() materializes the created doc; setText queues a fill op that would
-  // mis-encode the Type0 font. The fill path must reject at save().
+  // getForm() materializes the created doc; setText without { font } on a field
+  // that already uses an embedded font is rejected by the core at save() (pass
+  // the same embedded font explicitly via setText({ font }) to re-fill it).
   doc.getForm().getTextField("name").setText("花子");
-  await expect(doc.save()).rejects.toThrow(/not yet supported/);
+  await expect(doc.save()).rejects.toThrow(/pass \{ font \} to setText/);
 });
 
 test("standard-14 fields are unaffected by the widened font option", async () => {

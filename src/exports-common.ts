@@ -58,6 +58,7 @@ export {
   IncorrectPasswordError,
   InvalidImageError,
   InvalidRotationError,
+  MissingGlyphError,
 } from "./core/errors.js";
 export { generateFormTypes } from "./forms/typegen.js";
 export type { GenerateFormTypesOptions } from "./forms/typegen.js";

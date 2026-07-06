@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { PdfDocument, PdfError, PageSizes } from "../src/index.ts";
+import { PdfDocument, PdfError, MissingGlyphError, PageSizes } from "../src/index.ts";
 import { readFileSync } from "node:fs";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 
@@ -12,7 +12,9 @@ test("embed font and draw unicode text on a created page", async () => {
   const doc = await PdfDocument.create();
   const font = await doc.embedFont(FONT);
   const page = doc.addPage();
-  page.drawText("Héllo 日本語", { x: 50, y: 700, size: 24, font });
+  // NotoSans-Regular.subset lacks glyphs for 日本語; skip missing glyphs to
+  // isolate this test's purpose (embed + draw + round-trip a created page).
+  page.drawText("Héllo 日本語", { x: 50, y: 700, size: 24, font, onMissingGlyph: "skip" });
   const bytes = await doc.save();
   expect(bytes.length).toBeGreaterThan(1000);
   // reload + sanity: page survives the round trip
@@ -27,14 +29,23 @@ test("widthOfTextAtSize works for embedded fonts", async () => {
   expect(w).toBeGreaterThan(0);
 });
 
-// (a) No-glyph char doesn't panic: NotoSans-Regular.subset lacks emoji / full CJK
-test("drawing chars not in the font does not throw (renders .notdef)", async () => {
+// NotoSans-Regular.subset lacks emoji glyphs. By default this now rejects with
+// MissingGlyphError (not a panic); onMissingGlyph: "skip" restores the old
+// silent-.notdef behavior.
+test("drawing chars not in the font throws MissingGlyphError by default", async () => {
   const doc = await PdfDocument.create();
   const font = await doc.embedFont(FONT);
   const page = doc.addPage();
   // "🎉" is outside the BMP and NotoSans-Regular.subset has no emoji glyphs.
-  // The core should silently substitute .notdef or skip — it must NOT panic.
   page.drawText("Hello 🎉 World", { x: 50, y: 700, size: 18, font });
+  await expect(doc.save()).rejects.toThrow(MissingGlyphError);
+});
+
+test("drawing chars not in the font does not throw with onMissingGlyph: skip", async () => {
+  const doc = await PdfDocument.create();
+  const font = await doc.embedFont(FONT);
+  const page = doc.addPage();
+  page.drawText("Hello 🎉 World", { x: 50, y: 700, size: 18, font, onMissingGlyph: "skip" });
   const bytes = await doc.save();
   expect(bytes.length).toBeGreaterThan(1000);
   const reopened = await PdfDocument.load(bytes);

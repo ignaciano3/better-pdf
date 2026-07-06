@@ -1,10 +1,13 @@
 import type { FieldInfo, FieldType, FieldWidget } from "./form.js";
 import {
+  FieldTypeError,
   InvalidOptionError,
   MaxLengthExceededError,
   MissingOnStateError,
   MultiSelectError,
+  PdfError,
 } from "../core/errors.js";
+import { PdfFont, kFontId } from "../generate/font.js";
 
 /**
  * Flag changes for a loaded field. Each property toggles one PDF flag: `true`
@@ -33,9 +36,9 @@ export interface FieldFlagChanges {
 
 /** One queued mutation: set field `name` to a value or visual signature image. */
 export type FillOp =
-  | { name: string; value: string }
+  | { name: string; value: string; fontId?: number }
   | { name: string; values: string[] }
-  | { name: string; defaultValue: string }
+  | { name: string; defaultValue: string; fontId?: number }
   | { name: string; reset: true }
   | { name: string; image: Uint8Array }
   | { name: string; flags: FieldFlagChanges };
@@ -192,26 +195,55 @@ export abstract class PdfField {
  */
 export class PdfTextField extends PdfField {
   /**
+   * Resolve `opts.font` into a fontId for the fill wire, validating that it is
+   * an embedded font handle (not a standard-14 one) and that this field
+   * supports it (not comb).
+   * @internal
+   */
+  private resolveFontId(opts?: { font?: PdfFont }): number | undefined {
+    if (!opts || opts.font === undefined) return undefined;
+    const fontId = opts.font[kFontId];
+    if (fontId === undefined) {
+      throw new PdfError(
+        "setText({ font }) requires an embedded font from doc.embedFont(); for standard-14 fonts omit the option",
+      );
+    }
+    if (this.info.comb) {
+      throw new FieldTypeError(this.info.name, "text", "text");
+    }
+    return fontId;
+  }
+
+  /**
    * Set this field's text value.
    *
    * The field is updated in memory immediately, and the PDF bytes are updated
    * when you call `doc.save()`.
    *
    * @param value - The text to place in the field.
+   * @param opts - Pass `{ font }` with an embedded font (from `doc.embedFont()`)
+   * to render this value in that font instead of the field's default font.
    * @throws `MaxLengthExceededError` when the value is longer than the field's
    * declared `/MaxLen`.
+   * @throws `PdfError` when `opts.font` is a standard-14 font handle.
+   * @throws `FieldTypeError` when `opts.font` is given for a comb field.
    *
    * @example
    * ```ts
    * form.getTextField("person.fullName").setText("Ada Lovelace");
    * ```
    */
-  setText(value: string): void {
+  setText(value: string, opts?: { font?: PdfFont }): void {
     const max = this.info.maxLength;
     if (max !== null && value.length > max) {
       throw new MaxLengthExceededError(this.info.name, max, value.length);
     }
-    this.queue.push({ name: this.info.name, value });
+    const fontId = this.resolveFontId(opts);
+    this.queue.push({
+      name: this.info.name,
+      value,
+      ...(fontId !== undefined ? { fontId } : {}),
+    });
     this.info.value = value;
   }
 
@@ -222,20 +254,29 @@ export class PdfTextField extends PdfField {
    * The change is applied to the PDF bytes when you call `doc.save()`.
    *
    * @param value - The default text.
+   * @param opts - Pass `{ font }` with an embedded font (from `doc.embedFont()`)
+   * to render this value in that font instead of the field's default font.
    * @throws `MaxLengthExceededError` when the value is longer than the field's
    * declared `/MaxLen`.
+   * @throws `PdfError` when `opts.font` is a standard-14 font handle.
+   * @throws `FieldTypeError` when `opts.font` is given for a comb field.
    *
    * @example
    * ```ts
    * form.getTextField("invoice.currency").setDefaultText("USD");
    * ```
    */
-  setDefaultText(value: string): void {
+  setDefaultText(value: string, opts?: { font?: PdfFont }): void {
     const max = this.info.maxLength;
     if (max !== null && value.length > max) {
       throw new MaxLengthExceededError(this.info.name, max, value.length);
     }
-    this.queue.push({ name: this.info.name, defaultValue: value });
+    const fontId = this.resolveFontId(opts);
+    this.queue.push({
+      name: this.info.name,
+      defaultValue: value,
+      ...(fontId !== undefined ? { fontId } : {}),
+    });
     this.info.defaultValue = value;
   }
 

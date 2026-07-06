@@ -78,6 +78,13 @@ export class MultiSelectError extends PdfError {
  */
 export class PdfCoreError extends PdfError {}
 
+/** Thrown when text contains characters the embedded font has no glyph for. */
+export class MissingGlyphError extends PdfError {
+  constructor(readonly detail: string) {
+    super(detail); // detail is the core message: 'missing glyphs in font for …: "㐀" (U+3400)'
+  }
+}
+
 /**
  * Thrown when loading or operating on an encrypted PDF. Encryption is not
  * supported; the document must be decrypted before use.
@@ -141,5 +148,6 @@ export function toPdfError(e: unknown): PdfError {
   const message = e instanceof Error ? e.message : String(e);
   if (message.includes("PASSWORD:")) return new IncorrectPasswordError();
   if (message.includes("ENCRYPTED:")) return new EncryptedPdfError();
+  if (message.startsWith("missing glyphs")) return new MissingGlyphError(message);
   return new PdfCoreError(message);
 }

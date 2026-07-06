@@ -18,6 +18,7 @@ export type TextOp = {
   rotate?: number;
   opacity?: number;
   maxWidth?: number;
+  onMissingGlyph?: "skip";
 };
 
 export type ImageOp = {
@@ -180,6 +181,7 @@ export class DrawQueue {
       rotate?: number;
       opacity?: number;
       maxWidth?: number;
+      onMissingGlyph?: "skip";
     },
   ): void {
     this.assertOpen();
@@ -197,6 +199,7 @@ export class DrawQueue {
       ...(opts.rotate !== undefined ? { rotate: opts.rotate } : {}),
       ...(opts.opacity !== undefined ? { opacity: opts.opacity } : {}),
       ...(opts.maxWidth !== undefined ? { maxWidth: opts.maxWidth } : {}),
+      ...(opts.onMissingGlyph !== undefined ? { onMissingGlyph: opts.onMissingGlyph } : {}),
     });
   }
 

@@ -29,6 +29,11 @@ export interface DrawTextOptions {
    * onto its own line. Must be a positive finite number.
    */
   maxWidth?: number;
+  /**
+   * 'throw' (default): error on characters missing from an embedded font.
+   * 'skip': old behavior — silently drop glyphs the font has no coverage for.
+   */
+  onMissingGlyph?: "throw" | "skip";
 }
 
 /** Options for {@link PdfPage.drawLine}. Coordinates use the PDF convention: origin bottom-left. */
@@ -266,6 +271,13 @@ export class PdfPage {
     if (options.maxWidth !== undefined && (!Number.isFinite(options.maxWidth) || options.maxWidth <= 0)) {
       throw new RangeError(`maxWidth must be > 0, got ${options.maxWidth}`);
     }
+    if (
+      options.onMissingGlyph !== undefined &&
+      options.onMissingGlyph !== "throw" &&
+      options.onMissingGlyph !== "skip"
+    ) {
+      throw new RangeError(`onMissingGlyph must be "throw" or "skip", got ${options.onMissingGlyph}`);
+    }
     const embeddedId =
       options.font instanceof PdfFont && options.font[kFontId] !== undefined
         ? options.font[kFontId]
@@ -287,6 +299,7 @@ export class PdfPage {
       ...(options.rotate !== undefined ? { rotate: options.rotate } : {}),
       ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
       ...(options.maxWidth !== undefined ? { maxWidth: options.maxWidth } : {}),
+      ...(options.onMissingGlyph === "skip" ? { onMissingGlyph: "skip" as const } : {}),
     });
   }
 
