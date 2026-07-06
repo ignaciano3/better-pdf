@@ -7,3 +7,15 @@ Copyright: Copyright 2022 The Noto Project Authors (https://github.com/notofonts
 Coverage: Full Latin + Greek + Cyrillic (includes U+00E9 é and broad Latin coverage)
 File size at fixture creation: 556 KB
 Note: Named .subset.ttf for milestone naming convention; this is the full unhinted TTF.
+
+---
+
+Font: Noto Sans JP Regular
+Source URL: https://github.com/google/fonts/raw/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf (Google Fonts mirror of googlefonts/noto-cjk)
+License: SIL Open Font License, Version 1.1 (OFL-1.1) — see OFL.txt in this directory
+License URL: https://scripts.sil.org/OFL
+Copyright: Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'
+
+Coverage: Subset containing only 山田太郎日本語 abcABC (CJK + ASCII test glyphs), generated with:
+  pyftsubset NotoSansJP[wght].ttf --text='山田太郎日本語 abcABC' --output-file=NotoSansJP-Regular.subset.ttf
+File size: ~5.5 KB (subset from a 9.4 MB variable-font source)
