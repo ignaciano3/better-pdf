@@ -150,6 +150,7 @@ export default defineConfig({
 						{ label: 'Objects & xref', slug: 'internals/objects-and-xref' },
 						{ label: 'Incremental updates', slug: 'internals/incremental-updates' },
 						{ label: 'Content streams', slug: 'internals/content-streams' },
+						{ label: 'AcroForms', slug: 'internals/forms' },
 					],
 				},
 				{
