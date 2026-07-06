@@ -1286,44 +1286,124 @@ fn wire_dr_font(inc: &mut IncrementalDocument, alias: &str, type0_id: ObjectId) 
             let id = *id;
             inc.opt_clone_object_to_new_document(id)
                 .map_err(|e| e.to_string())?;
-            ensure_dr_font(field_dict_mut(inc, id)?, alias, type0_id);
+            ensure_dr_font(inc, id, alias, type0_id)?;
         }
         Ok(Object::Dictionary(_)) => {
             inc.opt_clone_object_to_new_document(root)
                 .map_err(|e| e.to_string())?;
-            let cat = field_dict_mut(inc, root)?;
-            let acro = cat
-                .get_mut(b"AcroForm")
-                .and_then(Object::as_dict_mut)
-                .map_err(|e| e.to_string())?;
-            ensure_dr_font(acro, alias, type0_id);
+            ensure_dr_font(inc, root, alias, type0_id)?;
         }
         _ => {}
     }
     Ok(())
 }
 
-/// Set `alias -> type0_id` in `acro`'s `/DR/Font`, creating either dict if absent.
-fn ensure_dr_font(acro: &mut Dictionary, alias: &str, type0_id: ObjectId) {
-    match acro.get_mut(b"DR").ok().and_then(|o| Object::as_dict_mut(o).ok()) {
-        Some(dr) => match dr.get_mut(b"Font").ok().and_then(|o| Object::as_dict_mut(o).ok()) {
-            Some(fonts) => {
-                fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+/// Set `alias -> type0_id` in the `/DR/Font` reachable from `acro_holder_id`
+/// (the object holding the `AcroForm` dict inline - either the Catalog or
+/// the AcroForm's own indirect object, already cloned into the new
+/// document). Creates `/DR` and/or `/DR/Font` if absent. Both `/DR` and
+/// `/DR/Font` may themselves be indirect references (common in
+/// Acrobat-authored PDFs) - in that case the referenced object is resolved
+/// from the previous document, cloned into the new document (preserving its
+/// existing entries), and overridden there via the incremental-update object
+/// id, rather than being replaced with a fresh dict that would discard any
+/// pre-existing fonts (e.g. `/Helv`).
+fn ensure_dr_font(
+    inc: &mut IncrementalDocument,
+    acro_holder_id: ObjectId,
+    alias: &str,
+    type0_id: ObjectId,
+) -> Result<(), String> {
+    let dr_entry = field_dict_mut(inc, acro_holder_id)?
+        .get(b"DR")
+        .ok()
+        .cloned();
+    match dr_entry {
+        Some(Object::Reference(dr_id)) => {
+            inc.opt_clone_object_to_new_document(dr_id)
+                .map_err(|e| e.to_string())?;
+            ensure_font_dict(inc, dr_id, alias, type0_id)
+        }
+        Some(Object::Dictionary(_)) => {
+            let font_entry = field_dict_mut(inc, acro_holder_id)?
+                .get_mut(b"DR")
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?
+                .get(b"Font")
+                .ok()
+                .cloned();
+            match font_entry {
+                Some(Object::Reference(font_id)) => {
+                    inc.opt_clone_object_to_new_document(font_id)
+                        .map_err(|e| e.to_string())?;
+                    field_dict_mut(inc, font_id)?
+                        .set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+                }
+                Some(Object::Dictionary(_)) => {
+                    let dr = field_dict_mut(inc, acro_holder_id)?
+                        .get_mut(b"DR")
+                        .and_then(Object::as_dict_mut)
+                        .map_err(|e| e.to_string())?;
+                    let fonts = dr
+                        .get_mut(b"Font")
+                        .and_then(Object::as_dict_mut)
+                        .map_err(|e| e.to_string())?;
+                    fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+                }
+                _ => {
+                    let mut fonts = Dictionary::new();
+                    fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+                    let dr = field_dict_mut(inc, acro_holder_id)?
+                        .get_mut(b"DR")
+                        .and_then(Object::as_dict_mut)
+                        .map_err(|e| e.to_string())?;
+                    dr.set("Font", Object::Dictionary(fonts));
+                }
             }
-            None => {
-                let mut fonts = Dictionary::new();
-                fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
-                dr.set("Font", Object::Dictionary(fonts));
-            }
-        },
-        None => {
+            Ok(())
+        }
+        _ => {
             let mut fonts = Dictionary::new();
             fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
             let mut dr = Dictionary::new();
             dr.set("Font", Object::Dictionary(fonts));
-            acro.set("DR", Object::Dictionary(dr));
+            field_dict_mut(inc, acro_holder_id)?.set("DR", Object::Dictionary(dr));
+            Ok(())
         }
     }
+}
+
+/// Set `alias -> type0_id` in the `/Font` dict reachable from `dr_id` (an
+/// object holding a `DR`-shaped dict, already cloned into the new
+/// document), resolving `/Font` through one level of indirection if needed.
+fn ensure_font_dict(
+    inc: &mut IncrementalDocument,
+    dr_id: ObjectId,
+    alias: &str,
+    type0_id: ObjectId,
+) -> Result<(), String> {
+    let font_entry = field_dict_mut(inc, dr_id)?.get(b"Font").ok().cloned();
+    match font_entry {
+        Some(Object::Reference(font_id)) => {
+            inc.opt_clone_object_to_new_document(font_id)
+                .map_err(|e| e.to_string())?;
+            field_dict_mut(inc, font_id)?
+                .set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+        }
+        Some(Object::Dictionary(_)) => {
+            let fonts = field_dict_mut(inc, dr_id)?
+                .get_mut(b"Font")
+                .and_then(Object::as_dict_mut)
+                .map_err(|e| e.to_string())?;
+            fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+        }
+        _ => {
+            let mut fonts = Dictionary::new();
+            fonts.set(alias.as_bytes().to_vec(), Object::Reference(type0_id));
+            field_dict_mut(inc, dr_id)?.set("Font", Object::Dictionary(fonts));
+        }
+    }
+    Ok(())
 }
 
 /// Build and attach a multi-row highlight `/AP/N` on each widget.
@@ -2335,6 +2415,52 @@ mod tests {
         let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
         let v = crate::forms::read_fields_json(&out).unwrap();
         assert!(v.contains(r#""value":"B""#), "{v}");
+    }
+
+    /// Rewrite `base`'s AcroForm so its `/DR` is an indirect reference to a
+    /// separate object (mirroring Acrobat-authored PDFs), instead of the
+    /// inline dict the builder normally produces. Returns the re-saved bytes.
+    fn make_dr_indirect(base: &[u8]) -> Vec<u8> {
+        use lopdf::Document;
+        let mut doc = Document::load_mem(base).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let catalog = doc.get_dictionary(root).unwrap();
+        let acro_id = catalog.get(b"AcroForm").unwrap().as_reference().unwrap();
+        let acro = doc.get_dictionary(acro_id).unwrap();
+        let dr = acro.get(b"DR").unwrap().as_dict().unwrap().clone();
+        let dr_id = doc.add_object(Object::Dictionary(dr));
+        let acro_mut = doc.get_object_mut(acro_id).unwrap().as_dict_mut().unwrap();
+        acro_mut.set("DR", Object::Reference(dr_id));
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn embedded_fill_preserves_indirect_dr_font_entries() {
+        // AcroForm authored with an indirect /DR (as Acrobat typically does),
+        // instead of the builder's inline /DR dict.
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        let base = make_dr_indirect(&base);
+        let plan = fill_plan(r#"{"name":"n","value":"Añb","fontId":0}"#, NOTO.len());
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+
+        let doc = Document::load_mem(&out).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let catalog = doc.get_dictionary(root).unwrap();
+        let acro = crate::forms::as_dict(&doc, catalog.get(b"AcroForm").unwrap()).unwrap();
+        let dr = crate::forms::as_dict(&doc, acro.get(b"DR").unwrap()).unwrap();
+        let fonts = crate::forms::as_dict(&doc, dr.get(b"Font").unwrap()).unwrap();
+        assert!(
+            fonts.has(b"Helv"),
+            "existing /DR/Font/Helv must survive fill through an indirect /DR: {fonts:?}"
+        );
+        assert!(
+            fonts.has(b"BPF0"),
+            "new embedded font BPF0 must be added to /DR/Font: {fonts:?}"
+        );
     }
 
     #[test]
