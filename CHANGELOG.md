@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Fill + flatten of the same field in one `save()` lost the field's text**
+  (regression in 1.8.1's batched save; affects 1.8.1–1.10.0). Flatten resolved
+  the widget's appearance against the pre-fill document, so the appearance the
+  fill generated in the same save was never stamped into the page content —
+  the field was removed but its value became invisible. Flatten now resolves
+  the appearance at apply time, seeing the state fills earlier in the same
+  save produced. Chained `fill → save → flatten → save` was never affected.
+
 ## [1.10.0] - 2026-07-03
 
 ### Added
