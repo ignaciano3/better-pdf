@@ -10,6 +10,7 @@
         "@fontsource/ibm-plex-sans": "^5.2.8",
         "astro": "^6.4.5",
         "sharp": "^0.34.5",
+        "starlight-package-managers": "^0.12.0",
       },
       "devDependencies": {
         "starlight-typedoc": "^0.23.0",
@@ -792,6 +793,8 @@
     "source-map-js": ["source-map-js@1.2.1", "", {}, "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="],
 
     "space-separated-tokens": ["space-separated-tokens@2.0.2", "", {}, "sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q=="],
+
+    "starlight-package-managers": ["starlight-package-managers@0.12.0", "", { "peerDependencies": { "@astrojs/starlight": ">=0.22.0" } }, "sha512-hAIVzOT0/Git+T2Uwckh2rs51fYiDM6/X+Z2f3LtKMSwOwm+nSUAX2Ilp7k+07LDtxYjmvfTCxhfIBt0PgOF5g=="],
 
     "starlight-typedoc": ["starlight-typedoc@0.23.0", "", { "dependencies": { "github-slugger": "^2.0.0" }, "peerDependencies": { "@astrojs/starlight": ">=0.39.0", "typedoc": ">=0.28.0", "typedoc-plugin-markdown": ">=4.6.0" } }, "sha512-GB0tB/15nL3l9tt1aGpkV8EixnSXbApZNZaSBRt8KfIsDAJet7pRiyItk5dxBSbDTXilF2whOMXPqqkbm8dNWA=="],
 

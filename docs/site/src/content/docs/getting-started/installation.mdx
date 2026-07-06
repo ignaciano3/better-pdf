@@ -3,11 +3,11 @@ title: Installation
 description: Install better-pdf from npm, or build it locally from source.
 ---
 
+import { PackageManagers } from 'starlight-package-managers'
+
 ## From npm
 
-```bash
-bun add @ignaciano3/better-pdf
-```
+<PackageManagers pkg="@ignaciano3/better-pdf" pkgManagers={['npm', 'pnpm', 'bun', 'yarn']} />
 
 The package works with any runtime/bundler that can serve the packaged `.wasm`
 asset. Node.js 18+ is supported.
