@@ -92,7 +92,12 @@ pub fn apply_all_json(
         flatten::flatten_apply(&mut inc, field_ids, stamps)?;
     }
     if let Some(d) = &plan.draw {
-        draw::draw_apply(&mut inc, &d.ops, draw_images, fonts, &d.fonts)?;
+        let used = draw::draw_used_chars(&d.ops);
+        let built_fonts = {
+            let mut add = |o| inc.new_document.add_object(o);
+            draw::build_document_fonts(&mut add, &d.fonts, fonts, &used)?
+        };
+        draw::draw_apply(&mut inc, &d.ops, draw_images, fonts, &d.fonts, &built_fonts)?;
     }
     if let (Some(meta), Some(info)) = (&plan.metadata, meta_info) {
         metadata::metadata_apply(&mut inc, info, meta);
@@ -269,5 +274,31 @@ mod tests {
             text.contains("BATCHFLAT"),
             "stamped appearance is not the one filled in this pass: {text}"
         );
+    }
+
+    #[test]
+    fn shared_font_builds_once_across_draw_ops() {
+        const FONT: &[u8] =
+            include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+        // Created base doc with one page, then apply two draw ops using the same font.
+        let base = crate::create::create_document_json(
+            r#"[{"op":"addPage","width":300,"height":300}]"#, &[], &[], "[]", "[]", false, false,
+        ).unwrap();
+        let plan = format!(
+            r#"{{"draw":{{"ops":[
+                {{"op":"text","page":0,"x":10,"y":40,"size":12,"text":"Ab","fontId":0,"color":[0,0,0]}},
+                {{"op":"text","page":0,"x":10,"y":20,"size":12,"text":"Cd","fontId":0,"color":[0,0,0]}}
+            ],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
+            FONT.len()
+        );
+        let out = apply_all_json(&base, &plan, &[], &[], FONT, false).unwrap();
+        let doc = lopdf::Document::load_mem(&out).unwrap();
+        let type0_count = doc.objects.values().filter(|o| {
+            o.as_dict().ok()
+                .and_then(|d| d.get(b"Subtype").ok())
+                .and_then(|s| s.as_name().ok())
+                == Some(b"Type0")
+        }).count();
+        assert_eq!(type0_count, 1, "font must build exactly once");
     }
 }

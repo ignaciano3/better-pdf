@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 use crate::appearance::{encode_winansi, escape_pdf_literal};
 use crate::fonts::{BuiltFont, EmbeddedFontInput, build_embedded_font};
+use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
 
 fn default_true() -> bool {
@@ -16,10 +17,10 @@ fn default_true() -> bool {
 /// index into the concatenated `fonts` blob; `subset` controls glyph subsetting.
 #[derive(Deserialize)]
 pub(crate) struct FontDesc {
-    offset: usize,
-    length: usize,
+    pub(crate) offset: usize,
+    pub(crate) length: usize,
     #[serde(default = "default_true")]
-    subset: bool,
+    pub(crate) subset: bool,
 }
 
 #[derive(Deserialize)]
@@ -983,7 +984,11 @@ pub fn apply_draw_ops_json(
 
     let doc = crate::doc_io::load_pdf(data)?;
     let mut inc = IncrementalDocument::create_from(data.to_vec(), doc);
-    draw_apply(&mut inc, &ops, images, fonts, &font_descs)?;
+    validate_draw_ops(&inc, &ops, images, fonts, &font_descs)?;
+    let used = draw_used_chars(&ops);
+    let mut add = |o: Object| inc.new_document.add_object(o);
+    let built = build_document_fonts(&mut add, &font_descs, fonts, &used)?;
+    draw_apply(&mut inc, &ops, images, fonts, &font_descs, &built)?;
 
     if compress {
         crate::compress::compress_generated_streams(&mut inc.new_document);
@@ -998,12 +1003,14 @@ pub fn apply_draw_ops_json(
 /// pre-pass followed by per-page content emission. Reads the base page list from
 /// `inc.get_prev_documents()`, so it composes correctly after other mutators
 /// (fill/flatten) on the same `inc`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_apply(
     inc: &mut IncrementalDocument,
     ops: &[DrawOp],
     images: &[u8],
     fonts: &[u8],
     font_descs: &[FontDesc],
+    built: &HashMap<usize, (ObjectId, BuiltFont)>,
 ) -> Result<(), String> {
     validate_draw_ops(inc, ops, images, fonts, font_descs)?;
 
@@ -1029,8 +1036,7 @@ pub(crate) fn draw_apply(
         }
     }
 
-    let embedded_fonts = embed_fonts(inc, ops, font_descs, fonts)?;
-    emit_page_ops(inc, &page_ops, &embedded_fonts, font_descs, fonts, images)?;
+    emit_page_ops(inc, &page_ops, built, font_descs, fonts, images)?;
     Ok(())
 }
 
@@ -1296,19 +1302,10 @@ fn validate_draw_ops(
     Ok(())
 }
 
-/// Build each embedded font once (subset + Type0 graph), keyed by font id, so
-/// the per-page emit loop can reference them without re-borrowing `inc`.
-fn embed_fonts(
-    inc: &mut IncrementalDocument,
-    ops: &[DrawOp],
-    font_descs: &[FontDesc],
-    fonts: &[u8],
-) -> Result<std::collections::HashMap<usize, (ObjectId, BuiltFont)>, String> {
-    let mut embedded_fonts: std::collections::HashMap<usize, (ObjectId, BuiltFont)> =
-        std::collections::HashMap::new();
-    // Gather used_chars across ALL text ops referencing each embedded font id.
-    let mut used_per_font: std::collections::HashMap<usize, std::collections::BTreeSet<char>> =
-        std::collections::HashMap::new();
+/// Gather the characters used per embedded-font id across every text draw op.
+/// Callers combine this with other sources (e.g. fill values) before building.
+pub(crate) fn draw_used_chars(ops: &[DrawOp]) -> HashMap<usize, BTreeSet<char>> {
+    let mut used_per_font: HashMap<usize, BTreeSet<char>> = HashMap::new();
     for op in ops {
         if let DrawOp::Text {
             font_id: Some(i),
@@ -1319,19 +1316,32 @@ fn embed_fonts(
             used_per_font.entry(*i).or_default().extend(text.chars());
         }
     }
+    used_per_font
+}
+
+/// Build each embedded font once (subset + Type0 graph), keyed by font id.
+/// Mirrors the create-path pre-pass in `create.rs`; `doc_add` lets callers add
+/// objects to whichever document is being written (a fresh `Document` at
+/// create time, or `IncrementalDocument.new_document` at apply time).
+pub(crate) fn build_document_fonts(
+    doc_add: &mut dyn FnMut(Object) -> ObjectId,
+    font_descs: &[FontDesc],
+    fonts_blob: &[u8],
+    used_per_font: &HashMap<usize, BTreeSet<char>>,
+) -> Result<HashMap<usize, (ObjectId, BuiltFont)>, String> {
+    let mut embedded_fonts: HashMap<usize, (ObjectId, BuiltFont)> = HashMap::new();
     // Deterministic build order by font id.
     let mut ids: Vec<usize> = used_per_font.keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
         let fd = &font_descs[id];
-        let bytes = &fonts[fd.offset..fd.offset + fd.length];
+        let bytes = &fonts_blob[fd.offset..fd.offset + fd.length];
         let input = EmbeddedFontInput {
             data: bytes,
             subset: fd.subset,
-            used_chars: used_per_font.remove(&id).unwrap_or_default(),
+            used_chars: used_per_font.get(&id).cloned().unwrap_or_default(),
         };
-        let mut add = |o: Object| inc.new_document.add_object(o);
-        let built = build_embedded_font(&mut add, &input)?;
+        let built = build_embedded_font(doc_add, &input)?;
         embedded_fonts.insert(id, built);
     }
     Ok(embedded_fonts)
