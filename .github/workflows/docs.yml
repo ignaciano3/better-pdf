@@ -54,6 +54,9 @@ jobs:
         with:
           path: ./docs/site
           package-manager: bun
+          # The restored node_modules/.astro cache can hold stale Expressive Code
+          # CSS hashes after a theme change, shipping <link>s to files that 404.
+          cache: false
 
   deploy:
     needs: build
