@@ -4,6 +4,17 @@ import { join } from "node:path";
 import { PdfDocument, MissingGlyphError, FieldTypeError, PdfError, StandardFonts } from "../src/index.ts";
 
 const NOTO = new Uint8Array(readFileSync(join(import.meta.dir, "fixtures/fonts/NotoSans-Regular.subset.ttf")));
+const FICHA_PERSONAL = new Uint8Array(
+  readFileSync(join(import.meta.dir, "fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf")),
+);
+
+test("setText with embedded font combined with a page-structure op throws a clear error", async () => {
+  const doc = await PdfDocument.load(FICHA_PERSONAL);
+  const font = await doc.embedFont(NOTO);
+  doc.getForm().getTextField("beneficiario.apellidos_nombres").setText("Juan Perez", { font });
+  doc.removePage(doc.getPageCount() - 1);
+  await expect(doc.save()).rejects.toThrow(/cannot be combined with page-structure/);
+});
 
 test("setText rejects a standard-14 PdfFont handle", async () => {
   const doc = await PdfDocument.create();

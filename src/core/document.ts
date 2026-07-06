@@ -302,6 +302,17 @@ export class PdfDocumentBase {
    * into the single-pass `applyAll`.
    */
   private async saveChained(form: PdfForm | undefined, compress: boolean): Promise<Uint8Array> {
+    if (form && form[kFormQueue].length > 0) {
+      const { opsJson } = form[kFormQueue].toPayload();
+      const fillOps = JSON.parse(opsJson) as Array<{ fontId?: number }>;
+      if (fillOps.some((op) => op.fontId !== undefined)) {
+        throw new PdfError(
+          "setText with an embedded font cannot be combined with page-structure operations " +
+            "(insertPage/removePage/movePage) in the same save; save once before the page changes " +
+            "or once after",
+        );
+      }
+    }
     let bytes = this.bytes;
     try {
       if (form && form[kFormQueue].length > 0) {
