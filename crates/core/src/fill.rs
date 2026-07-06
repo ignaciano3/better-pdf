@@ -2436,6 +2436,80 @@ mod tests {
         out
     }
 
+    /// Rewrite `base`'s AcroForm so `/DR` stays inline but `/DR/Font` becomes
+    /// an indirect reference to its own object. Returns the re-saved bytes.
+    fn make_dr_font_indirect(base: &[u8]) -> Vec<u8> {
+        use lopdf::Document;
+        let mut doc = Document::load_mem(base).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let catalog = doc.get_dictionary(root).unwrap();
+        let acro_id = catalog.get(b"AcroForm").unwrap().as_reference().unwrap();
+        let acro = doc.get_dictionary(acro_id).unwrap();
+        let fonts = acro
+            .get(b"DR")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"Font")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .clone();
+        let font_id = doc.add_object(Object::Dictionary(fonts));
+        let acro_mut = doc.get_object_mut(acro_id).unwrap().as_dict_mut().unwrap();
+        acro_mut
+            .get_mut(b"DR")
+            .and_then(Object::as_dict_mut)
+            .unwrap()
+            .set("Font", Object::Reference(font_id));
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    /// Resolve `/Root/AcroForm/DR/Font` through any references in `out` and
+    /// assert both the pre-existing `Helv` and the new `BPF0` are present.
+    fn assert_dr_fonts_has_helv_and_bpf0(out: &[u8]) {
+        let doc = Document::load_mem(out).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let catalog = doc.get_dictionary(root).unwrap();
+        let acro = crate::forms::as_dict(&doc, catalog.get(b"AcroForm").unwrap()).unwrap();
+        let dr = crate::forms::as_dict(&doc, acro.get(b"DR").unwrap()).unwrap();
+        let fonts = crate::forms::as_dict(&doc, dr.get(b"Font").unwrap()).unwrap();
+        assert!(
+            fonts.has(b"Helv"),
+            "existing /DR/Font/Helv must survive the fill: {fonts:?}"
+        );
+        assert!(
+            fonts.has(b"BPF0"),
+            "new embedded font BPF0 must be added to /DR/Font: {fonts:?}"
+        );
+    }
+
+    #[test]
+    fn embedded_fill_preserves_inline_dr_with_indirect_font() {
+        // /DR inline dict, but /DR/Font is an indirect reference.
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        let base = make_dr_font_indirect(&base);
+        let plan = fill_plan(r#"{"name":"n","value":"Añb","fontId":0}"#, NOTO.len());
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        assert_dr_fonts_has_helv_and_bpf0(&out);
+    }
+
+    #[test]
+    fn embedded_fill_preserves_indirect_dr_with_indirect_font() {
+        // Both /DR and /DR/Font are indirect references.
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        let base = make_dr_indirect(&make_dr_font_indirect(&base));
+        let plan = fill_plan(r#"{"name":"n","value":"Añb","fontId":0}"#, NOTO.len());
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        assert_dr_fonts_has_helv_and_bpf0(&out);
+    }
+
     #[test]
     fn embedded_fill_preserves_indirect_dr_font_entries() {
         // AcroForm authored with an indirect /DR (as Acrobat typically does),
