@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 
 mod appearance;
 mod apply;
+mod attach;
 mod compress;
 pub mod create;
 mod doc_io;
@@ -87,6 +88,20 @@ pub fn apply_all(
 ) -> Result<Vec<u8>, JsError> {
     apply::apply_all_json(data, plan_json, fill_images, draw_images, fonts, compress)
         .map_err(|e| JsError::new(&e))
+}
+
+/// Attach embedded files (JSON array of {name, mimeType?, description?,
+/// creationDate?, modificationDate?, afRelationship?, offset, length}) to a
+/// PDF; `blob` is the concatenated file bytes the offsets index into.
+/// Returns new bytes (incremental update).
+#[wasm_bindgen]
+pub fn attach_files(
+    data: &[u8],
+    ops_json: &str,
+    blob: &[u8],
+    compress: bool,
+) -> Result<Vec<u8>, JsError> {
+    attach::attach_files_json(data, ops_json, blob, compress).map_err(|e| JsError::new(&e))
 }
 
 /// Build a new PDF document from scratch using a JSON array of create ops
