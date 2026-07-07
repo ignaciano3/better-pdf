@@ -54,8 +54,7 @@ pub(crate) fn attach_resolve(
 ) -> Result<AttachPlan, String> {
     // Validate blob ranges up front so apply can slice unchecked.
     for op in ops {
-        let end = op
-            .offset
+        op.offset
             .checked_add(op.length)
             .filter(|&e| e <= blob.len())
             .ok_or_else(|| {
@@ -63,11 +62,10 @@ pub(crate) fn attach_resolve(
                     "attachment '{}' byte range {}..{} out of range (blob is {} bytes)",
                     op.name,
                     op.offset,
-                    op.offset + op.length,
+                    op.offset.saturating_add(op.length),
                     blob.len()
                 )
             })?;
-        let _ = end;
     }
     // Duplicates within the queued ops themselves.
     let mut seen = std::collections::HashSet::new();
@@ -424,6 +422,15 @@ mod tests {
     fn attach_blob_range_out_of_bounds_errors() {
         let base = blank_doc();
         let ops = r#"[{"name":"a.txt","offset":0,"length":99}]"#;
+        let err = attach_files_json(&base, ops, b"tiny", false).unwrap_err();
+        assert!(err.contains("out of range"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn attach_offset_overflow_errors_without_panic() {
+        // offset + length overflows usize: must be a clean Err, not a panic.
+        let base = blank_doc();
+        let ops = r#"[{"name":"a.txt","offset":18446744073709551615,"length":1}]"#;
         let err = attach_files_json(&base, ops, b"tiny", false).unwrap_err();
         assert!(err.contains("out of range"), "unexpected: {err}");
     }
