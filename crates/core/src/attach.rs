@@ -24,6 +24,60 @@ pub(crate) struct AttachOp {
     pub length: usize,
 }
 
+/// Decode a PDF text string: UTF-16BE with BOM, or bytes as Latin-1/UTF-8.
+fn decode_pdf_string(bytes: &[u8]) -> String {
+    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        let utf16: Vec<u16> = bytes[2..]
+            .chunks(2)
+            .filter(|c| c.len() == 2)
+            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .collect();
+        return String::from_utf16_lossy(&utf16);
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Recursively collect (name, filespec object) pairs from a name-tree node
+/// (either a leaf with /Names or an interior node with /Kids).
+fn walk_name_tree(
+    doc: &Document,
+    node: &Dictionary,
+    out: &mut Vec<(String, Object)>,
+) -> Result<(), String> {
+    if let Ok(kids) = node.get(b"Kids").and_then(|o| o.as_array()) {
+        for kid in kids {
+            let kid_dict = match kid {
+                Object::Reference(id) => doc.get_dictionary(*id).map_err(|e| e.to_string())?,
+                Object::Dictionary(d) => d,
+                other => return Err(format!("malformed name-tree kid: {other:?}")),
+            };
+            walk_name_tree(doc, kid_dict, out)?;
+        }
+    }
+    if let Ok(pairs) = node.get(b"Names").and_then(|o| o.as_array()) {
+        for pair in pairs.chunks(2) {
+            if pair.len() != 2 {
+                continue;
+            }
+            let name = pair[0]
+                .as_str()
+                .map(decode_pdf_string)
+                .map_err(|e| e.to_string())?;
+            out.push((name, pair[1].clone()));
+        }
+    }
+    Ok(())
+}
+
+/// Resolve a dict-or-reference object to a Dictionary in `doc`.
+fn resolve_dict<'a>(doc: &'a Document, obj: &'a Object) -> Result<&'a Dictionary, String> {
+    match obj {
+        Object::Reference(id) => doc.get_dictionary(*id).map_err(|e| e.to_string()),
+        Object::Dictionary(d) => Ok(d),
+        other => Err(format!("expected dictionary, got {other:?}")),
+    }
+}
+
 pub(crate) struct AttachPlan {
     pub root_id: ObjectId,
     /// Existing /EmbeddedFiles entries: (name, filespec object — usually a
@@ -79,8 +133,29 @@ pub(crate) fn attach_resolve(
         .get(b"Root")
         .and_then(|o| o.as_reference())
         .map_err(|e| e.to_string())?;
-    // Task 2 replaces this with a real walk of any existing tree.
-    Ok(AttachPlan { root_id, existing: Vec::new() })
+
+    let mut existing = Vec::new();
+    if let Ok(catalog) = doc.get_dictionary(root_id)
+        && let Ok(names_obj) = catalog.get(b"Names")
+    {
+        let names = resolve_dict(doc, names_obj)?;
+        if let Ok(ef_obj) = names.get(b"EmbeddedFiles") {
+            let ef = resolve_dict(doc, ef_obj)?;
+            walk_name_tree(doc, ef, &mut existing)?;
+        }
+    }
+    // The existing names use /UF-preferred strings already? No — name-tree
+    // KEYS are the canonical names (the /UF preference applies to reading
+    // filespec metadata, Task 3). Compare queued names against the tree keys.
+    for op in ops {
+        if existing.iter().any(|(n, _)| n == &op.name) {
+            return Err(format!(
+                "duplicate attachment name '{}' already exists in the document",
+                op.name
+            ));
+        }
+    }
+    Ok(AttachPlan { root_id, existing })
 }
 
 /// Build the /EmbeddedFile stream + /Filespec dict for one op; returns the
@@ -170,9 +245,11 @@ pub(crate) fn attach_apply(
 
     // Build the new filespecs.
     let mut entries: Vec<(String, Object)> = plan.existing.clone();
+    let mut built: Vec<(&AttachOp, ObjectId)> = Vec::with_capacity(ops.len());
     for op in ops {
         let spec_id = build_filespec(&mut inc.new_document, op, blob)?;
         entries.push((op.name.clone(), Object::Reference(spec_id)));
+        built.push((op, spec_id));
     }
     // Name trees must be sorted (byte order of the name strings).
     entries.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
@@ -221,6 +298,41 @@ pub(crate) fn attach_apply(
         .and_then(|o| o.as_dict_mut())
         .map_err(|e| e.to_string())?;
     catalog.set("Names", Object::Dictionary(names_dict));
+
+    // /AF: filespec refs of every op that declared an afRelationship.
+    let af_new: Vec<Object> = built
+        .iter()
+        .filter(|(op, _)| op.af_relationship.is_some())
+        .map(|(_, id)| Object::Reference(*id))
+        .collect();
+    if !af_new.is_empty() {
+        // Existing /AF read from the (possibly just-cloned) catalog.
+        let mut af = match inc
+            .new_document
+            .get_dictionary(plan.root_id)
+            .ok()
+            .and_then(|c| c.get(b"AF").ok())
+        {
+            Some(Object::Array(a)) => a.clone(),
+            Some(Object::Reference(id)) => {
+                let id = *id;
+                inc.new_document
+                    .get_object(id)
+                    .or_else(|_| inc.get_prev_documents().get_object(id))
+                    .ok()
+                    .and_then(|o| o.as_array().ok().cloned())
+                    .unwrap_or_default()
+            }
+            _ => Vec::new(),
+        };
+        af.extend(af_new);
+        let catalog = inc
+            .new_document
+            .get_object_mut(plan.root_id)
+            .and_then(|o| o.as_dict_mut())
+            .map_err(|e| e.to_string())?;
+        catalog.set("AF", Object::Array(af));
+    }
     Ok(())
 }
 
@@ -443,5 +555,153 @@ mod tests {
         let out = attach_files_json(&base, ops, b"data", false).unwrap();
         assert!(out.len() > base.len());
         assert_eq!(&out[..base.len()], &base[..]);
+    }
+
+    /// A doc with an existing /EmbeddedFiles tree split into two /Kids leaf
+    /// nodes: ["alpha.txt"] and ["zeta.txt"], each with /Limits. Built by
+    /// attaching nothing — we construct the objects directly on a blank doc
+    /// and save it non-incrementally via lopdf.
+    fn doc_with_kids_tree() -> Vec<u8> {
+        let base = blank_doc();
+        let mut doc = Document::load_mem(&base).unwrap();
+
+        let mk_spec = |doc: &mut Document, name: &str, content: &[u8]| -> ObjectId {
+            let mut sdict = Dictionary::new();
+            sdict.set("Type", Object::Name(b"EmbeddedFile".to_vec()));
+            let stream_id = doc.add_object(Object::Stream(Stream::new(sdict, content.to_vec())));
+            let mut ef = Dictionary::new();
+            ef.set("F", Object::Reference(stream_id));
+            let mut spec = Dictionary::new();
+            spec.set("Type", Object::Name(b"Filespec".to_vec()));
+            spec.set("F", Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal));
+            spec.set("EF", Object::Dictionary(ef));
+            doc.add_object(Object::Dictionary(spec))
+        };
+        let alpha = mk_spec(&mut doc, "alpha.txt", b"ALPHA");
+        let zeta = mk_spec(&mut doc, "zeta.txt", b"ZETA");
+
+        let leaf = |doc: &mut Document, name: &str, spec: ObjectId| -> ObjectId {
+            let mut d = Dictionary::new();
+            d.set("Limits", Object::Array(vec![
+                Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
+                Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
+            ]));
+            d.set("Names", Object::Array(vec![
+                Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
+                Object::Reference(spec),
+            ]));
+            doc.add_object(Object::Dictionary(d))
+        };
+        let k1 = leaf(&mut doc, "alpha.txt", alpha);
+        let k2 = leaf(&mut doc, "zeta.txt", zeta);
+
+        let mut ef_root = Dictionary::new();
+        ef_root.set("Kids", Object::Array(vec![Object::Reference(k1), Object::Reference(k2)]));
+        let ef_root_id = doc.add_object(Object::Dictionary(ef_root));
+        let mut names = Dictionary::new();
+        names.set("EmbeddedFiles", Object::Reference(ef_root_id));
+
+        let root_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let catalog = doc.get_object_mut(root_id).unwrap().as_dict_mut().unwrap();
+        catalog.set("Names", Object::Dictionary(names));
+
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn merge_preserves_existing_kids_tree_entries_in_sorted_order() {
+        let base = doc_with_kids_tree();
+        let ops = r#"[{"name":"beta.txt","offset":0,"length":4}]"#;
+        let out = attach_files_json(&base, ops, b"BETA", false).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let entries = tree_entries(&doc);
+        let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+        // Existing alpha/zeta preserved, beta merged in sorted position,
+        // flat root node (tree_entries reads /Names directly — no /Kids).
+        assert_eq!(names, vec!["alpha.txt", "beta.txt", "zeta.txt"]);
+        assert_eq!(ef_bytes(&doc, &entries[0].1), b"ALPHA");
+        assert_eq!(ef_bytes(&doc, &entries[1].1), b"BETA");
+        assert_eq!(ef_bytes(&doc, &entries[2].1), b"ZETA");
+    }
+
+    #[test]
+    fn duplicate_against_existing_tree_errors() {
+        let base = doc_with_kids_tree();
+        let ops = r#"[{"name":"alpha.txt","offset":0,"length":3}]"#;
+        let err = attach_files_json(&base, ops, b"NEW", false).unwrap_err();
+        assert!(err.starts_with("duplicate attachment"), "{err}");
+        assert!(err.contains("alpha.txt"));
+        assert!(err.contains("already exists"));
+    }
+
+    #[test]
+    fn af_relationship_sets_filespec_key_and_catalog_af() {
+        let base = blank_doc();
+        let ops = r#"[
+            {"name":"factur-x.xml","afRelationship":"Alternative","offset":0,"length":3},
+            {"name":"other.txt","offset":3,"length":3}
+        ]"#;
+        let out = attach_files_json(&base, ops, b"XMLTXT", false).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+
+        let entries = tree_entries(&doc);
+        let facturx = &entries.iter().find(|(n, _)| n == "factur-x.xml").unwrap().1;
+        assert_eq!(
+            facturx.get(b"AFRelationship").unwrap().as_name().unwrap(),
+            b"Alternative"
+        );
+        // other.txt has no /AFRelationship
+        let other = &entries.iter().find(|(n, _)| n == "other.txt").unwrap().1;
+        assert!(other.get(b"AFRelationship").is_err());
+
+        // Catalog /AF holds exactly the factur-x filespec ref.
+        let root_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let catalog = doc.get_dictionary(root_id).unwrap();
+        let af = catalog.get(b"AF").unwrap().as_array().unwrap();
+        assert_eq!(af.len(), 1);
+        let af_spec = doc
+            .get_dictionary(af[0].as_reference().unwrap())
+            .unwrap();
+        assert_eq!(af_spec.get(b"F").unwrap().as_str().unwrap(), b"factur-x.xml");
+    }
+
+    #[test]
+    fn af_array_appends_preserving_existing_entries() {
+        let base = blank_doc();
+        let first = attach_files_json(
+            &base,
+            r#"[{"name":"a.xml","afRelationship":"Data","offset":0,"length":1}]"#,
+            b"A", false,
+        )
+        .unwrap();
+        let out = attach_files_json(
+            &first,
+            r#"[{"name":"b.xml","afRelationship":"Source","offset":0,"length":1}]"#,
+            b"B", false,
+        )
+        .unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let root_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let af = doc
+            .get_dictionary(root_id).unwrap()
+            .get(b"AF").unwrap().as_array().unwrap();
+        assert_eq!(af.len(), 2, "existing /AF entry must be preserved");
+    }
+
+    #[test]
+    fn second_attach_pass_merges_with_first() {
+        // Two sequential standalone attaches (the chained-save scenario).
+        let base = blank_doc();
+        let first =
+            attach_files_json(&base, r#"[{"name":"one.txt","offset":0,"length":3}]"#, b"ONE", false)
+                .unwrap();
+        let out =
+            attach_files_json(&first, r#"[{"name":"two.txt","offset":0,"length":3}]"#, b"TWO", false)
+                .unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let names: Vec<String> = tree_entries(&doc).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, vec!["one.txt", "two.txt"]);
     }
 }
