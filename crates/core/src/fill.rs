@@ -221,7 +221,14 @@ enum Apply {
     /// Set the field's default value /DV only. `as_name` is true for button
     /// fields (checkbox/radio), where /DV is a Name; false for text/choice,
     /// where it is a text string. Does not draw or change any appearance.
-    DefaultValue { value: String, as_name: bool },
+    /// `embedded` mirrors `ApInputs::embedded`: `Some(font_id)` when this
+    /// field's `/DA`/`/DR` must be rewired to the embedded font (same as the
+    /// value path), and `/DV` must be written as UTF-16BE.
+    DefaultValue {
+        value: String,
+        as_name: bool,
+        embedded: Option<(usize, appearance::Da)>,
+    },
     /// Draw a visual-only signature image appearance on each widget.
     Signature {
         image: appearance::SignatureImage,
@@ -293,7 +300,7 @@ fn resolve(
         return resolve_flags(doc, op, field_id, dict, kind, ff, flags);
     }
     if let Some(dv) = &op.default_value {
-        return resolve_default_value(op, field_id, dict, kind, dv);
+        return resolve_default_value(doc, op, field_id, dict, kind, dv, font_ctx);
     }
     if op.reset == Some(true) {
         return resolve_reset(doc, op, field_id, dict, kind, ff);
@@ -408,11 +415,13 @@ fn resolve_flags(
 /// setting the current value/image, and only valid on value-bearing field types.
 /// Does not draw or change any appearance.
 fn resolve_default_value(
+    doc: &Document,
     op: &FillOp,
     field_id: ObjectId,
     dict: &Dictionary,
     kind: &str,
     dv: &str,
+    font_ctx: Option<&FontCtx>,
 ) -> Result<Resolved, String> {
     if op.value.is_some() || op.values.is_some() || op.image_offset.is_some() {
         return Err(format!(
@@ -439,11 +448,29 @@ fn resolve_default_value(
             ));
         }
     };
+    let embedded = if let Some(fid) = op.font_id {
+        // `resolve()` already validated kind == "text" (non-comb) and the
+        // font id range for any op carrying `font_id`.
+        let ctx = font_ctx.ok_or_else(|| format!("font id {fid} out of range"))?;
+        let (_, built, _) = ctx.get(fid)?;
+        fonts::gids_per_line(
+            built,
+            dv,
+            MissingGlyphPolicy::Error,
+            &format!("field '{}'", op.name),
+        )?;
+        let acro = forms::acroform(doc).ok_or_else(|| "no AcroForm".to_string())?;
+        let da = appearance::parse_da(&effective_da(doc, dict, acro));
+        Some((fid, da))
+    } else {
+        None
+    };
     Ok(Resolved {
         field_id,
         apply: Apply::DefaultValue {
             value: dv.to_string(),
             as_name,
+            embedded,
         },
     })
 }
@@ -1020,13 +1047,26 @@ fn apply(
         Apply::Signature { image, widgets } => {
             draw_signature_appearances(inc, image, widgets)?;
         }
-        Apply::DefaultValue { value, as_name } => {
+        Apply::DefaultValue {
+            value,
+            as_name,
+            embedded,
+        } => {
             let dv = if *as_name {
                 Object::Name(value.as_bytes().to_vec())
+            } else if embedded.is_some() {
+                embedded_text_string(value)
             } else {
                 text_string(value)
             };
             field_dict_mut(inc, r.field_id)?.set("DV", dv);
+            if let Some((fid, da)) = embedded {
+                let ctx = font_ctx
+                    .ok_or_else(|| "internal: embedded field missing font context".to_string())?;
+                let (type0_id, _, _) = ctx.get(*fid)?;
+                write_embedded_da(inc, r.field_id, *fid, da)?;
+                wire_dr_font(inc, &format!("BPF{fid}"), type0_id)?;
+            }
         }
         Apply::ListBoxMulti {
             values,
@@ -2393,6 +2433,81 @@ mod tests {
         let plan = fill_plan(r#"{"name":"c","value":"ab","fontId":0}"#, NOTO.len());
         let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap_err();
         assert!(err.contains("plain and multiline text fields only"), "got: {err}");
+    }
+
+    #[test]
+    fn embedded_default_value_missing_glyph_errors_before_write() {
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        let plan = fill_plan(
+            r#"{"name":"n","defaultValue":"日本語","fontId":0}"#,
+            NOTO.len(),
+        ); // Latin subset font
+        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap_err();
+        assert!(err.starts_with("missing glyphs"), "got: {err}");
+        assert!(err.contains("field 'n'"), "got: {err}");
+    }
+
+    #[test]
+    fn embedded_default_value_wires_da_and_dr_and_round_trips() {
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        let plan = fill_plan(r#"{"name":"n","defaultValue":"Añb","fontId":0}"#, NOTO.len());
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let field = doc
+            .objects
+            .values()
+            .find_map(|o| {
+                let d = o.as_dict().ok()?;
+                (d.get(b"T").ok()?.as_str().ok()? == b"n").then_some(d)
+            })
+            .unwrap();
+        let da = field.get(b"DA").unwrap().as_str().unwrap();
+        assert!(da.starts_with(b"/BPF0 "), "DA: {}", String::from_utf8_lossy(da));
+        let v = crate::forms::read_fields_json(&out).unwrap();
+        assert!(
+            v.contains(r#""defaultValue":"Añb""#),
+            "round-trip via read_fields: {v}"
+        );
+        let acro = crate::forms::acroform(&doc).unwrap();
+        let dr_fonts = acro
+            .get(b"DR")
+            .and_then(|o| o.as_dict())
+            .and_then(|dr| dr.get(b"Font"))
+            .and_then(|o| o.as_dict())
+            .unwrap();
+        assert!(dr_fonts.has(b"BPF0"), "DR/Font must have BPF0: {dr_fonts:?}");
+    }
+
+    #[test]
+    fn embedded_value_and_default_value_same_font_merge_dr_and_round_trip() {
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        let plan = format!(
+            r#"{{"fill":[{{"name":"n","value":"Añb","fontId":0}},{{"name":"n","defaultValue":"Bñc","fontId":0}}],"draw":{{"ops":[],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
+            NOTO.len()
+        );
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        let acro = crate::forms::acroform(&doc).unwrap();
+        let dr_fonts = acro
+            .get(b"DR")
+            .and_then(|o| o.as_dict())
+            .and_then(|dr| dr.get(b"Font"))
+            .and_then(|o| o.as_dict())
+            .unwrap();
+        let bpf0_count = dr_fonts.iter().filter(|(k, _)| k.as_slice() == b"BPF0").count();
+        assert_eq!(bpf0_count, 1, "expected a single BPF0 entry: {dr_fonts:?}");
+        let v = crate::forms::read_fields_json(&out).unwrap();
+        assert!(v.contains(r#""value":"Añb""#), "value round-trip: {v}");
+        assert!(
+            v.contains(r#""defaultValue":"Bñc""#),
+            "defaultValue round-trip: {v}"
+        );
     }
 
     #[test]

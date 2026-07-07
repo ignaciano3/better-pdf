@@ -122,3 +122,12 @@ test("font shared by drawText and fill saves without error and embeds once", asy
   }
   expect(count).toBeLessThanOrEqual(1); // vacuous when 0 (compressed/subsetted); no-throw above is the real assertion
 });
+
+test("setDefaultText with embedded font round-trips on reload", async () => {
+  const doc = await PdfDocument.load(new Uint8Array(readFileSync(FICHA)));
+  const font = await doc.embedFont(NOTO_JP);
+  doc.getForm().getTextField("beneficiario.apellidos_nombres").setDefaultText("山田太郎", { font });
+  const out = await doc.save();
+  const reloaded = await PdfDocument.load(out);
+  expect(reloaded.getForm().getField("beneficiario.apellidos_nombres")?.defaultValue).toBe("山田太郎");
+});

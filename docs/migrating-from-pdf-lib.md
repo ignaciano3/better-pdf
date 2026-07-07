@@ -70,8 +70,6 @@ largely identical; the differences are noted below.
 
 ### Differences from pdf-lib
 
-- **Standard-14 fonts only.** `getFont()` accepts a `StandardFonts` enum value;
-  custom font embedding (`embedFont` with TTF/OTF bytes) is not yet supported.
 - **Form creation uses a builder.** pdf-lib mutates `form` in place via
   `form.createTextField(...)`; better-pdf accumulates fields through a chainable
   `doc.createForm()` builder (see below). `getForm()` itself is not available on

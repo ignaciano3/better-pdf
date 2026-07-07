@@ -222,6 +222,7 @@ pub(crate) const MAX_AUTO: f32 = 12.0;
 pub(crate) const MIN_AUTO: f32 = 4.0;
 
 /// Parsed default-appearance string.
+#[derive(Clone)]
 pub struct Da {
     pub font: String,
     pub size: f32,
