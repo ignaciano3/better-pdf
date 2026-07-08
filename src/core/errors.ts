@@ -137,6 +137,20 @@ export class FormSealedError extends PdfError {
   }
 }
 
+/** Thrown when attaching a file whose name already exists (queued or saved). */
+export class DuplicateAttachmentError extends PdfError {
+  constructor(readonly attachmentName: string) {
+    super(`an attachment named '${attachmentName}' already exists`);
+  }
+}
+
+/** Reserved for future get-by-name/remove APIs. */
+export class AttachmentNotFoundError extends PdfError {
+  constructor(readonly attachmentName: string) {
+    super(`no attachment named '${attachmentName}'`);
+  }
+}
+
 export function toInvalidImageError(e: unknown): InvalidImageError {
   const message = e instanceof Error ? e.message : String(e);
   return new InvalidImageError(message);
@@ -149,5 +163,9 @@ export function toPdfError(e: unknown): PdfError {
   if (message.includes("PASSWORD:")) return new IncorrectPasswordError();
   if (message.includes("ENCRYPTED:")) return new EncryptedPdfError();
   if (message.startsWith("missing glyphs")) return new MissingGlyphError(message);
+  if (message.startsWith("duplicate attachment")) {
+    const m = message.match(/'([^']*)'/);
+    return new DuplicateAttachmentError(m?.[1] ?? "");
+  }
   return new PdfCoreError(message);
 }

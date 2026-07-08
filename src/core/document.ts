@@ -6,7 +6,10 @@ import {
   toInvalidImageError,
   EncryptedPdfError,
   FormSealedError,
+  DuplicateAttachmentError,
 } from "./errors.js";
+import { toAttachPayload, decodeAttachments } from "./attachments.js";
+import type { AttachOptions, PdfAttachment, QueuedAttachment } from "./attachments.js";
 import type { FormSchema, TypedPdfForm } from "../forms/schema.js";
 import { PdfPage } from "../generate/page.js";
 import { DrawQueue } from "../generate/draw-queue.js";
@@ -158,8 +161,11 @@ export interface CoreWasm {
     fillImages: Uint8Array,
     drawImages: Uint8Array,
     fonts: Uint8Array,
+    attachBlob: Uint8Array,
     compress?: boolean,
   ): Uint8Array;
+  attachFiles(data: Uint8Array, opsJson: string, blob: Uint8Array, compress?: boolean): Uint8Array;
+  readAttachments(data: Uint8Array): Uint8Array;
 }
 
 /** Options for {@link PdfDocumentBase.save}. */
@@ -198,6 +204,8 @@ export class PdfDocumentBase {
   private readonly appendedPages: PdfPage[] = [];
   private sealed = false;
   private formFlushed = false;
+  private readonly attachQueue: QueuedAttachment[] = [];
+  private readonly attachNames = new Set<string>();
 
   /** @internal */
   protected constructor(
@@ -234,7 +242,12 @@ export class PdfDocumentBase {
 
     if (this.mode === "create" && !this.sealed) {
       try {
-        return this.buildCreatedBytes(compress, objectStreams);
+        let bytes = this.buildCreatedBytes(compress, objectStreams);
+        if (this.attachQueue.length > 0) {
+          const { opsJson, blob } = toAttachPayload(this.attachQueue);
+          bytes = this.wasm.attachFiles(bytes, opsJson, blob, compress);
+        }
+        return bytes;
       } catch (e) {
         throw toPdfError(e);
       }
@@ -257,6 +270,7 @@ export class PdfDocumentBase {
     let fillImages: Uint8Array = empty;
     let drawImages: Uint8Array = empty;
     let fonts: Uint8Array = empty;
+    let attachBlob: Uint8Array = empty;
 
     if (form && form[kFormQueue].length > 0) {
       const { opsJson, images } = form[kFormQueue].toPayload();
@@ -286,13 +300,26 @@ export class PdfDocumentBase {
     if (this.outlineItems !== undefined) {
       plan["outline"] = this.outlineItems;
     }
+    if (this.attachQueue.length > 0) {
+      const { opsJson, blob } = toAttachPayload(this.attachQueue);
+      plan["attach"] = JSON.parse(opsJson);
+      attachBlob = blob;
+    }
 
     if (Object.keys(plan).length === 0) {
       return this.bytes.slice();
     }
 
     return callBytes(() =>
-      this.wasm.applyAll(this.bytes, JSON.stringify(plan), fillImages, drawImages, fonts, compress),
+      this.wasm.applyAll(
+        this.bytes,
+        JSON.stringify(plan),
+        fillImages,
+        drawImages,
+        fonts,
+        attachBlob,
+        compress,
+      ),
     );
   }
 
@@ -335,6 +362,10 @@ export class PdfDocumentBase {
       }
       if (this.outlineItems !== undefined) {
         bytes = this.wasm.setOutline(bytes, JSON.stringify(this.outlineItems), compress);
+      }
+      if (this.attachQueue.length > 0) {
+        const { opsJson, blob } = toAttachPayload(this.attachQueue);
+        bytes = this.wasm.attachFiles(bytes, opsJson, blob, compress);
       }
     } catch (e) {
       throw toPdfError(e);
@@ -766,6 +797,32 @@ export class PdfDocumentBase {
     this.fieldDefs.length = 0;
     this.fieldNames.clear();
     this.formFlushed = true;
+  }
+
+  /**
+   * Attach (embed) a file in the document. Synchronous: the attachment is
+   * queued and written at `save()`.
+   *
+   * @throws `DuplicateAttachmentError` when `name` is already queued. A name
+   * that already exists in the loaded document throws at `save()` instead.
+   */
+  attach(bytes: Uint8Array, name: string, options: AttachOptions = {}): void {
+    if (this.attachNames.has(name)) {
+      throw new DuplicateAttachmentError(name);
+    }
+    this.attachNames.add(name);
+    this.attachQueue.push({ bytes, name, options });
+  }
+
+  /**
+   * Read every embedded file (metadata + bytes) from the document's saved
+   * state. Attachments queued with `attach()` but not yet saved are NOT
+   * included. Returns `[]` for a created document that has no bytes yet.
+   */
+  async getAttachments(): Promise<PdfAttachment[]> {
+    if (this.mode === "create" && !this.sealed) return [];
+    const packed = callBytes(() => this.wasm.readAttachments(this.bytes));
+    return decodeAttachments(packed);
   }
 
   /** Get a standard-14 font handle for measuring or drawing text. */

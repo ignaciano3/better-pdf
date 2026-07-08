@@ -27,6 +27,7 @@ export interface RawBindings {
     fillImages: Uint8Array,
     drawImages: Uint8Array,
     fonts: Uint8Array,
+    attachBlob: Uint8Array,
     compress: boolean,
   ): Uint8Array;
   create_document(
@@ -59,6 +60,8 @@ export interface RawBindings {
     fontsJson: string,
     compress: boolean,
   ): Uint8Array;
+  attach_files(data: Uint8Array, opsJson: string, blob: Uint8Array, compress: boolean): Uint8Array;
+  read_attachments(data: Uint8Array): Uint8Array;
 }
 
 const EMPTY = new Uint8Array();
@@ -85,8 +88,11 @@ export function makeBindings(raw: RawBindings, guard: () => void = () => {}): Co
       fillImages = EMPTY,
       drawImages = EMPTY,
       fonts = EMPTY,
+      attachBlob = EMPTY,
       compress = true,
-    ) => (guard(), raw.apply_all(data, planJson, fillImages, drawImages, fonts, compress)),
+    ) =>
+      (guard(),
+      raw.apply_all(data, planJson, fillImages, drawImages, fonts, attachBlob, compress)),
     createDocument: (
       opsJson,
       images = EMPTY,
@@ -112,5 +118,8 @@ export function makeBindings(raw: RawBindings, guard: () => void = () => {}): Co
       (guard(), raw.insert_pages(data, opsJson, compress)),
     injectFields: (data, fieldsJson, fonts = EMPTY, fontsJson = "[]", compress = true) =>
       (guard(), raw.inject_fields(data, fieldsJson, fonts, fontsJson, compress)),
+    attachFiles: (data, opsJson, blob, compress = true) =>
+      (guard(), raw.attach_files(data, opsJson, blob, compress)),
+    readAttachments: (data) => (guard(), raw.read_attachments(data)),
   };
 }

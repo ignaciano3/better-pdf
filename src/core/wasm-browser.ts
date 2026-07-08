@@ -44,4 +44,6 @@ export const {
   setOutline,
   insertPages,
   injectFields,
+  attachFiles,
+  readAttachments,
 } = makeBindings(raw, ensureInitialized);

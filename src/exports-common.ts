@@ -59,7 +59,10 @@ export {
   InvalidImageError,
   InvalidRotationError,
   MissingGlyphError,
+  DuplicateAttachmentError,
+  AttachmentNotFoundError,
 } from "./core/errors.js";
+export type { AttachOptions, PdfAttachment, AfRelationship } from "./core/attachments.js";
 export { generateFormTypes } from "./forms/typegen.js";
 export type { GenerateFormTypesOptions } from "./forms/typegen.js";
 export type {
