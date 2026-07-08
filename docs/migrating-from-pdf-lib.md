@@ -20,6 +20,8 @@ core and stricter validation. This guide maps the APIs.
 | `form.flatten()` | `form.flatten()` (or `form.flattenField(name)`) |
 | `pdfDoc.save()` | `doc.save()` — **incremental, append-only** |
 | `form.updateFieldAppearances()` | not needed — appearances are generated on fill |
+| `doc.attach(bytes, name, opts)` | `doc.attach(bytes, name, opts)` — same shape; `creationDate`/`modificationDate` are NOT defaulted; duplicates throw `DuplicateAttachmentError` instead of silently appending |
+| *(no read API)* | `doc.getAttachments()` returns metadata + bytes |
 
 ## Semantic differences
 

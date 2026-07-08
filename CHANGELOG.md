@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-08
+
+### Added
+
+- `doc.attach(bytes, name, options)` — embed file attachments (`/EmbeddedFiles`) on
+  created and loaded documents; queued and written at `save()`.
+- `doc.getAttachments()` — read every attachment's metadata and bytes.
+- `afRelationship` option writes `/AFRelationship` and the catalog `/AF` array
+  (ZUGFeRD/Factur-X structure).
+- New errors: `DuplicateAttachmentError`, `AttachmentNotFoundError` (reserved).
+
 ## [1.11.0] - 2026-07-06
 
 ### Added

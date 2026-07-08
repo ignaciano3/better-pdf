@@ -60,6 +60,10 @@ See the [per-runtime guide](docs/site/src/content/docs/guides/runtimes.md) and [
 - Decrypt and modify encrypted PDFs: `PdfDocument.load(bytes, { password })` decrypts RC4 / AES-128 / AES-256 encrypted PDFs (use `{ password: "" }` for owner-locked / empty-user-password files). Decryption is opt-in — bare `load(bytes)` is unchanged. Saving an edited encrypted PDF produces a **decrypted** output. Re-encryption and creating encrypted PDFs are still unsupported.
 - Deflate-compress generated content, appearance, and font streams on save — on by default, opt out with `doc.save({ compress: false })`. Streams already compressed (images, embedded fonts) are left untouched.
 - Optionally pack non-stream objects into PDF object streams for even smaller files on full-document saves — opt in with `doc.save({ objectStreams: true })` (created docs) or `PdfDocument.merge(docs, { objectStreams: true })`. Off by default; not applied to incremental (loaded-document) saves.
+- **File attachments** — `doc.attach(bytes, name, { mimeType, description, afRelationship })`
+  embeds files (`/EmbeddedFiles`), `doc.getAttachments()` reads them back (metadata + bytes).
+  `afRelationship` writes the `/AFRelationship` + catalog `/AF` structure used by
+  ZUGFeRD/Factur-X e-invoices.
 
 ## Install
 
@@ -130,6 +134,28 @@ const merged = await PdfDocument.merge([a, b], { objectStreams: true });
 `objectStreams` defaults to `false`. It applies only to full-document saves
 (`create()`, `merge`, `assemble`, `copyPages`, `splitPages`); it is ignored on
 incremental (loaded-document) saves, which stay append-only.
+
+### File attachments
+
+```ts
+const doc = await PdfDocument.load(bytes);
+doc.attach(xmlBytes, "factur-x.xml", {
+  mimeType: "text/xml",
+  description: "Factur-X invoice data",
+  afRelationship: "Alternative",
+});
+const saved = await doc.save();
+
+// later
+const attachments = await (await PdfDocument.load(saved)).getAttachments();
+```
+
+`attach()` queues the file and writes it to `/EmbeddedFiles` at `save()`, on
+both created and loaded documents. `afRelationship` additionally sets the
+filespec `/AFRelationship` and appends the file to the catalog `/AF` array —
+the structure ZUGFeRD/Factur-X e-invoices require. Attaching a name that
+already exists (queued, or already in the document) throws
+`DuplicateAttachmentError`.
 
 ## Generating & drawing
 
@@ -611,6 +637,8 @@ const output = await doc.save();
 - `doc.setModificationDate(d: Date): void`
 - `doc.getMetadata(): Promise<DocumentMetadata>` — reads the Info dictionary; all fields are optional
 - `doc.setOutline(items: OutlineItem[]): void` — set the PDF bookmarks/outline tree; `OutlineItem = { title: string; page: number; children?: OutlineItem[] }`; `page` is 0-based
+- `doc.attach(bytes: Uint8Array, name: string, options?: AttachOptions): void` — queue a file attachment; written to `/EmbeddedFiles` at `save()`. `AttachOptions = { mimeType?, description?, creationDate?, modificationDate?, afRelationship? }`; `afRelationship` is one of `"Source" | "Data" | "Alternative" | "Supplement" | "EncryptedPayload" | "FormData" | "Schema" | "Unspecified"` and additionally writes the catalog `/AF` array. Throws `DuplicateAttachmentError` for a name already queued or already present in the document.
+- `doc.getAttachments(): Promise<PdfAttachment[]>` — read every attachment's metadata and bytes from the saved document. `PdfAttachment = { name, description?, mimeType?, creationDate?, modificationDate?, size, afRelationship?, bytes }`.
 - `doc.save(options?: SaveOptions): Promise<Uint8Array>` — `SaveOptions = { compress?: boolean }`; `compress` defaults to `true` (deflate generated streams). Pass `{ compress: false }` for plaintext output.
 
 `save()` applies queued fills first, then queued flattens. With no queued operations it returns a byte-identical round trip.
@@ -725,6 +753,7 @@ whole family or a specific case:
 - `EncryptedPdfError` — the PDF is encrypted and no password was supplied; pass `{ password }` (or `{ password: "" }` for owner-locked files) to `PdfDocument.load`.
 - `IncorrectPasswordError` — the password supplied to `PdfDocument.load` did not decrypt the PDF.
 - `MultiSelectError` — `selectMultiple()` was called on a list box that does not have the Multiselect flag set (`.field`).
+- `DuplicateAttachmentError` — `doc.attach()` called with a name already queued, or already present in the loaded document (`.attachmentName`).
 
 ```ts
 import { FieldTypeError } from "@ignaciano3/better-pdf";
@@ -896,6 +925,8 @@ we will deliberately never add, see [Non-Goals](#non-goals).)
 - Color: RGB and grayscale only; CMYK is not supported.
 - XMP metadata streams are not written or modified (only the Info dictionary is
   updated via `doc.setTitle()` / `doc.getMetadata()` etc.).
+- ZUGFeRD/Factur-X **structure** is supported (`/AF`, `/AFRelationship`); PDF/A-3
+  conformance metadata (XMP) is not written — that part is your responsibility.
 - Nested page trees are not supported by `insertPage`/`removePage`/`movePage`
   (PDFs with nested `/Pages` nodes are rejected; use `merge`/`assemble` instead).
 - SVG path coordinates are PDF user space (y-up), so y-down artwork appears flipped.
