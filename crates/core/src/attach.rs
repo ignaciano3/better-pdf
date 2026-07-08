@@ -44,6 +44,22 @@ fn walk_name_tree(
     node: &Dictionary,
     out: &mut Vec<(String, Object)>,
 ) -> Result<(), String> {
+    walk_name_tree_inner(doc, node, out, 0)
+}
+
+/// A conforming name tree is shallow; the cap turns crafted /Kids reference
+/// cycles (infinitely deep) into an error instead of unbounded recursion.
+const MAX_NAME_TREE_DEPTH: u32 = 64;
+
+fn walk_name_tree_inner(
+    doc: &Document,
+    node: &Dictionary,
+    out: &mut Vec<(String, Object)>,
+    depth: u32,
+) -> Result<(), String> {
+    if depth > MAX_NAME_TREE_DEPTH {
+        return Err("embedded-files name tree exceeds maximum depth (cyclic /Kids?)".into());
+    }
     if let Ok(kids) = node.get(b"Kids").and_then(|o| o.as_array()) {
         for kid in kids {
             let kid_dict = match kid {
@@ -51,7 +67,7 @@ fn walk_name_tree(
                 Object::Dictionary(d) => d,
                 other => return Err(format!("malformed name-tree kid: {other:?}")),
             };
-            walk_name_tree(doc, kid_dict, out)?;
+            walk_name_tree_inner(doc, kid_dict, out, depth + 1)?;
         }
     }
     if let Ok(pairs) = node.get(b"Names").and_then(|o| o.as_array()) {
@@ -880,5 +896,36 @@ mod tests {
         let (json, blob) = unpack(&read_attachments_packed(&blank_doc()).unwrap());
         assert_eq!(json.as_array().unwrap().len(), 0);
         assert!(blob.is_empty());
+    }
+
+    #[test]
+    fn cyclic_kids_tree_errors_instead_of_overflowing() {
+        // A name-tree node whose /Kids references itself: walking it must
+        // hit the depth cap and error, not recurse forever.
+        let base = blank_doc();
+        let mut doc = Document::load_mem(&base).unwrap();
+
+        let node_id = doc.add_object(Object::Dictionary(Dictionary::new()));
+        let mut node = Dictionary::new();
+        node.set("Kids", Object::Array(vec![Object::Reference(node_id)]));
+        *doc.get_object_mut(node_id).unwrap() = Object::Dictionary(node);
+
+        let mut names = Dictionary::new();
+        names.set("EmbeddedFiles", Object::Reference(node_id));
+        let root_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let catalog = doc.get_object_mut(root_id).unwrap().as_dict_mut().unwrap();
+        catalog.set("Names", Object::Dictionary(names));
+
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+
+        // Read path.
+        let err = read_attachments_packed(&bytes).unwrap_err();
+        assert!(err.contains("maximum depth"), "unexpected error: {err}");
+
+        // Write path (duplicate detection walks the existing tree too).
+        let ops = r#"[{"name":"a.txt","offset":0,"length":2}]"#;
+        let err = attach_files_json(&bytes, ops, b"hi", false).unwrap_err();
+        assert!(err.contains("maximum depth"), "unexpected error: {err}");
     }
 }

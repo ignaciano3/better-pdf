@@ -811,7 +811,9 @@ export class PdfDocumentBase {
       throw new DuplicateAttachmentError(name);
     }
     this.attachNames.add(name);
-    this.attachQueue.push({ bytes, name, options });
+    // Copy so mutating the caller's buffer before save() can't silently
+    // change the embedded content (and its checksum).
+    this.attachQueue.push({ bytes: bytes.slice(), name, options });
   }
 
   /**
