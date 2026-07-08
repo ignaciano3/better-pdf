@@ -73,10 +73,11 @@ pub fn apply_draw_ops(
 
 /// Apply fill, flatten, draw, metadata, and outline operations to a loaded PDF
 /// in a single parse → mutate → serialize pass. `plan_json` is an object with
-/// optional `fill`, `flatten`, `draw` ({ ops, fonts }), `metadata`, and
-/// `outline` keys. `fill_images` / `draw_images` / `fonts` are the binary blobs
-/// referenced by fill ops, draw ops, and embedded fonts respectively (pass
-/// `&[]` for none). Page-structure ops are NOT handled here.
+/// optional `fill`, `flatten`, `draw` ({ ops, fonts }), `metadata`,
+/// `outline`, and `attach` keys. `fill_images` / `draw_images` / `fonts` are
+/// the binary blobs referenced by fill ops, draw ops, and embedded fonts
+/// respectively (pass `&[]` for none). `attach_blob` carries the attachment
+/// bytes referenced by `attach` ops. Page-structure ops are NOT handled here.
 #[wasm_bindgen]
 pub fn apply_all(
     data: &[u8],
@@ -84,10 +85,19 @@ pub fn apply_all(
     fill_images: &[u8],
     draw_images: &[u8],
     fonts: &[u8],
+    attach_blob: &[u8],
     compress: bool,
 ) -> Result<Vec<u8>, JsError> {
-    apply::apply_all_json(data, plan_json, fill_images, draw_images, fonts, compress)
-        .map_err(|e| JsError::new(&e))
+    apply::apply_all_json(
+        data,
+        plan_json,
+        fill_images,
+        draw_images,
+        fonts,
+        attach_blob,
+        compress,
+    )
+    .map_err(|e| JsError::new(&e))
 }
 
 /// Attach embedded files (JSON array of {name, mimeType?, description?,

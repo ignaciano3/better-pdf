@@ -36,6 +36,8 @@ struct ApplyPlan {
     metadata: Option<metadata::Metadata>,
     #[serde(default)]
     outline: Option<Vec<outline::OutlineItem>>,
+    #[serde(default)]
+    attach: Option<Vec<crate::attach::AttachOp>>,
 }
 
 #[derive(Deserialize)]
@@ -49,13 +51,15 @@ struct DrawPlan {
 ///
 /// `fill_images` carries the signature-image bytes referenced by fill ops;
 /// `draw_images` carries the image/embedded-page bytes referenced by draw ops;
-/// `fonts` carries the embedded-font bytes referenced by draw ops.
+/// `fonts` carries the embedded-font bytes referenced by draw ops;
+/// `attach_blob` carries the attachment bytes referenced by `attach` ops.
 pub fn apply_all_json(
     data: &[u8],
     plan_json: &str,
     fill_images: &[u8],
     draw_images: &[u8],
     fonts: &[u8],
+    attach_blob: &[u8],
     compress: bool,
 ) -> Result<Vec<u8>, String> {
     let plan: ApplyPlan =
@@ -124,6 +128,14 @@ pub fn apply_all_json(
         Some(items) => Some(outline::outline_prep(inc.get_prev_documents(), items)?),
         None => None,
     };
+    let attach_plan = match &plan.attach {
+        Some(ops) => Some(crate::attach::attach_resolve(
+            inc.get_prev_documents(),
+            ops,
+            attach_blob,
+        )?),
+        None => None,
+    };
 
     // Phase B — apply in the same order as the chained save() pipeline.
     if let Some(plan) = &fill_plan {
@@ -140,6 +152,9 @@ pub fn apply_all_json(
     }
     if let (Some(items), Some(prep)) = (&plan.outline, &outline_prep) {
         outline::outline_apply(&mut inc, items, prep)?;
+    }
+    if let (Some(ops), Some(aplan)) = (&plan.attach, &attach_plan) {
+        crate::attach::attach_apply(&mut inc, aplan, ops, attach_blob)?;
     }
 
     if compress {
@@ -185,9 +200,9 @@ mod tests {
             ] }
         }"#;
         let compressed =
-            apply_all_json(FICHA, plan, &[], &[], &[], true).expect("apply_all should succeed");
+            apply_all_json(FICHA, plan, &[], &[], &[], &[], true).expect("apply_all should succeed");
         let raw =
-            apply_all_json(FICHA, plan, &[], &[], &[], false).expect("apply_all should succeed");
+            apply_all_json(FICHA, plan, &[], &[], &[], &[], false).expect("apply_all should succeed");
         assert!(
             compressed.len() < raw.len(),
             "compressed {} should be smaller than raw {}",
@@ -206,7 +221,7 @@ mod tests {
             "outline": [ {"title":"Section","page":0} ]
         }"#;
 
-        let out = apply_all_json(FICHA, plan, &[], &[], &[], false).expect("apply_all should succeed");
+        let out = apply_all_json(FICHA, plan, &[], &[], &[], &[], false).expect("apply_all should succeed");
         let doc = Document::load_mem(&out).expect("output must be a valid PDF");
 
         // draw landed on page 0
@@ -248,7 +263,7 @@ mod tests {
             ] }
         }"#;
 
-        let out = apply_all_json(FICHA, plan, &[], &[], &[], false).expect("apply_all should succeed");
+        let out = apply_all_json(FICHA, plan, &[], &[], &[], &[], false).expect("apply_all should succeed");
         let doc = Document::load_mem(&out).expect("output must be a valid PDF");
 
         assert!(
@@ -264,7 +279,7 @@ mod tests {
 
     #[test]
     fn apply_all_empty_plan_roundtrips() {
-        let out = apply_all_json(FICHA, "{}", &[], &[], &[], false).expect("empty plan should succeed");
+        let out = apply_all_json(FICHA, "{}", &[], &[], &[], &[], false).expect("empty plan should succeed");
         Document::load_mem(&out).expect("output must be a valid PDF");
     }
 
@@ -277,7 +292,7 @@ mod tests {
             "fill": [ {"name":"beneficiario.apellidos_nombres","value":"BATCHFLAT"} ],
             "flatten": ["beneficiario.apellidos_nombres"]
         }"#;
-        let out = apply_all_json(FICHA, plan, &[], &[], &[], false).expect("apply_all should succeed");
+        let out = apply_all_json(FICHA, plan, &[], &[], &[], &[], false).expect("apply_all should succeed");
         let doc = Document::load_mem(&out).expect("output must be a valid PDF");
 
         let content = page0_content(&doc);
@@ -313,6 +328,55 @@ mod tests {
     }
 
     #[test]
+    fn apply_all_attach_composes_with_fill_and_flatten() {
+        let payload = b"<invoice/>".to_vec();
+        let plan = format!(
+            r#"{{
+                "fill": [ {{"name":"beneficiario.apellidos_nombres","value":"ATTACHED"}} ],
+                "flatten": ["beneficiario.apellidos_nombres"],
+                "attach": [ {{"name":"factur-x.xml","mimeType":"text/xml","afRelationship":"Alternative","offset":0,"length":{}}} ],
+                "outline": [{{"title":"S","page":0}}]
+            }}"#,
+            payload.len()
+        );
+        let out = apply_all_json(FICHA, &plan, &[], &[], &[], &payload, false).unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+
+        // fill+flatten landed
+        assert!(page0_content(&doc).contains("/bpdfAp0 Do"));
+        // attachment landed and round-trips
+        let packed = crate::attach::read_attachments_packed(&out).unwrap();
+        let json_len = u32::from_le_bytes(packed[..4].try_into().unwrap()) as usize;
+        let json: serde_json::Value = serde_json::from_slice(&packed[4..4 + json_len]).unwrap();
+        assert_eq!(json[0]["name"], "factur-x.xml");
+        assert_eq!(&packed[4 + json_len..], &payload[..]);
+
+        // outline's catalog override must not clobber attach's /Names (and
+        // vice versa) — attach runs last and re-clones the already-cloned
+        // catalog, so both must survive on the final catalog object.
+        let root_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let catalog = doc.get_dictionary(root_id).unwrap();
+        assert!(
+            catalog.get(b"Outlines").is_ok(),
+            "outline must survive attach's catalog override"
+        );
+        assert!(
+            catalog.get(b"Names").is_ok(),
+            "attach names tree must survive"
+        );
+    }
+
+    #[test]
+    fn apply_all_attach_only_plan_works() {
+        let plan = r#"{ "attach": [ {"name":"a.txt","offset":0,"length":4} ] }"#;
+        let out = apply_all_json(FICHA, plan, &[], &[], &[], b"data", false).unwrap();
+        let packed = crate::attach::read_attachments_packed(&out).unwrap();
+        let json_len = u32::from_le_bytes(packed[..4].try_into().unwrap()) as usize;
+        let json: serde_json::Value = serde_json::from_slice(&packed[4..4 + json_len]).unwrap();
+        assert_eq!(json.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
     fn shared_font_builds_once_across_draw_ops() {
         const FONT: &[u8] =
             include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
@@ -327,7 +391,7 @@ mod tests {
             ],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
             FONT.len()
         );
-        let out = apply_all_json(&base, &plan, &[], &[], FONT, false).unwrap();
+        let out = apply_all_json(&base, &plan, &[], &[], FONT, &[], false).unwrap();
         let doc = lopdf::Document::load_mem(&out).unwrap();
         let type0_count = doc.objects.values().filter(|o| {
             o.as_dict().ok()
@@ -352,7 +416,7 @@ mod tests {
             ],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
             FONT.len()
         );
-        let err = apply_all_json(&base, &plan, &[], &[], FONT, false)
+        let err = apply_all_json(&base, &plan, &[], &[], FONT, &[], false)
             .expect_err("out-of-range fontId must return Err, not panic");
         assert!(
             err.contains("out of range"),
@@ -374,7 +438,7 @@ mod tests {
             ],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
             FONT.len() + 1000
         );
-        let err = apply_all_json(&base, &plan, &[], &[], FONT, false)
+        let err = apply_all_json(&base, &plan, &[], &[], FONT, &[], false)
             .expect_err("out-of-range font byte range must return Err, not panic");
         assert!(
             err.contains("out of range") || err.contains("out of bounds"),
@@ -395,7 +459,7 @@ mod tests {
             r#"{{"fill":[{{"name":"n","value":"Añb","fontId":0}}],"flatten":["n"],"draw":{{"ops":[],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
             NOTO.len()
         );
-        let out = apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let out = apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
         let doc = lopdf::Document::load_mem(&out).unwrap();
         // Field is gone (flattened)...
         let fields = crate::forms::read_fields_json(&out).unwrap();

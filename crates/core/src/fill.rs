@@ -2375,7 +2375,7 @@ mod tests {
             r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
         );
         let plan = fill_plan(r#"{"name":"n","value":"Añb","fontId":0}"#, NOTO.len());
-        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         // /V round-trips via the public reader (UTF-16BE under the hood).
         let v = crate::forms::read_fields_json(&out).unwrap();
@@ -2402,7 +2402,7 @@ mod tests {
             r#"{"name":"m","value":"aaaa bbbb cccc dddd","fontId":0}"#,
             NOTO.len(),
         );
-        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         // Look up field "m"'s own /AP/N (HashMap object iteration order isn't
         // stable, so scanning all Form XObjects could hit an unrelated one).
@@ -2420,7 +2420,7 @@ mod tests {
             r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
         );
         let plan = fill_plan(r#"{"name":"n","value":"日本語","fontId":0}"#, NOTO.len()); // Latin subset font
-        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap_err();
+        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
         assert!(err.starts_with("missing glyphs"), "got: {err}");
         assert!(err.contains("field 'n'"), "got: {err}");
     }
@@ -2431,7 +2431,7 @@ mod tests {
             r#"[{"type":"text","name":"c","page":0,"x":10,"y":10,"width":200,"height":20,"comb":true,"maxLength":4}]"#,
         );
         let plan = fill_plan(r#"{"name":"c","value":"ab","fontId":0}"#, NOTO.len());
-        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap_err();
+        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
         assert!(err.contains("plain and multiline text fields only"), "got: {err}");
     }
 
@@ -2444,7 +2444,7 @@ mod tests {
             r#"{"name":"n","defaultValue":"日本語","fontId":0}"#,
             NOTO.len(),
         ); // Latin subset font
-        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap_err();
+        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
         assert!(err.starts_with("missing glyphs"), "got: {err}");
         assert!(err.contains("field 'n'"), "got: {err}");
     }
@@ -2455,7 +2455,7 @@ mod tests {
             r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
         );
         let plan = fill_plan(r#"{"name":"n","defaultValue":"Añb","fontId":0}"#, NOTO.len());
-        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let field = doc
             .objects
@@ -2491,7 +2491,7 @@ mod tests {
             r#"{{"fill":[{{"name":"n","value":"Añb","fontId":0}},{{"name":"n","defaultValue":"Bñc","fontId":0}}],"draw":{{"ops":[],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
             NOTO.len()
         );
-        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let acro = crate::forms::acroform(&doc).unwrap();
         let dr_fonts = acro
@@ -2527,7 +2527,7 @@ mod tests {
         )
         .unwrap();
         let plan = fill_plan(r#"{"name":"n","value":"B","fontId":0}"#, NOTO.len());
-        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
         let v = crate::forms::read_fields_json(&out).unwrap();
         assert!(v.contains(r#""value":"B""#), "{v}");
     }
@@ -2609,7 +2609,7 @@ mod tests {
         );
         let base = make_dr_font_indirect(&base);
         let plan = fill_plan(r#"{"name":"n","value":"Añb","fontId":0}"#, NOTO.len());
-        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
         assert_dr_fonts_has_helv_and_bpf0(&out);
     }
 
@@ -2621,7 +2621,7 @@ mod tests {
         );
         let base = make_dr_indirect(&make_dr_font_indirect(&base));
         let plan = fill_plan(r#"{"name":"n","value":"Añb","fontId":0}"#, NOTO.len());
-        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
         assert_dr_fonts_has_helv_and_bpf0(&out);
     }
 
@@ -2634,7 +2634,7 @@ mod tests {
         );
         let base = make_dr_indirect(&base);
         let plan = fill_plan(r#"{"name":"n","value":"Añb","fontId":0}"#, NOTO.len());
-        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, false).unwrap();
+        let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
 
         let doc = Document::load_mem(&out).unwrap();
         let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
