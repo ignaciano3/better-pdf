@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-07-08
+
+### Fixed
+
+- Field detection now resolves a widget's page when the page's `/Annots` is an
+  indirect reference to the array (macOS Quartz writes it this way) instead of
+  reporting the field with no widgets.
+- Fields whose `/Fields` entry is a duplicated widget dict present on no page
+  (another Quartz pattern) now recover their widgets from the page `/Annots`,
+  matched by fully-qualified field name — the same merge rule Acrobat applies.
+- Flatten's annot removal also follows an indirect `/Annots` reference.
+
 ## [1.12.0] - 2026-07-08
 
 ### Added

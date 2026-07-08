@@ -152,7 +152,7 @@ pub(crate) fn field_widgets(
         .collect()
 }
 
-fn read_rect(d: &Dictionary) -> Option<[f32; 4]> {
+pub(crate) fn read_rect(d: &Dictionary) -> Option<[f32; 4]> {
     let a = d.get(b"Rect").ok()?.as_array().ok()?;
     let mut r = [0f32; 4];
     for (i, v) in a.iter().enumerate().take(4) {
@@ -165,7 +165,10 @@ fn read_rect(d: &Dictionary) -> Option<[f32; 4]> {
 fn find_page_of_annot(doc: &Document, annot: ObjectId) -> Option<ObjectId> {
     for (_, &pid) in doc.get_pages().iter() {
         if let Ok(page) = doc.get_dictionary(pid)
-            && let Ok(annots) = page.get(b"Annots").and_then(|o| o.as_array())
+            && let Ok(obj) = page.get(b"Annots")
+            // /Annots may be an indirect reference to the array (Quartz does this).
+            && let Ok((_, resolved)) = doc.dereference(obj)
+            && let Ok(annots) = resolved.as_array()
             && annots.iter().any(|o| o.as_reference().ok() == Some(annot))
         {
             return Some(pid);
@@ -269,14 +272,28 @@ fn remove_annot(
 ) -> Result<(), String> {
     inc.opt_clone_object_to_new_document(page_id)
         .map_err(|e| e.to_string())?;
-    let page = dict_mut(inc, page_id)?;
-    if let Ok(annots) = page.get(b"Annots").and_then(|o| o.as_array()) {
+    // /Annots may be an indirect reference to the array (Quartz does this);
+    // resolve it against the previous revision, then write the filtered array
+    // inline on the page.
+    let annots: Option<Vec<Object>> = match dict_mut(inc, page_id)?.get(b"Annots") {
+        Ok(Object::Array(a)) => Some(a.clone()),
+        Ok(Object::Reference(id)) => {
+            let id = *id;
+            inc.get_prev_documents()
+                .get_object(id)
+                .ok()
+                .and_then(|o| o.as_array().ok())
+                .cloned()
+        }
+        _ => None,
+    };
+    if let Some(annots) = annots {
         let kept: Vec<Object> = annots
             .iter()
             .filter(|o| o.as_reference().ok() != Some(widget))
             .cloned()
             .collect();
-        page.set("Annots", Object::Array(kept));
+        dict_mut(inc, page_id)?.set("Annots", Object::Array(kept));
     }
     Ok(())
 }

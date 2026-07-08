@@ -1,4 +1,4 @@
-use crate::flatten::field_widgets;
+use crate::flatten::{RawWidget, field_widgets, read_rect};
 use lopdf::{Dictionary, Document, Object, ObjectId, decode_text_string};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -89,13 +89,57 @@ fn collect_fields(doc: &Document) -> Result<Vec<FieldInfo>, String> {
         .and_then(|o| o.as_array())
         .map_err(|e| e.to_string())?;
     let pages = page_index_map(doc);
+    let annot_fallback = annot_widgets_by_name(doc);
     let mut out = Vec::new();
     for entry in entries {
         let id = entry.as_reference().ok();
         let d = as_dict(doc, entry)?;
-        out.push(describe_field(doc, id, d, &pages));
+        out.push(describe_field(doc, id, d, &pages, &annot_fallback));
     }
     Ok(out)
+}
+
+/// Widgets found on the pages' /Annots, keyed by fully-qualified field name.
+/// Fallback for /Fields entries that resolve to no on-page widget: some
+/// producers (macOS Quartz) put duplicated field dicts in /Fields that appear
+/// on no page, while the real widgets — same /T — live only in page /Annots.
+/// Acrobat merges fields by fully-qualified name, so we do too.
+fn annot_widgets_by_name(doc: &Document) -> HashMap<String, Vec<RawWidget>> {
+    let mut map: HashMap<String, Vec<RawWidget>> = HashMap::new();
+    for (_, &pid) in doc.get_pages().iter() {
+        let Ok(page) = doc.get_dictionary(pid) else {
+            continue;
+        };
+        // /Annots may itself be an indirect reference to the array.
+        let Some(annots) = page
+            .get(b"Annots")
+            .ok()
+            .and_then(|o| doc.dereference(o).ok())
+            .and_then(|(_, o)| o.as_array().ok())
+        else {
+            continue;
+        };
+        for a in annots {
+            let Ok(id) = a.as_reference() else { continue };
+            let Ok(d) = doc.get_dictionary(id) else {
+                continue;
+            };
+            if d.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) != Some(b"Widget") {
+                continue;
+            }
+            let Some(rect) = read_rect(d) else { continue };
+            let name = fully_qualified_name(doc, d);
+            if name.is_empty() {
+                continue;
+            }
+            map.entry(name).or_default().push(RawWidget {
+                id,
+                page_id: pid,
+                rect,
+            });
+        }
+    }
+    map
 }
 
 /// Map each page's object id to its 0-based index, in page order.
@@ -112,6 +156,7 @@ fn describe_field(
     field_id: Option<ObjectId>,
     d: &Dictionary,
     pages: &HashMap<ObjectId, usize>,
+    annot_fallback: &HashMap<String, Vec<RawWidget>>,
 ) -> FieldInfo {
     let name = fully_qualified_name(doc, d);
     let ft = inherited_name(doc, d, b"FT").unwrap_or_default();
@@ -159,30 +204,37 @@ fn describe_field(
         (None, None)
     };
 
-    let widgets = field_id
+    let to_widget = |w: &RawWidget| {
+        pages.get(&w.page_id).map(|&page| {
+            let f = doc
+                .get_dictionary(w.id)
+                .ok()
+                .and_then(|wd| wd.get(b"F").ok())
+                .and_then(|o| o.as_i64().ok())
+                .unwrap_or(0);
+            Widget {
+                page,
+                rect: w.rect,
+                hidden: f & 2 != 0,
+                print: f & 4 != 0,
+                no_view: f & 32 != 0,
+            }
+        })
+    };
+    let mut widgets: Vec<Widget> = field_id
         .map(|id| {
             field_widgets(doc, id, d)
-                .into_iter()
-                .filter_map(|w| {
-                    pages.get(&w.page_id).map(|&page| {
-                        let f = doc
-                            .get_dictionary(w.id)
-                            .ok()
-                            .and_then(|wd| wd.get(b"F").ok())
-                            .and_then(|o| o.as_i64().ok())
-                            .unwrap_or(0);
-                        Widget {
-                            page,
-                            rect: w.rect,
-                            hidden: f & 2 != 0,
-                            print: f & 4 != 0,
-                            no_view: f & 32 != 0,
-                        }
-                    })
-                })
+                .iter()
+                .filter_map(to_widget)
                 .collect()
         })
         .unwrap_or_default();
+    // No widget resolved to a page: recover them from the page /Annots by name.
+    if widgets.is_empty()
+        && let Some(raws) = annot_fallback.get(&name)
+    {
+        widgets = raws.iter().filter_map(to_widget).collect();
+    }
 
     FieldInfo {
         name,
@@ -544,6 +596,126 @@ mod tests {
         assert_eq!(w["hidden"], true);
         assert_eq!(w["print"], true);
         assert_eq!(w["noView"], false);
+    }
+
+    #[test]
+    fn resolves_widget_page_when_annots_is_indirect() {
+        use lopdf::{Document, Object, dictionary};
+        // Quartz (macOS) writes each page's /Annots as an indirect reference to
+        // an array, and its merged field+widget dicts carry no /P entry — the
+        // page must be found by scanning /Annots through the reference.
+        let field = dictionary! {
+            "FT" => Object::Name(b"Tx".to_vec()),
+            "T" => Object::string_literal("quartz_field"),
+            "Rect" => Object::Array(vec![
+                Object::Real(0.0), Object::Real(0.0), Object::Real(100.0), Object::Real(20.0),
+            ]),
+        };
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.new_object_id();
+        doc.set_object(
+            page_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Page".to_vec()),
+                "Parent" => Object::Reference(pages_id),
+                "MediaBox" => vec![0i64.into(), 0i64.into(), 612i64.into(), 792i64.into()],
+            }),
+        );
+        let field_id = doc.add_object(Object::Dictionary(field));
+        // /Annots is an indirect reference to the array, not an inline array.
+        let annots_id = doc.add_object(Object::Array(vec![Object::Reference(field_id)]));
+        if let Ok(p) = doc.get_object_mut(page_id).and_then(|o| o.as_dict_mut()) {
+            p.set("Annots", Object::Reference(annots_id));
+        }
+        doc.set_object(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Pages".to_vec()),
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => Object::Integer(1),
+            }),
+        );
+        let acroform_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Fields" => Object::Array(vec![Object::Reference(field_id)]),
+        }));
+        let catalog_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+            "AcroForm" => Object::Reference(acroform_id),
+        }));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+
+        let f = fields(&bytes);
+        let widgets = f[0]["widgets"].as_array().unwrap();
+        assert_eq!(widgets.len(), 1, "widget should resolve to a page");
+        assert_eq!(widgets[0]["page"], 0);
+    }
+
+    #[test]
+    fn falls_back_to_page_annot_widgets_matched_by_name() {
+        use lopdf::{Document, Object, dictionary};
+        // Quartz sometimes writes /Fields entries that are duplicated widget
+        // dicts present on no page, while the real widgets (same /T) live only
+        // in the pages' /Annots. Acrobat merges fields by fully-qualified name;
+        // widgets must be recovered from the page annots.
+        let make_widget = || {
+            dictionary! {
+                "FT" => Object::Name(b"Tx".to_vec()),
+                "T" => Object::string_literal("dup_field"),
+                "Subtype" => Object::Name(b"Widget".to_vec()),
+                "Type" => Object::Name(b"Annot".to_vec()),
+                "Rect" => Object::Array(vec![
+                    Object::Real(10.0), Object::Real(10.0), Object::Real(110.0), Object::Real(30.0),
+                ]),
+            }
+        };
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.new_object_id();
+        doc.set_object(
+            page_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Page".to_vec()),
+                "Parent" => Object::Reference(pages_id),
+                "MediaBox" => vec![0i64.into(), 0i64.into(), 612i64.into(), 792i64.into()],
+            }),
+        );
+        // The widget the page shows…
+        let page_widget_id = doc.add_object(Object::Dictionary(make_widget()));
+        // …and the orphan duplicate the AcroForm /Fields points at.
+        let orphan_field_id = doc.add_object(Object::Dictionary(make_widget()));
+        if let Ok(p) = doc.get_object_mut(page_id).and_then(|o| o.as_dict_mut()) {
+            p.set("Annots", Object::Array(vec![Object::Reference(page_widget_id)]));
+        }
+        doc.set_object(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Pages".to_vec()),
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => Object::Integer(1),
+            }),
+        );
+        let acroform_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Fields" => Object::Array(vec![Object::Reference(orphan_field_id)]),
+        }));
+        let catalog_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+            "AcroForm" => Object::Reference(acroform_id),
+        }));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+
+        let f = fields(&bytes);
+        assert_eq!(f.as_array().unwrap().len(), 1);
+        assert_eq!(f[0]["name"], "dup_field");
+        let widgets = f[0]["widgets"].as_array().unwrap();
+        assert_eq!(widgets.len(), 1, "widget should be recovered from page /Annots");
+        assert_eq!(widgets[0]["page"], 0);
     }
 
     #[test]
