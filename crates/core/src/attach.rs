@@ -357,6 +357,100 @@ pub fn attach_files_json(
     Ok(out)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadAttachment {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    creation_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    modification_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    af_relationship: Option<String>,
+    size: usize,
+    offset: usize,
+    length: usize,
+}
+
+fn dict_string(dict: &Dictionary, key: &[u8]) -> Option<String> {
+    dict.get(key).ok()?.as_str().ok().map(decode_pdf_string)
+}
+
+/// Walk /Names/EmbeddedFiles and return `[u32 LE json_len][json][bytes blob]`.
+/// Filespecs without a decodable /EF stream are skipped, not fatal.
+pub fn read_attachments_packed(data: &[u8]) -> Result<Vec<u8>, String> {
+    let doc = crate::doc_io::load_pdf(data)?;
+    let mut entries = Vec::new();
+    let root_id = doc
+        .trailer
+        .get(b"Root")
+        .and_then(|o| o.as_reference())
+        .map_err(|e| e.to_string())?;
+    if let Ok(catalog) = doc.get_dictionary(root_id)
+        && let Ok(names_obj) = catalog.get(b"Names")
+        && let Ok(names) = resolve_dict(&doc, names_obj)
+        && let Ok(ef_obj) = names.get(b"EmbeddedFiles")
+        && let Ok(ef) = resolve_dict(&doc, ef_obj)
+    {
+        walk_name_tree(&doc, ef, &mut entries)?;
+    }
+
+    let mut metas = Vec::new();
+    let mut blob = Vec::new();
+    for (tree_name, spec_obj) in &entries {
+        let Ok(spec) = resolve_dict(&doc, spec_obj) else { continue };
+        // /EF /F preferred, /UF fallback.
+        let Ok(ef) = spec.get(b"EF").and_then(|o| o.as_dict()) else { continue };
+        let stream_ref = ef.get(b"F").or_else(|_| ef.get(b"UF"));
+        let Ok(stream_id) = stream_ref.and_then(|o| o.as_reference()) else { continue };
+        let Ok(stream) = doc.get_object(stream_id).and_then(|o| o.as_stream()) else { continue };
+        let bytes = stream
+            .decompressed_content()
+            .unwrap_or_else(|_| stream.content.clone());
+
+        // Name: filespec /UF preferred, then /F, then the tree key.
+        let name = dict_string(spec, b"UF")
+            .or_else(|| dict_string(spec, b"F"))
+            .unwrap_or_else(|| tree_name.clone());
+        let params = stream.dict.get(b"Params").and_then(|o| o.as_dict()).ok();
+
+        let offset = blob.len();
+        let length = bytes.len();
+        blob.extend_from_slice(&bytes);
+        metas.push(ReadAttachment {
+            name,
+            description: dict_string(spec, b"Desc"),
+            mime_type: stream
+                .dict
+                .get(b"Subtype")
+                .ok()
+                .and_then(|o| o.as_name().ok())
+                .map(|n| String::from_utf8_lossy(n).into_owned()),
+            creation_date: params.and_then(|p| dict_string(p, b"CreationDate")),
+            modification_date: params.and_then(|p| dict_string(p, b"ModDate")),
+            af_relationship: spec
+                .get(b"AFRelationship")
+                .ok()
+                .and_then(|o| o.as_name().ok())
+                .map(|n| String::from_utf8_lossy(n).into_owned()),
+            size: length,
+            offset,
+            length,
+        });
+    }
+
+    let json = serde_json::to_vec(&metas).map_err(|e| e.to_string())?;
+    let mut out = Vec::with_capacity(4 + json.len() + blob.len());
+    out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    out.extend_from_slice(&json);
+    out.extend_from_slice(&blob);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -703,5 +797,88 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         let names: Vec<String> = tree_entries(&doc).into_iter().map(|(n, _)| n).collect();
         assert_eq!(names, vec!["one.txt", "two.txt"]);
+    }
+
+    /// Decode the packed read_attachments buffer into (json, blob).
+    fn unpack(packed: &[u8]) -> (serde_json::Value, Vec<u8>) {
+        let json_len = u32::from_le_bytes(packed[..4].try_into().unwrap()) as usize;
+        let json: serde_json::Value =
+            serde_json::from_slice(&packed[4..4 + json_len]).unwrap();
+        (json, packed[4 + json_len..].to_vec())
+    }
+
+    #[test]
+    fn read_attachments_round_trips_metadata_and_bytes() {
+        let base = blank_doc();
+        let payload = b"<xml>invoice</xml>".to_vec();
+        let ops = format!(
+            r#"[{{"name":"año.xml","mimeType":"text/xml","description":"desc","creationDate":"D:20260101120000Z","afRelationship":"Alternative","offset":0,"length":{}}}]"#,
+            payload.len()
+        );
+        let saved = attach_files_json(&base, &ops, &payload, false).unwrap();
+
+        let (json, blob) = unpack(&read_attachments_packed(&saved).unwrap());
+        let arr = json.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        let a = &arr[0];
+        assert_eq!(a["name"], "año.xml"); // /UF preferred over the a_o.xml /F fallback
+        assert_eq!(a["mimeType"], "text/xml");
+        assert_eq!(a["description"], "desc");
+        assert_eq!(a["creationDate"], "D:20260101120000Z");
+        assert_eq!(a["afRelationship"], "Alternative");
+        assert_eq!(a["size"], payload.len());
+        assert!(a.get("modificationDate").is_none(), "absent key must be omitted");
+
+        let off = a["offset"].as_u64().unwrap() as usize;
+        let len = a["length"].as_u64().unwrap() as usize;
+        assert_eq!(&blob[off..off + len], &payload[..]);
+    }
+
+    #[test]
+    fn read_attachments_walks_kids_and_skips_specs_without_ef() {
+        let base = doc_with_kids_tree(); // alpha.txt + zeta.txt (uncompressed streams)
+        // Add a broken filespec (no /EF) to the tree by attaching a valid one
+        // first, then hand-editing: simpler — build a doc where one leaf entry
+        // is a /Filespec without /EF.
+        let mut doc = Document::load_mem(&base).unwrap();
+        let mut spec = Dictionary::new();
+        spec.set("Type", Object::Name(b"Filespec".to_vec()));
+        spec.set("F", Object::String(b"broken.txt".to_vec(), lopdf::StringFormat::Literal));
+        let broken = doc.add_object(Object::Dictionary(spec));
+        // splice it into the first /Kids leaf's /Names array
+        let root_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let names_obj = doc.get_dictionary(root_id).unwrap().get(b"Names").unwrap().clone();
+        let ef_root_id = match &names_obj {
+            Object::Dictionary(d) => d.get(b"EmbeddedFiles").unwrap().as_reference().unwrap(),
+            _ => panic!(),
+        };
+        let kid0 = doc.get_dictionary(ef_root_id).unwrap()
+            .get(b"Kids").unwrap().as_array().unwrap()[0].as_reference().unwrap();
+        let kid = doc.get_object_mut(kid0).unwrap().as_dict_mut().unwrap();
+        let mut names = kid.get(b"Names").unwrap().as_array().unwrap().clone();
+        names.push(Object::String(b"broken.txt".to_vec(), lopdf::StringFormat::Literal));
+        names.push(Object::Reference(broken));
+        kid.set("Names", Object::Array(names));
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+
+        let (json, blob) = unpack(&read_attachments_packed(&bytes).unwrap());
+        let names: Vec<&str> = json
+            .as_array().unwrap().iter()
+            .map(|a| a["name"].as_str().unwrap())
+            .collect();
+        // broken.txt skipped (no /EF), not fatal
+        assert_eq!(names, vec!["alpha.txt", "zeta.txt"]);
+        let a0 = &json[0];
+        let off = a0["offset"].as_u64().unwrap() as usize;
+        let len = a0["length"].as_u64().unwrap() as usize;
+        assert_eq!(&blob[off..off + len], b"ALPHA"); // uncompressed stream fallback
+    }
+
+    #[test]
+    fn read_attachments_empty_doc_returns_empty_array() {
+        let (json, blob) = unpack(&read_attachments_packed(&blank_doc()).unwrap());
+        assert_eq!(json.as_array().unwrap().len(), 0);
+        assert!(blob.is_empty());
     }
 }

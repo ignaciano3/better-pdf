@@ -104,6 +104,14 @@ pub fn attach_files(
     attach::attach_files_json(data, ops_json, blob, compress).map_err(|e| JsError::new(&e))
 }
 
+/// Read every /EmbeddedFiles attachment. Returns a packed buffer:
+/// `[u32 LE json_len][json][concatenated file bytes]`, where the JSON is an
+/// array of metadata objects whose `offset`/`length` index the bytes section.
+#[wasm_bindgen]
+pub fn read_attachments(data: &[u8]) -> Result<Vec<u8>, JsError> {
+    attach::read_attachments_packed(data).map_err(|e| JsError::new(&e))
+}
+
 /// Build a new PDF document from scratch using a JSON array of create ops
 /// (addPage, text, image, etc.) and return the PDF bytes. `images` is the
 /// concatenated image blob that Image ops index into via imageOffset / imageLength.
