@@ -1,8 +1,8 @@
-# lopdf issue draft: V4 `/Encrypt` without `/Length` decrypts with a 40-bit key
+# lopdf issue: V4 `/Encrypt` without `/Length` decrypts with a 40-bit key
 
-Draft for filing against [lopdf](https://github.com/J-F-Liu/lopdf). Confirmed
-present in the latest release (0.43.0) and in 0.41.0 — the relevant code is
-identical in both. better-pdf ships a local workaround
+**Filed:** [J-F-Liu/lopdf#523](https://github.com/J-F-Liu/lopdf/issues/523).
+Confirmed present in the latest release (0.43.0) and in 0.41.0 — the relevant
+code is identical in both. better-pdf ships a local workaround
 (`repair::inject_v4_length`); this is the upstream root-cause fix.
 
 ---

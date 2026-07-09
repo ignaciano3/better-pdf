@@ -206,7 +206,7 @@ pub(crate) fn has_encrypt_marker(data: &[u8]) -> bool {
 /// password. Making the field explicit (`/Length 128`) restores the correct
 /// key. Invoked only after a decrypt attempt has already failed, so it can
 /// never perturb the normal path — a bad rebuild just fails the retry too.
-/// See `docs/lopdf-v4-length-issue.md` for the upstream fix.
+/// Upstream: J-F-Liu/lopdf#523 (see `docs/lopdf-v4-length-issue.md`).
 pub(crate) fn inject_v4_length(data: &[u8]) -> Option<Vec<u8>> {
     let (trailer_dict_start, trailer_dict_end) = find_trailer_dict(data)?;
     let trailer = &data[trailer_dict_start..trailer_dict_end];
