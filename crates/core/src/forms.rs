@@ -94,9 +94,54 @@ fn collect_fields(doc: &Document) -> Result<Vec<FieldInfo>, String> {
     for entry in entries {
         let id = entry.as_reference().ok();
         let d = as_dict(doc, entry)?;
-        out.push(describe_field(doc, id, d, &pages, &annot_fallback));
+        walk_field(doc, id, d, &pages, &annot_fallback, 0, &mut out);
     }
     Ok(out)
+}
+
+/// True when a `/Kids` entry is itself a child *field* — i.e. it carries its
+/// own partial name `/T`. A kid without `/T` is a bare widget annotation (a
+/// merged appearance of the same terminal field), not a distinct field.
+fn kid_is_field(doc: &Document, kid: &Object) -> bool {
+    as_dict(doc, kid).map(|d| d.has(b"T")).unwrap_or(false)
+}
+
+/// Walk the field hierarchy, emitting one `FieldInfo` per *terminal* field.
+///
+/// A node is non-terminal when at least one of its `/Kids` is itself a field
+/// (PDF 32000-1 §12.7.3.1). Such a node contributes only a name segment (e.g.
+/// `customer` in `customer.name`); we descend into its field-kids rather than
+/// describing it. Terminal fields — those whose kids, if any, are pure widget
+/// annotations — are described directly, with widgets gathered from the kids.
+fn walk_field(
+    doc: &Document,
+    field_id: Option<ObjectId>,
+    d: &Dictionary,
+    pages: &HashMap<ObjectId, usize>,
+    annot_fallback: &HashMap<String, Vec<RawWidget>>,
+    depth: usize,
+    out: &mut Vec<FieldInfo>,
+) {
+    // Bound total output so a pathological/cyclic /Kids graph (a kid pointing
+    // back at an ancestor) cannot blow up, mirroring find_field's guard.
+    if out.len() >= 100_000 {
+        return;
+    }
+    if depth < MAX_PARENT_DEPTH
+        && let Ok(kids) = d.get(b"Kids").and_then(|o| o.as_array())
+        && kids.iter().any(|k| kid_is_field(doc, k))
+    {
+        for k in kids {
+            if kid_is_field(doc, k)
+                && let Ok(kid_id) = k.as_reference()
+                && let Ok(kd) = as_dict(doc, k)
+            {
+                walk_field(doc, Some(kid_id), kd, pages, annot_fallback, depth + 1, out);
+            }
+        }
+        return;
+    }
+    out.push(describe_field(doc, field_id, d, pages, annot_fallback));
 }
 
 /// Widgets found on the pages' /Annots, keyed by fully-qualified field name.
@@ -533,6 +578,35 @@ mod tests {
     );
     const FICHA: &[u8] =
         include_bytes!("../../../tests/fixtures/Discapacidad/Form.-D.P.-2.4.1-Ficha-personal.pdf");
+
+    #[test]
+    fn expands_hierarchical_fields_into_qualified_names() {
+        // fields_with_dots.pdf nests terminal text fields under parent fields
+        // (customer -> name / lastname, company -> name). Enumeration must emit
+        // the fully-qualified leaf names and NOT the bare parent segments.
+        const DOTS: &[u8] =
+            include_bytes!("../../../tests/fixtures/pypdf/issues/fields_with_dots.pdf");
+        let f = fields(DOTS);
+        let names: Vec<&str> = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"customer.name"), "names: {names:?}");
+        assert!(names.contains(&"company.name"), "names: {names:?}");
+        // Parents are only name segments — never emitted as standalone fields.
+        assert!(!names.contains(&"customer"), "bare parent leaked: {names:?}");
+        assert!(!names.contains(&"company"), "bare parent leaked: {names:?}");
+        // The leaf is a real, typed field (not an "unknown" parent).
+        let leaf = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "customer.name")
+            .unwrap();
+        assert_eq!(leaf["type"], "text");
+    }
 
     #[test]
     fn reads_all_text_fields_of_viajero() {

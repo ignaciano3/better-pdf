@@ -323,31 +323,55 @@ describe("issue fixtures — forms (pypdf)", () => {
     expect(c1?.states).toEqual(["On"]);
   });
 
-  // pypdf test_get_full_qualified_fields: better-pdf reads the leaf text field but
-  // does NOT yet expand the parent/child hierarchy into "customer.name".
+  // pypdf test_get_full_qualified_fields: a leaf text field reads its value.
   test("fields_with_dots: leaf text field reads its value", async () => {
     const doc = await loadIss("fields_with_dots.pdf");
     expect(doc.getForm().getField("other_field")?.value).toBe("Hello world!");
   });
 
+  // pypdf test_get_full_qualified_fields (issue #2643 family): a parent field
+  // with terminal kids is expanded into fully-qualified "parent.child" names,
+  // and the terminal child is exposed as a real (typed) field, not the parent
+  // as an "unknown".
+  test("fields_with_dots: qualified child name customer.name is resolved", async () => {
+    const doc = await loadIss("fields_with_dots.pdf");
+    const fields = doc.getForm().getFields();
+    const names = fields.map((f) => f.name);
+    expect(names).toContain("customer.name");
+    // The parent segment is not itself emitted as a field.
+    expect(names).not.toContain("customer");
+    expect(fields.find((f) => f.name === "customer.name")?.type).toBe("text");
+  });
+
+  // A hierarchical child can be filled by its qualified name and round-trips.
+  test("fields_with_dots: qualified child name is fillable", async () => {
+    const doc = await loadIss("fields_with_dots.pdf");
+    doc.getForm().getTextField("customer.name").setText("Ada Lovelace");
+    const reloaded = await PdfDocument.load(await doc.save());
+    expect(reloaded.getForm().getField("customer.name")?.value).toBe("Ada Lovelace");
+  });
+
+  // Flattening a form with hierarchical fields removes them all — including the
+  // nested children and their now-empty parents — leaving a field-free PDF.
+  test("fields_with_dots: flatten clears the hierarchical fields", async () => {
+    const doc = await loadIss("fields_with_dots.pdf");
+    doc.getForm().flatten();
+    const reloaded = await PdfDocument.load(await doc.save());
+    expect(reloaded.getForm().getFields().length).toBe(0);
+  });
+
   // pypdf test_looping_form (issue #2643): a deep/recursive field tree resolves
-  // without looping. better-pdf loads it and resolves top-level names; the deep
-  // dotted descendants are part of the hierarchy gap (see skip below).
-  test("iss2643: deep field tree loads and resolves top-level names", async () => {
+  // without looping, expanding into fully-qualified dotted descendants.
+  test("iss2643: deep field tree resolves fully-qualified dotted names", async () => {
     const doc = await loadIss("iss2643-inheritance.pdf");
     expect(doc.getPageCount()).toBe(26);
     const names = doc.getForm().getFields().map((f) => f.name);
-    expect(names).toContain("Text10");
+    // Flat top-level terminal fields survive...
     expect(names).toContain("DSS#3pg3#0hgu7");
-  });
-
-  // KNOWN LIMITATION — hierarchical dotted field names. pypdf resolves
-  // "customer.name"; better-pdf reports the parent "customer" as an unknown-type
-  // field and does not expose the terminal child. See docs/pypdf-findings.md.
-  test.skip("fields_with_dots: qualified child name customer.name is resolved", async () => {
-    const doc = await loadIss("fields_with_dots.pdf");
-    const names = doc.getForm().getFields().map((f) => f.name);
-    expect(names).toContain("customer.name");
+    // ...and the "Text10" parent is expanded into qualified descendants rather
+    // than surfacing the bare parent name.
+    expect(names).not.toContain("Text10");
+    expect(names.some((n) => n.startsWith("Text10."))).toBe(true);
   });
 
   // A field whose /DA names a standard-14 font that is absent from /DR is filled

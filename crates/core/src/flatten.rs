@@ -299,7 +299,13 @@ fn remove_annot(
 }
 
 /// Remove fields from the AcroForm /Fields (AcroForm inline in Catalog, or a ref).
+///
+/// `field_ids` are the *terminal* field object ids to drop. Because flattened
+/// fields may be nested inside a hierarchical parent (`customer` → `name`), the
+/// removal recurses through `/Kids`: a removed id is pruned wherever it lives,
+/// and a non-terminal parent left with no field-kids is itself dropped.
 fn remove_fields(inc: &mut IncrementalDocument, field_ids: &[ObjectId]) -> Result<(), String> {
+    let remove: std::collections::HashSet<ObjectId> = field_ids.iter().copied().collect();
     let prev = inc.get_prev_documents();
     let root = prev
         .trailer
@@ -307,14 +313,37 @@ fn remove_fields(inc: &mut IncrementalDocument, field_ids: &[ObjectId]) -> Resul
         .and_then(|o| o.as_reference())
         .map_err(|e| e.to_string())?;
     let cat = prev.get_dictionary(root).map_err(|e| e.to_string())?;
-    match cat.get(b"AcroForm") {
-        Ok(Object::Reference(id)) => {
-            let id = *id;
+    // Snapshot the top-level entries before mutating (the closure borrows `inc`).
+    let acro_ref = cat.get(b"AcroForm").ok().and_then(|o| o.as_reference().ok());
+    let entries: Vec<Object> = match cat.get(b"AcroForm") {
+        Ok(o) => forms::as_dict(prev, o)
+            .ok()
+            .and_then(|a| a.get(b"Fields").and_then(|f| f.as_array()).ok())
+            .cloned()
+            .unwrap_or_default(),
+        Err(_) => return Ok(()),
+    };
+
+    let mut kept: Vec<Object> = Vec::new();
+    for e in entries {
+        match e.as_reference() {
+            Ok(id) => {
+                if prune_field(inc, id, &remove, 0)? {
+                    kept.push(e);
+                }
+            }
+            _ => kept.push(e), // inline field dict (non-standard) — leave as-is
+        }
+    }
+
+    match acro_ref {
+        Some(id) => {
             inc.opt_clone_object_to_new_document(id)
                 .map_err(|e| e.to_string())?;
-            filter_fields(dict_mut(inc, id)?, field_ids);
+            dict_mut(inc, id)?.set("Fields", Object::Array(kept));
         }
-        Ok(Object::Dictionary(_)) => {
+        None => {
+            // Inline AcroForm dict on the catalog.
             inc.opt_clone_object_to_new_document(root)
                 .map_err(|e| e.to_string())?;
             let cat = dict_mut(inc, root)?;
@@ -322,27 +351,70 @@ fn remove_fields(inc: &mut IncrementalDocument, field_ids: &[ObjectId]) -> Resul
                 .get_mut(b"AcroForm")
                 .and_then(Object::as_dict_mut)
                 .map_err(|e| e.to_string())?;
-            filter_fields(acro, field_ids);
+            acro.set("Fields", Object::Array(kept));
         }
-        _ => {}
     }
     Ok(())
 }
 
-fn filter_fields(acro: &mut Dictionary, field_ids: &[ObjectId]) {
-    if let Ok(fields) = acro.get(b"Fields").and_then(|o| o.as_array()) {
-        let kept: Vec<Object> = fields
-            .iter()
-            .filter(|o| {
-                o.as_reference()
-                    .ok()
-                    .map(|id| !field_ids.contains(&id))
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect();
-        acro.set("Fields", Object::Array(kept));
+/// True when a `/Kids` entry resolves (through the incremental overlay) to a
+/// child *field* — one carrying its own partial name `/T`.
+fn kid_is_field_inc(inc: &IncrementalDocument, kid: &Object) -> bool {
+    kid.as_reference()
+        .ok()
+        .and_then(|id| inc_object(inc, id))
+        .and_then(|o| o.as_dict().ok())
+        .map(|d| d.has(b"T"))
+        .unwrap_or(false)
+}
+
+/// Recursively decide whether to keep the field at `id`, pruning removed
+/// descendants from `/Kids`. Returns `true` to keep the node (its `/Kids`
+/// rewritten in place when any field-kid was dropped), `false` to drop it —
+/// either because it is itself in `remove`, or because it is a non-terminal
+/// parent whose every field-kid was pruned away.
+fn prune_field(
+    inc: &mut IncrementalDocument,
+    id: ObjectId,
+    remove: &std::collections::HashSet<ObjectId>,
+    depth: usize,
+) -> Result<bool, String> {
+    if remove.contains(&id) {
+        return Ok(false);
     }
+    if depth >= forms::MAX_PARENT_DEPTH {
+        return Ok(true); // bound cyclic /Kids graphs
+    }
+    let kids: Vec<Object> = match inc_object(inc, id)
+        .and_then(|o| o.as_dict().ok())
+        .and_then(|d| d.get(b"Kids").ok())
+        .and_then(|o| o.as_array().ok())
+    {
+        Some(a) => a.clone(),
+        None => return Ok(true), // terminal leaf, not removed
+    };
+    if !kids.iter().any(|k| kid_is_field_inc(inc, k)) {
+        return Ok(true); // terminal field whose kids are widget annotations
+    }
+    // Non-terminal: prune field-kids, preserving any non-field entries as-is.
+    let mut kept: Vec<Object> = Vec::new();
+    for k in kids {
+        if kid_is_field_inc(inc, &k) {
+            let kid_id = k.as_reference().map_err(|e| e.to_string())?;
+            if prune_field(inc, kid_id, remove, depth + 1)? {
+                kept.push(k);
+            }
+        } else {
+            kept.push(k);
+        }
+    }
+    if !kept.iter().any(|k| kid_is_field_inc(inc, k)) {
+        return Ok(false); // every field-kid pruned → drop the emptied parent
+    }
+    inc.opt_clone_object_to_new_document(id)
+        .map_err(|e| e.to_string())?;
+    dict_mut(inc, id)?.set("Kids", Object::Array(kept));
+    Ok(true)
 }
 
 /// Register `name -> ap_id` under the page's /Resources/XObject, whether
@@ -442,6 +514,28 @@ mod tests {
         let (_, &pid) = doc.get_pages().iter().next().unwrap();
         let page = doc.get_dictionary(pid).unwrap();
         assert!(matches!(page.get(b"Contents"), Ok(Object::Array(_))));
+    }
+
+    #[test]
+    fn flatten_removes_hierarchical_fields() {
+        // A form whose fields are nested under parents (customer -> name): the
+        // qualified children are flattened and their emptied parents pruned, so
+        // no field survives in /AcroForm/Fields (pypdf fields_with_dots.pdf).
+        const DOTS: &[u8] =
+            include_bytes!("../../../tests/fixtures/pypdf/issues/fields_with_dots.pdf");
+        let names = field_names(DOTS);
+        assert!(
+            names.iter().any(|n| n == "customer.name"),
+            "expected a qualified child name: {names:?}"
+        );
+        let names_json = serde_json::to_string(&names).unwrap();
+        let out = flatten_fields_json(DOTS, &names_json, false).unwrap();
+        assert!(
+            field_names(&out).is_empty(),
+            "fields remain after flatten: {:?}",
+            field_names(&out)
+        );
+        Document::load_mem(&out).unwrap();
     }
 
     #[test]
