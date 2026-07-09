@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-07-09
+
+### Added
+
+- **`PdfDocument.isEncrypted(bytes)`**: report whether a PDF is encrypted
+  without decrypting it or needing a password, so callers can decide whether to
+  pass `{ password }` to `load`.
+- **`PdfDocument.passwordType(bytes, password)`**: classify how a password
+  authorizes an encrypted PDF — `"owner"` (full access), `"user"` (restricted),
+  or `null` when it authenticates neither role or the file is not an encrypted
+  classic-`trailer` PDF (xref-stream encrypted files return `null`).
+- **Hierarchical (dotted) field names** are now resolved: a parent field with
+  terminal kids is expanded into fully-qualified `parent.child` names in
+  `getFields()`, and the qualified children are fillable and round-trip.
+  Flattening prunes the nested tree, dropping emptied parents.
+- **Orphaned widget fields** — Widget annotations present on a page but never
+  linked into `/AcroForm/Fields` (some producers emit these) — are now surfaced
+  by `getFields()` and are fillable by name.
+- Test suite: added `tests/pypdf-ported.test.ts` (behavioral tests ported from
+  [pypdf](https://github.com/py-pdf/pypdf)) plus its fixture corpus under
+  `tests/fixtures/pypdf/`.
+
+### Fixed
+
+- Filling a text field whose `/DA` names a standard-14 font that is absent from
+  the AcroForm `/DR` no longer throws; the font is synthesized into the
+  generated appearance's `/Resources/Font` (affects real government forms such
+  as IRS f1040).
+- A corrupt catalog whose `/Pages` reference points at the wrong object (e.g.
+  the Info dictionary) is now recovered to the real page tree instead of loading
+  with zero pages.
+- V4 (AES-128) encrypted PDFs whose `/Encrypt` dictionary omits the top-level
+  `/Length` now decrypt (the spec fixes V4 at 128-bit; a workaround for the
+  underlying decryptor — see [J-F-Liu/lopdf#523](https://github.com/J-F-Liu/lopdf/issues/523)).
+
+### Changed
+
+- Updated the `lopdf` dependency from 0.41 to 0.43.
+
 ## [1.13.0] - 2026-07-08
 
 ### Added

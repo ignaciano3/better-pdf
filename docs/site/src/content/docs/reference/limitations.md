@@ -14,8 +14,12 @@ deliberately unsupported and not planned. The two are listed separately below.
   `load(bytes)` does not decrypt, so an encrypted file loaded without a password
   throws `EncryptedPdfError` telling you to pass one; a wrong password throws
   `IncorrectPasswordError`.) Modifying an encrypted PDF produces a **decrypted**
-  output. **Still unsupported:** producing encrypted output (re-encryption) and
-  encrypting documents you create.
+  output. Two password-free helpers let you branch before loading:
+  `PdfDocument.isEncrypted(bytes)` reports whether a file is encrypted, and
+  `PdfDocument.passwordType(bytes, password)` classifies a password as
+  `"owner"` / `"user"` / `null` (the latter for a wrong password, an unencrypted
+  file, or an xref-stream encrypted file). **Still unsupported:** producing
+  encrypted output (re-encryption) and encrypting documents you create.
 - **No cryptographic signing**, but **visual signatures are supported** —
   `form.getSignature(name).setImage(bytes)` places an image in a signature
   field's appearance. This is a visual mark only; it does **not** produce a

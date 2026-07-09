@@ -613,6 +613,8 @@ const output = await doc.save();
 ### `PdfDocument`
 
 - `PdfDocument.load(input: Uint8Array | ArrayBuffer, options?: { password?: string }): Promise<PdfDocument>` — open an existing PDF; pass `{ password }` to decrypt an encrypted PDF (use `""` for owner-locked files)
+- `PdfDocument.isEncrypted(input: Uint8Array | ArrayBuffer): Promise<boolean>` — report whether a PDF is encrypted, without decrypting or needing a password; use it to decide whether to pass `{ password }` to `load`
+- `PdfDocument.passwordType(input: Uint8Array | ArrayBuffer, password: string): Promise<"owner" | "user" | null>` — classify how a password authorizes an encrypted PDF (`"owner"` = full access, `"user"` = restricted); `null` when the password authenticates neither role or the file is not an encrypted classic-`trailer` PDF (xref-stream encrypted files return `null`)
 - `PdfDocument.create(): Promise<PdfDocument>` — create a new empty document
 - `PdfDocument.merge(docs: Uint8Array[]): Promise<Uint8Array>` — combine multiple PDFs into one (all pages, in order)
 - `PdfDocument.assemble(docs: Uint8Array[], selections: {docIndex: number, pageIndex: number}[]): Promise<Uint8Array>` — build a new PDF from an explicit ordered page selection across sources

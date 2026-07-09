@@ -11,7 +11,9 @@ generated from source with TypeDoc — run `bun run docs` in the repo (output in
 
 ## `PdfDocument`
 
-- `PdfDocument.load(input: Uint8Array | ArrayBuffer): Promise<PdfDocument>` — open an existing PDF
+- `PdfDocument.load(input: Uint8Array | ArrayBuffer, options?: { password?: string }): Promise<PdfDocument>` — open an existing PDF; pass `{ password }` to decrypt an encrypted PDF (use `""` for owner-locked / empty-user-password files)
+- `PdfDocument.isEncrypted(input: Uint8Array | ArrayBuffer): Promise<boolean>` — report whether a PDF is encrypted, without decrypting or needing a password
+- `PdfDocument.passwordType(input: Uint8Array | ArrayBuffer, password: string): Promise<"owner" | "user" | null>` — classify how a password authorizes an encrypted PDF (`"owner"` = full access, `"user"` = restricted); `null` when it authenticates neither role or the file is not an encrypted classic-`trailer` PDF (xref-stream encrypted files return `null`)
 - `PdfDocument.create(): Promise<PdfDocument>` — create a new empty document
 - `doc.addPage(size: [number, number]): PdfPage` — add a page; `PageSizes.A4` etc. are `[width, height]` tuples
 - `doc.getPageCount(): number`
