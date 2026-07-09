@@ -1,14 +1,15 @@
 # lopdf issue draft: V4 `/Encrypt` without `/Length` decrypts with a 40-bit key
 
-Draft for filing against [lopdf](https://github.com/J-F-Liu/lopdf) (version 0.41.0).
-better-pdf ships a local workaround (`repair::inject_v4_length`); this is the
-upstream root-cause fix.
+Draft for filing against [lopdf](https://github.com/J-F-Liu/lopdf). Confirmed
+present in the latest release (0.43.0) and in 0.41.0 — the relevant code is
+identical in both. better-pdf ships a local workaround
+(`repair::inject_v4_length`); this is the upstream root-cause fix.
 
 ---
 
 **Title:** Encrypted V4 (AES-128 / RC4-128) PDFs without a top-level `/Length` fail to decrypt (40-bit key derived instead of 128-bit)
 
-**Version:** lopdf 0.41.0
+**Version:** lopdf 0.43.0 (latest; also present in 0.41.0 — the code is unchanged)
 
 ### Summary
 

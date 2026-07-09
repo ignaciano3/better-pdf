@@ -5,7 +5,7 @@ into `tests/pypdf-ported.test.ts` (2026-07-09). Items to revisit.
 
 ## Bugs
 
-### 1. AESV2 without `/Length` fails to decrypt — FIXED (workaround) + lopdf bug filed
+### 1. AESV2 without `/Length` fails to decrypt — FIXED (workaround); lopdf bug documented (not yet filed)
 - **Fixture:** `tests/fixtures/pypdf/encryption/r4-aes-v2-no-key-length.pdf`
 - **Was:** `PdfDocument.load(bytes, { password: "" })` threw `IncorrectPasswordError`.
 - **Root cause (confirmed in lopdf 0.41):** PDF §7.6.1 fixes the V4 file-encryption-key
