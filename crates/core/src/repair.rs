@@ -4,7 +4,7 @@
 //! re-emit them verbatim with a freshly computed xref, and parse the rebuilt
 //! file. Only invoked after a normal `Document::load_mem` has already failed.
 
-use lopdf::Document;
+use lopdf::{Document, Object, ObjectId};
 
 /// One `N G obj … endobj` span found in the raw bytes.
 struct RawObj {
@@ -35,7 +35,87 @@ pub(crate) fn repair_load(data: &[u8]) -> Result<Document, String> {
         ));
     }
     let rebuilt = rebuild(data, &objs)?;
-    Document::load_mem(&rebuilt).map_err(|e| format!("repair failed: {e}"))
+    let mut doc = Document::load_mem(&rebuilt).map_err(|e| format!("repair failed: {e}"))?;
+    repair_page_tree(&mut doc);
+    Ok(doc)
+}
+
+/// Re-point a broken catalog `/Pages` at the real page-tree root.
+///
+/// Some corrupt files parse but their catalog's `/Pages` reference names the
+/// wrong object — e.g. pypdf iss2516, whose `/Pages` points at the Info dict
+/// while the true `/Type /Pages` node sits at a different object number. When no
+/// page resolves, locate the actual page-tree root among the recovered objects
+/// (a `/Type /Pages` node that is not itself a kid of another) and wire the
+/// catalog and the root's kids to it so page enumeration works again.
+fn repair_page_tree(doc: &mut Document) {
+    if !doc.get_pages().is_empty() {
+        return;
+    }
+    // Every recovered /Type /Pages node.
+    let pages_nodes: Vec<ObjectId> = doc
+        .objects
+        .iter()
+        .filter(|(_, o)| dict_type_is(o, b"Pages"))
+        .map(|(id, _)| *id)
+        .collect();
+    if pages_nodes.is_empty() {
+        return;
+    }
+    // Nodes referenced as another page node's kid can't be the tree root.
+    let mut kid_ids: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
+    for &pid in &pages_nodes {
+        if let Ok(d) = doc.get_dictionary(pid)
+            && let Ok(kids) = d.get(b"Kids").and_then(|o| o.as_array())
+        {
+            for k in kids {
+                if let Ok(r) = k.as_reference() {
+                    kid_ids.insert(r);
+                }
+            }
+        }
+    }
+    let Some(root_pages) = pages_nodes
+        .iter()
+        .copied()
+        .find(|id| !kid_ids.contains(id))
+        .or_else(|| pages_nodes.first().copied())
+    else {
+        return;
+    };
+    let Some(cat_id) = doc
+        .trailer
+        .get(b"Root")
+        .ok()
+        .and_then(|o| o.as_reference().ok())
+    else {
+        return;
+    };
+    if let Ok(cat) = doc.get_object_mut(cat_id).and_then(Object::as_dict_mut) {
+        cat.set("Pages", Object::Reference(root_pages));
+    }
+    // Point the root's kids' /Parent back at it, so downstream /Parent walks
+    // (e.g. inherited attributes) stay consistent with the repaired /Pages.
+    let kids: Vec<ObjectId> = doc
+        .get_dictionary(root_pages)
+        .ok()
+        .and_then(|d| d.get(b"Kids").and_then(|o| o.as_array()).ok())
+        .map(|a| a.iter().filter_map(|k| k.as_reference().ok()).collect())
+        .unwrap_or_default();
+    for kid in kids {
+        if let Ok(d) = doc.get_object_mut(kid).and_then(Object::as_dict_mut) {
+            d.set("Parent", Object::Reference(root_pages));
+        }
+    }
+}
+
+/// True when `o` is a dictionary (or stream) whose `/Type` is the given name.
+fn dict_type_is(o: &Object, ty: &[u8]) -> bool {
+    o.as_dict()
+        .ok()
+        .and_then(|d| d.get(b"Type").ok())
+        .and_then(|t| t.as_name().ok())
+        == Some(ty)
 }
 
 /// Find every `N G obj` header outside stream data and delimit its span.
@@ -388,6 +468,26 @@ mod tests {
     #[test]
     fn garbage_still_fails() {
         assert!(repair_load(b"this is not a pdf at all").is_err());
+    }
+
+    const CORRUPT_PAGES_REF: &[u8] =
+        include_bytes!("../../../tests/fixtures/pypdf/issues/iss2516.pdf");
+
+    #[test]
+    fn repairs_catalog_pointing_pages_at_wrong_object() {
+        // iss2516: the catalog's /Pages names the Info dict; the real /Type
+        // /Pages node is a different object. Recovery must re-point /Pages so
+        // the page tree resolves.
+        let doc = repair_load(CORRUPT_PAGES_REF).unwrap();
+        assert_eq!(page_count(&doc), 1);
+    }
+
+    #[test]
+    fn load_pdf_recovers_corrupt_pages_reference() {
+        // End-to-end: load_pdf sees a strict-parse "success" with zero pages and
+        // must route through recovery (not return the empty doc).
+        let doc = crate::doc_io::load_pdf(CORRUPT_PAGES_REF).unwrap();
+        assert_eq!(page_count(&doc), 1);
     }
 
     const ENCRYPTED_MIN: &[u8] =

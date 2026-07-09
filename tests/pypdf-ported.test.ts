@@ -395,10 +395,10 @@ describe("issue fixtures — recovery (pypdf)", () => {
     expect((await PdfDocument.load(out)).getPageCount()).toBe(doc.getPageCount());
   });
 
-  // KNOWN LIMITATION — pypdf test_corrupted_xref (issue #2516) recovers the
-  // catalog and pages; better-pdf loads without error but recovers 0 pages.
-  // See docs/pypdf-findings.md.
-  test.skip("iss2516: corrupted xref recovers the page tree", async () => {
+  // pypdf test_corrupted_xref (issue #2516): the catalog's /Pages reference
+  // points at the wrong object (the Info dict), so the strict parse yields zero
+  // pages; recovery re-points /Pages at the real page-tree node.
+  test("iss2516: corrupted /Pages reference recovers the page tree", async () => {
     const doc = await loadIss("iss2516.pdf");
     expect(doc.getPageCount()).toBeGreaterThan(0);
   });

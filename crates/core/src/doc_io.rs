@@ -1,4 +1,4 @@
-use lopdf::Document;
+use lopdf::{Document, Object};
 
 /// Stable, machine-detectable prefix the TS boundary maps to `EncryptedPdfError`.
 pub const ENCRYPTED_PREFIX: &str = "ENCRYPTED:";
@@ -58,15 +58,39 @@ fn classify_decryption_error(de: lopdf::encryption::DecryptionError) -> String {
     }
 }
 
-/// True when the trailer /Root resolves to a dictionary that has /Pages.
+/// True when the trailer /Root resolves to a usable page tree: a catalog whose
+/// `/Pages` entry both exists and leads to real pages. A file can parse yet
+/// point `/Pages` at the wrong object (e.g. the Info dict — pypdf iss2516), in
+/// which case the strict loader succeeds but no page resolves; we treat that as
+/// invalid so the recovery loader can re-point `/Pages` at the true page tree.
 fn root_is_valid(doc: &Document) -> bool {
-    doc.trailer
+    let Some(root_dict) = doc
+        .trailer
         .get(b"Root")
         .ok()
         .and_then(|o| o.as_reference().ok())
         .and_then(|id| doc.get_dictionary(id).ok())
-        .map(|d| d.has(b"Pages"))
-        .unwrap_or(false)
+    else {
+        return false;
+    };
+    if !root_dict.has(b"Pages") {
+        return false;
+    }
+    // Accept when /Pages resolves to a page-tree node, or when the document
+    // otherwise yields at least one page (tolerating producers that omit the
+    // /Type /Pages marker). Reject when neither holds — the page tree is broken.
+    let pages_typed = root_dict
+        .get(b"Pages")
+        .ok()
+        .and_then(|o| match o {
+            Object::Reference(id) => doc.get_dictionary(*id).ok(),
+            Object::Dictionary(d) => Some(d),
+            _ => None,
+        })
+        .and_then(|d| d.get(b"Type").ok())
+        .and_then(|o| o.as_name().ok())
+        == Some(b"Pages");
+    pages_typed || !doc.get_pages().is_empty()
 }
 
 /// Parse PDF bytes into a `Document`, failing fast on encrypted files.

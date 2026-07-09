@@ -55,14 +55,22 @@ into `tests/pypdf-ported.test.ts` (2026-07-09). Items to revisit.
   fully-qualified dotted names". Rust: `forms::expands_hierarchical_fields_into_qualified_names`,
   `flatten::flatten_removes_hierarchical_fields`.
 
-### 4. Corrupted-xref recovery yields 0 pages
+### 4. Corrupted-xref recovery yields 0 pages — FIXED
 - **Fixture:** `tests/fixtures/pypdf/issues/iss2516.pdf`
-- **Symptom:** loads without error but `getPageCount()` is 0 and `getPage(0)`
-  throws `PageOutOfRangeError`. `repair.rs` byte-scan recovery does not kick in.
-- **Expected:** recover the catalog and page tree (pypdf `test_corrupted_xref`
-  asserts `root_object["/Type"] == "/Catalog"`). Note the truncated-xref sibling
-  (`iss2575`) recovers fine, so the gap is specific to this corruption shape.
-- **Test:** `test.skip("iss2516: corrupted xref recovers the page tree")`.
+- **Was:** loaded without error but `getPageCount()` was 0. The real corruption
+  shape here isn't a broken xref (the strict parser *succeeds*): the catalog's
+  `/Pages` reference names the wrong object (the Info dict, obj 6) while the true
+  `/Type /Pages` node is obj 5. So `repair.rs` never ran and no page resolved.
+- **Fix:** two parts. (a) `doc_io.rs` `root_is_valid` now rejects a catalog whose
+  `/Pages` resolves to neither a `/Type /Pages` node nor any page, so recovery is
+  triggered even when the strict parse "succeeds". (b) `repair.rs`
+  `repair_page_tree` re-points a broken catalog `/Pages` at the real page-tree
+  root (the `/Type /Pages` node that is not another node's kid) and fixes the
+  kids' `/Parent`, when no page otherwise resolves.
+- **Tests:** `tests/pypdf-ported.test.ts` "iss2516: corrupted /Pages reference
+  recovers the page tree" (unskipped). Rust:
+  `repair::repairs_catalog_pointing_pages_at_wrong_object`,
+  `repair::load_pdf_recovers_corrupt_pages_reference`.
 
 ### 5. No orphaned-widget reattachment
 - **Fixture:** `tests/fixtures/pypdf/issues/iss2453-ExampleForm.pdf`
