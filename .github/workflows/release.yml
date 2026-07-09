@@ -17,7 +17,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -25,7 +25,9 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install wasm-pack
-        uses: jetli/wasm-pack-action@v0.4.0
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -33,9 +35,9 @@ jobs:
           bun-version: latest
 
       - name: Install Node (with npm registry auth)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
 
       - name: Install JS dependencies
