@@ -19,6 +19,7 @@ mod outline;
 mod pageops;
 mod pages;
 mod pagetree;
+mod repair;
 
 /// Read the AcroForm fields of a PDF, returned as a JSON array string.
 #[wasm_bindgen]

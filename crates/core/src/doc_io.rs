@@ -74,7 +74,13 @@ fn classify_decryption_error(de: lopdf::encryption::DecryptionError) -> String {
 /// { password })`), whose plaintext output reports `was_encrypted() == false` and
 /// passes this check.
 pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
-    let doc = Document::load_mem(data).map_err(|e| e.to_string())?;
+    let doc = match Document::load_mem(data) {
+        Ok(doc) => doc,
+        // Strict parse failed (broken xref/trailer, junk before header, …):
+        // fall back to the recovery loader. Only this error path pays the
+        // repair cost; well-formed files never reach it.
+        Err(primary) => crate::repair::repair_load(data).map_err(|_| primary.to_string())?,
+    };
     if doc.trailer.has(b"Encrypt") || doc.was_encrypted() {
         return Err(format!(
             "{ENCRYPTED_PREFIX} this PDF is encrypted; load it with PdfDocument.load(bytes, {{ password }}) (use \"\" for owner-locked files)"
