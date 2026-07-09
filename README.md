@@ -931,9 +931,15 @@ we will deliberately never add, see [Non-Goals](#non-goals).)
   (PDFs with nested `/Pages` nodes are rejected; use `merge`/`assemble` instead).
 - SVG path coordinates are PDF user space (y-up), so y-down artwork appears flipped.
 - Interlaced and 16-bit-per-channel PNGs are not supported.
+- Malformed / off-spec PDFs are repaired on load (added in 1.13.0): when strict
+  parsing fails (broken/missing xref or trailer, junk before the `%PDF` header,
+  invalid `/Root`, missing `endobj`/`endstream`), a recovery pass rescans the
+  bytes and rebuilds the document. Well-formed files never pay for it, and
+  encrypted files still throw `EncryptedPdfError` rather than being "repaired"
+  into plaintext.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3 forms,
-  plus generated xref-stream/object-stream variants); real-world PDF 1.5+ coverage
-  is thin.
+  plus generated xref-stream/object-stream variants) and the malformed/tricky-PDF
+  corpus ported from pdf-lib's test suite.
 - Browser/bundler support requires calling `initializeWasm(wasmUrl)` before any
   PDF operation. Pass the URL of `@ignaciano3/better-pdf/wasm` (use `?url` in
   Vite, `new URL(…, import.meta.url)` in webpack, or copy to `public/` in
@@ -949,8 +955,6 @@ another tool.
 - **XFA forms** — Adobe's XML-based form format, deprecated and removed in
   PDF 2.0. Detected and rejected on fill/flatten; reading the static AcroForm
   fields still works.
-- **Lenient recovery of malformed / off-spec PDFs** — the parser is strict by
-  design and rejects broken structure rather than guessing at it.
 
 ## Develop
 

@@ -156,8 +156,18 @@ deliberately unsupported and not planned. The two are listed separately below.
   WebP, TIFF, and BMP are not supported.
   - **CMYK JPEGs are rejected** — JPEGs with 4 color components throw on embed;
     convert to RGB first.
+- **Malformed / off-spec PDFs are repaired on load** (added in 1.13.0). When
+  strict parsing fails — broken or missing xref tables/trailers, junk before
+  the `%PDF` header, an invalid `/Root` reference, missing `endobj` /
+  `endstream` keywords — a recovery pass rescans the raw bytes for objects and
+  rebuilds the document, the same approach pdf-lib uses. Well-formed files
+  never pay for this (it only runs after a strict parse fails), and encrypted
+  files are never "repaired" into plaintext — they still throw
+  `EncryptedPdfError`. A file the recovery pass can't make sense of still
+  throws `PdfCoreError` with the original parser message.
 - Primary test coverage is the bundled fixture corpus (classic-xref PDF 1.3
-  forms, plus generated xref-stream/object-stream variants).
+  forms, plus generated xref-stream/object-stream variants) and the
+  malformed/tricky-PDF corpus ported from pdf-lib's test suite.
 - Browser support expects a modern bundler/runtime that can serve the packaged
   `.wasm` asset referenced from the browser entry.
 
@@ -169,5 +179,3 @@ another tool.
 - **XFA forms** — Adobe's XML-based form format, deprecated and removed in
   PDF 2.0. Detected and rejected on fill/flatten; reading the static AcroForm
   fields still works.
-- **Lenient recovery of malformed / off-spec PDFs** — the parser is strict by
-  design and rejects broken structure rather than guessing at it.
