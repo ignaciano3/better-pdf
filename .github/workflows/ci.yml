@@ -57,6 +57,12 @@ jobs:
       - name: Install qpdf (output validation)
         run: sudo apt-get update && sudo apt-get install -y qpdf
 
+      # Materialize the qpdf-produced fixtures (encryption matrix, object streams,
+      # linearized) so the Tier 2–3 cases in tests/qpdf-ported.test.ts run instead
+      # of skipping. Requires the qpdf installed above.
+      - name: Generate qpdf fixtures
+        run: bun run tests/scripts/gen-qpdf-fixtures.ts
+
       - name: TypeScript tests
         run: bun test
 
