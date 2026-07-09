@@ -18,15 +18,20 @@ into `tests/pypdf-ported.test.ts` (2026-07-09). Items to revisit.
 - **Test:** `tests/pypdf-ported.test.ts` — `test.skip("r4-aes-v2-no-key-length ... KNOWN LIMITATION")`.
   Unskip once fixed.
 
-### 2. Filling a std-14 `/DA` font absent from `/DR` throws
+### 2. Filling a std-14 `/DA` font absent from `/DR` throws — FIXED
 - **Fixture:** `tests/fixtures/pypdf/issues/iss2670-f1040.pdf` (IRS Form 1040)
-- **Symptom:** `getTextField(name).setText(...)` then `save()` throws
+- **Was:** `getTextField(name).setText(...)` then `save()` threw
   `PdfCoreError: DA font 'Helvetica' not found in /DR for ...`.
-- **Expected:** when the field's `/DA` names a standard-14 font (Helvetica, etc.)
-  that is missing from the AcroForm `/DR`, add it to the generated appearance's
-  `/Resources/Font` instead of failing (pypdf `test_no_resource_for_14_std_fonts`).
-- **Impact:** blocks filling many real government forms (f1040 and similar).
-- **Test:** `test.skip("iss2670: filling a std-14 /DA font absent from /DR")`.
+- **Fix:** `fill.rs` — when the DA font is absent from `/DR` but names a
+  standard-14 text font (via `da_font_base`, accepting canonical names and the
+  `Helv`/`TiRo`/… aliases), synthesize a Type1 font dict at apply time and put
+  it in the appearance's `/Resources/Font` (`FontRef::Synth` +
+  `resolve_font_ref`) instead of failing. Widths come from
+  `standard_14_widths(base)`. Non-standard fonts still surface the
+  "not found in /DR" error (Symbol/ZapfDingbats excluded — custom encodings).
+- **Tests:** `tests/pypdf-ported.test.ts` "iss2670: filling a std-14 /DA font
+  absent from /DR" (unskipped, green); Rust `fills_std14_da_font_absent_from_dr_by_synthesizing`,
+  `unknown_da_font_absent_from_dr_still_errors`, `da_font_base_maps_names_and_aliases`.
 
 ### 3. Hierarchical dotted field names not resolved
 - **Fixtures:** `issues/fields_with_dots.pdf`, `issues/iss2643-inheritance.pdf`

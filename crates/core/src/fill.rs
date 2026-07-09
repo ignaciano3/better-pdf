@@ -182,10 +182,21 @@ struct WidgetBox {
 }
 
 /// Per-field appearance inputs shared by text and choice fields.
+/// How to obtain the appearance stream's `/Resources/Font/<name>` reference.
+enum FontRef {
+    /// The DA font resolves to an existing `/DR/Font` object — reference it.
+    Dr(ObjectId),
+    /// The DA font names a standard-14 font that is absent from `/DR` (common
+    /// in government forms whose `/DA` says `/Helvetica` but ship no `/DR`
+    /// entry). Synthesize a Type1 font dict for the given /BaseFont at apply
+    /// time and reference that, rather than failing the fill.
+    Synth(&'static str),
+}
+
 struct ApInputs {
     da: appearance::Da,
     q: i64,
-    font_ref: ObjectId,
+    font_ref: FontRef,
     font: String,
     widths: appearance::FontWidths,
     widgets: Vec<WidgetBox>,
@@ -756,7 +767,7 @@ fn ap_inputs(
             font: String::new(),
             widths: appearance::helvetica_widths(),
             da,
-            font_ref: (0, 0), // unused for embedded fields
+            font_ref: FontRef::Dr((0, 0)), // unused for embedded fields
             widgets: widget_boxes(doc, field_id, dict),
             multiline: forms::is_multiline(ff),
             comb: forms::is_comb(ff),
@@ -766,8 +777,6 @@ fn ap_inputs(
         });
     }
 
-    let font_ref = font_ref(doc, acro, &da.font)
-        .ok_or_else(|| format!("DA font '{}' not found in /DR for {}", da.font, name))?;
     // Reject Type0 (embedded/composite) DA fonts: the WinAnsi engine below would
     // mis-encode them. The caller must pass `{ font }` to `setText` so this
     // field's fill goes through the embedded path above instead.
@@ -781,10 +790,28 @@ fn ap_inputs(
             "field '{name}' uses an embedded font; pass {{ font }} to setText with an embedded font"
         ));
     }
+    // Resolve the DA font to a /DR object; when it is absent but names a
+    // standard-14 font, synthesize the font dict at apply time instead of
+    // failing (real government forms often reference /Helvetica with no /DR).
+    let font_ref = match font_ref(doc, acro, &da.font) {
+        Some(id) => FontRef::Dr(id),
+        None => match da_font_base(&da.font) {
+            Some(base) => FontRef::Synth(base),
+            None => {
+                return Err(format!("DA font '{}' not found in /DR for {}", da.font, name));
+            }
+        },
+    };
+    let widths = match font_ref {
+        FontRef::Synth(base) => {
+            appearance::standard_14_widths(base).unwrap_or_else(appearance::helvetica_widths)
+        }
+        FontRef::Dr(_) => resolve_widths(doc, acro, &da.font),
+    };
     Ok(ApInputs {
         q: quadding(doc, dict),
         font: da.font.clone(),
-        widths: resolve_widths(doc, acro, &da.font),
+        widths,
         da,
         font_ref,
         widgets: widget_boxes(doc, field_id, dict),
@@ -825,6 +852,42 @@ fn dr_font_entry<'a>(doc: &'a Document, acro: &'a Dictionary, font: &str) -> Opt
 
 fn font_ref(doc: &Document, acro: &Dictionary, font: &str) -> Option<ObjectId> {
     dr_font_entry(doc, acro, font)?.as_reference().ok()
+}
+
+/// Map a DA font resource name to a standard-14 `/BaseFont`, accepting both the
+/// canonical PostScript names (`Helvetica`, `Times-Roman`, …) and the
+/// conventional AcroForm aliases (`Helv`, `TiRo`, …). Used to synthesize a
+/// font dict when the DA font is absent from `/DR`. Mirrors the alias set of
+/// `create::da_font_alias`; Symbol/ZapfDingbats are intentionally excluded
+/// (their custom encodings don't fit the WinAnsi text engine).
+fn da_font_base(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "Helvetica" | "Helv" => "Helvetica",
+        "Helvetica-Bold" | "HeBo" => "Helvetica-Bold",
+        "Helvetica-Oblique" | "HeOb" => "Helvetica-Oblique",
+        "Helvetica-BoldOblique" | "HeBO" => "Helvetica-BoldOblique",
+        "Courier" | "Cour" => "Courier",
+        "Courier-Bold" | "CoBo" => "Courier-Bold",
+        "Courier-Oblique" | "CoOb" => "Courier-Oblique",
+        "Courier-BoldOblique" | "CoBO" => "Courier-BoldOblique",
+        "Times-Roman" | "TiRo" => "Times-Roman",
+        "Times-Bold" | "TiBo" => "Times-Bold",
+        "Times-Italic" | "TiIt" => "Times-Italic",
+        "Times-BoldItalic" | "TiBI" => "Times-BoldItalic",
+        _ => return None,
+    })
+}
+
+/// Resolve an `ApInputs` font reference to a concrete `/DR`-style object id in
+/// the incremental document, synthesizing a standard-14 Type1 font dict when
+/// the DA font was absent from `/DR` (`FontRef::Synth`).
+fn resolve_font_ref(inc: &mut IncrementalDocument, font_ref: &FontRef) -> ObjectId {
+    match font_ref {
+        FontRef::Dr(id) => *id,
+        FontRef::Synth(base) => inc
+            .new_document
+            .add_object(Object::Dictionary(crate::draw::font_dict(base))),
+    }
 }
 
 /// Collect a field's drawable widgets (id + /Rect). A field with no /Kids is
@@ -1197,6 +1260,9 @@ fn draw_appearances(
         return draw_embedded_appearances(inc, value, ap, fid, font_ctx);
     }
     let text = appearance::encode_winansi(value);
+    // Resolve once and share the (possibly synthesized) font object across all
+    // of the field's widgets.
+    let font_ref = resolve_font_ref(inc, &ap.font_ref);
     for wb in &ap.widgets {
         let w = wb.rect[2] - wb.rect[0];
         let h = wb.rect[3] - wb.rect[1];
@@ -1250,7 +1316,7 @@ fn draw_appearances(
                 &ap.widths,
             )
         };
-        let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, ap.font_ref);
+        let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, font_ref);
         let ap_id = inc.new_document.add_object(Object::Stream(xobj));
 
         inc.opt_clone_object_to_new_document(wb.id)
@@ -1499,6 +1565,7 @@ fn draw_listbox_multi_appearances(
     let selected: Vec<bool> = (0..options.len() as i64)
         .map(|i| indices.contains(&i))
         .collect();
+    let font_ref = resolve_font_ref(inc, &ap.font_ref);
     for wb in &ap.widgets {
         let w = wb.rect[2] - wb.rect[0];
         let h = wb.rect[3] - wb.rect[1];
@@ -1511,7 +1578,7 @@ fn draw_listbox_multi_appearances(
             &ap.da.color,
             &ap.font,
         );
-        let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, ap.font_ref);
+        let xobj = appearance::build_appearance_xobject(content, w, h, &ap.font, font_ref);
         let ap_id = inc.new_document.add_object(Object::Stream(xobj));
 
         inc.opt_clone_object_to_new_document(wb.id)
@@ -2757,5 +2824,109 @@ mod tests {
         .unwrap();
         let err = fill_fields_json(&base, r#"[{"name":"n","value":"B"}]"#, &[], false).unwrap_err();
         assert!(err.contains("pass { font }"), "got: {err}");
+    }
+
+    #[test]
+    fn da_font_base_maps_names_and_aliases() {
+        assert_eq!(super::da_font_base("Helvetica"), Some("Helvetica"));
+        assert_eq!(super::da_font_base("Helv"), Some("Helvetica"));
+        assert_eq!(super::da_font_base("TiRo"), Some("Times-Roman"));
+        assert_eq!(super::da_font_base("Courier-Bold"), Some("Courier-Bold"));
+        assert_eq!(super::da_font_base("CoBO"), Some("Courier-BoldOblique"));
+        // Symbol/ZapfDingbats and unknown fonts are not synthesized.
+        assert_eq!(super::da_font_base("ZaDb"), None);
+        assert_eq!(super::da_font_base("Arial"), None);
+    }
+
+    /// Drop `/DR` from the AcroForm so the field's DA font ("Helv") no longer
+    /// resolves to a `/DR/Font` object, exercising the standard-14 synth path.
+    fn strip_dr(base: &[u8]) -> Vec<u8> {
+        let mut doc = Document::load_mem(base).unwrap();
+        let root = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let catalog = doc.get_dictionary(root).unwrap();
+        let acro_id = catalog.get(b"AcroForm").unwrap().as_reference().unwrap();
+        let acro_mut = doc.get_object_mut(acro_id).unwrap().as_dict_mut().unwrap();
+        acro_mut.remove(b"DR");
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    /// Resolve the field's `/AP/N` stream and return its
+    /// `/Resources/Font/<name>` dictionary (dereferenced).
+    fn ap_resource_font(doc: &Document, field_name: &str) -> Option<lopdf::Dictionary> {
+        let (_, field) = find_field(doc, field_name)?;
+        let ap_id = field
+            .get(b"AP")
+            .ok()?
+            .as_dict()
+            .ok()?
+            .get(b"N")
+            .ok()?
+            .as_reference()
+            .ok()?;
+        let st = doc.get_object(ap_id).ok()?.as_stream().ok()?;
+        let fonts = crate::forms::as_dict(doc, st.dict.get(b"Resources").ok()?)
+            .ok()?
+            .get(b"Font")
+            .ok()?;
+        let fonts = crate::forms::as_dict(doc, fonts).ok()?;
+        let (_, entry) = fonts.iter().next()?;
+        crate::forms::as_dict(doc, entry).ok().cloned()
+    }
+
+    #[test]
+    fn fills_std14_da_font_absent_from_dr_by_synthesizing() {
+        // A text field whose DA names /Helv, but with /DR removed: the DA font
+        // is a standard-14 font not present in /DR (mirrors IRS f1040, #2670).
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        let base = strip_dr(&base);
+        // Fill succeeds instead of erroring "DA font 'Helv' not found in /DR".
+        let out = fill_fields_json(&base, r#"[{"name":"n","value":"Brooks"}]"#, &[], false).unwrap();
+        // Append-only save preserved.
+        assert_eq!(&out[..base.len()], &base[..]);
+        assert_eq!(reparse_value(&out, "n").as_deref(), Some("Brooks"));
+
+        let doc = Document::load_mem(&out).unwrap();
+        // The appearance draws the value...
+        let content = ap_content(&doc, "n").expect("AP/N present");
+        assert!(content.contains("(Brooks) Tj"), "value not drawn: {content}");
+        // ...and its /Resources/Font carries a synthesized Type1 Helvetica.
+        let fd = ap_resource_font(&doc, "n").expect("AP font resource present");
+        assert_eq!(
+            fd.get(b"Subtype").unwrap().as_name().unwrap(),
+            b"Type1",
+            "synthesized font must be Type1: {fd:?}"
+        );
+        assert_eq!(
+            fd.get(b"BaseFont").unwrap().as_name().unwrap(),
+            b"Helvetica",
+            "synthesized /BaseFont must be Helvetica: {fd:?}"
+        );
+    }
+
+    #[test]
+    fn unknown_da_font_absent_from_dr_still_errors() {
+        // A non-standard DA font that is missing from /DR cannot be synthesized
+        // and must still surface the actionable "not found in /DR" error.
+        let base = base_with_field(
+            r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
+        );
+        // Point the field's /DA at a font that is neither in /DR nor standard-14.
+        let mut doc = Document::load_mem(&base).unwrap();
+        let (id, _) = find_field(&doc, "n").unwrap();
+        doc.get_object_mut(id)
+            .unwrap()
+            .as_dict_mut()
+            .unwrap()
+            .set("DA", Object::string_literal("/Wingding 0 Tf 0 g"));
+        let mut base = Vec::new();
+        doc.save_to(&mut base).unwrap();
+        let base = strip_dr(&base);
+
+        let err = fill_fields_json(&base, r#"[{"name":"n","value":"x"}]"#, &[], false).unwrap_err();
+        assert!(err.contains("not found in /DR"), "got: {err}");
     }
 }

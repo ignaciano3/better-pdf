@@ -350,10 +350,10 @@ describe("issue fixtures — forms (pypdf)", () => {
     expect(names).toContain("customer.name");
   });
 
-  // KNOWN LIMITATION — filling a field whose /DA names a standard-14 font that is
-  // absent from /DR throws instead of adding the font to the appearance's
-  // /Resources/Font (pypdf test_no_resource_for_14_std_fonts, issue #2670).
-  test.skip("iss2670: filling a std-14 /DA font absent from /DR", async () => {
+  // A field whose /DA names a standard-14 font that is absent from /DR is filled
+  // by synthesizing that font into the appearance's /Resources/Font instead of
+  // throwing (pypdf test_no_resource_for_14_std_fonts, issue #2670).
+  test("iss2670: filling a std-14 /DA font absent from /DR", async () => {
     const doc = await loadIss("iss2670-f1040.pdf");
     const tf = doc.getForm().getFields().find((f) => f.type === "text")!;
     doc.getForm().getTextField(tf.name).setText("Brooks");
