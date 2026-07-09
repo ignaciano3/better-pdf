@@ -108,7 +108,14 @@ async function canUsePdfLibText(bytes: Uint8Array, name: string): Promise<boolea
 }
 
 async function inspectFixture(label: string, path: string): Promise<FixtureBench> {
-  const bytes = new Uint8Array(readFileSync(path));
+  return inspectBytes(label, basename(path), new Uint8Array(readFileSync(path)));
+}
+
+async function inspectBytes(
+  label: string,
+  file: string,
+  bytes: Uint8Array,
+): Promise<FixtureBench> {
   const form = (await PdfDocument.load(bytes)).getForm();
   const fields = form.getFields().filter((field) => !field.readOnly);
   const textNames: string[] = [];
@@ -120,7 +127,7 @@ async function inspectFixture(label: string, path: string): Promise<FixtureBench
 
   return {
     label,
-    file: basename(path),
+    file,
     bytes,
     fields,
     textNames,
@@ -246,10 +253,31 @@ function scenarioList(fixture: FixtureBench): Scenario[] {
   return scenarios;
 }
 
-console.log(`Iterations: ${ITER} (after ${WARMUP} warmup)\n`);
+/**
+ * Generate a page-heavy AcroForm in memory: `pageCount` pages, each carrying
+ * `perPage` text fields. Stresses the per-read field enumeration (the field
+ * count scales with pages × fields), which is the upper bound for the
+ * orphaned-widget scan that walks every page's `/Annots` on each `getFields()`.
+ */
+async function makePageHeavyForm(pageCount: number, perPage: number): Promise<Uint8Array> {
+  const doc = await PdfDocument.create();
+  for (let p = 0; p < pageCount; p++) doc.addPage(PageSizes.A4);
+  const form = doc.createForm();
+  for (let p = 0; p < pageCount; p++) {
+    for (let f = 0; f < perPage; f++) {
+      form.addTextField(`p${p}_f${f}`, {
+        page: p,
+        x: 50,
+        y: 760 - f * 30,
+        width: 200,
+        height: 20,
+      });
+    }
+  }
+  return doc.save();
+}
 
-for (const fixtureInfo of fixtures) {
-  const fixture = await inspectFixture(fixtureInfo.label, fixtureInfo.path);
+async function runFixture(fixture: FixtureBench): Promise<void> {
   console.log(`### ${fixture.label}`);
   console.log(
     `${fixture.file} (${fixture.bytes.length.toLocaleString()} bytes, ${fixture.fields.length} fields: ${countByType(fixture.fields)})\n`,
@@ -281,6 +309,28 @@ for (const fixtureInfo of fixtures) {
   }
 
   console.log("");
+}
+
+console.log(`Iterations: ${ITER} (after ${WARMUP} warmup)\n`);
+
+for (const fixtureInfo of fixtures) {
+  await runFixture(await inspectFixture(fixtureInfo.label, fixtureInfo.path));
+}
+
+// Generated page-heavy form: 250 pages × 4 text fields = 1,000 widgets, so
+// every getFields() enumerates 1,000 fields and the orphan scan walks 250
+// pages of /Annots.
+{
+  const PAGES = 250;
+  const PER_PAGE = 4;
+  const bytes = await makePageHeavyForm(PAGES, PER_PAGE);
+  await runFixture(
+    await inspectBytes(
+      `page-heavy generated form (${PAGES} pages × ${PER_PAGE} fields)`,
+      "generated-page-heavy.pdf",
+      bytes,
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
