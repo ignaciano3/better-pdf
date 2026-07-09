@@ -2316,13 +2316,10 @@ fn build_fields_and_acroform(
         let page_dict = page_obj
             .as_dict_mut()
             .map_err(|e| format!("internal: page object is not a dict: {e}"))?;
-        let annots = page_dict.get_mut(b"Annots").ok().and_then(|o| {
-            if let Object::Array(_) = o {
-                Some(o)
-            } else {
-                None
-            }
-        });
+        let annots = page_dict
+            .get_mut(b"Annots")
+            .ok()
+            .filter(|o| matches!(o, Object::Array(_)));
         if let Some(Object::Array(arr)) = annots {
             for &aid in annot_ids {
                 arr.push(Object::Reference(aid));

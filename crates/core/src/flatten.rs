@@ -163,7 +163,7 @@ pub(crate) fn read_rect(d: &Dictionary) -> Option<[f32; 4]> {
 
 /// Find the page whose /Annots contains `annot` (fallback when /P is absent).
 fn find_page_of_annot(doc: &Document, annot: ObjectId) -> Option<ObjectId> {
-    for (_, &pid) in doc.get_pages().iter() {
+    for &pid in doc.get_pages().values() {
         if let Ok(page) = doc.get_dictionary(pid)
             && let Ok(obj) = page.get(b"Annots")
             // /Annots may be an indirect reference to the array (Quartz does this).

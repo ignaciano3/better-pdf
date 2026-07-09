@@ -1,0 +1,18 @@
+Provenance of the fixtures under tests/fixtures/qpdf/
+=====================================================
+
+These PDFs are NOT copied from QPDF's `qtest/` suite. They are *generated* by
+the QPDF command-line tool (`qpdf --encrypt`, `--object-streams=generate`,
+`--linearize`, …) from a small in-repo base document, by
+`tests/scripts/gen-qpdf-fixtures.ts`. QPDF is used here as a well-tested
+*producer* whose output better-pdf must read correctly — the same role qpdf
+already plays as a *validator* in tests/qpdf-validate.test.ts.
+
+The generator and the behavioral expectations were designed by reading QPDF's
+public test suite for the shapes it exercises (encryption R2–R6, object/xref
+streams, linearization, xref reconstruction). No QPDF source or fixture bytes
+are redistributed here.
+
+QPDF is copyright Jay Berkenbilt and is distributed under the Apache License,
+Version 2.0. See https://github.com/qpdf/qpdf and
+https://www.apache.org/licenses/LICENSE-2.0.
