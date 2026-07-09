@@ -162,8 +162,8 @@ fn describe_field(
     let ft = inherited_name(doc, d, b"FT").unwrap_or_default();
     let ff = inherited_int(doc, d, b"Ff").unwrap_or(0);
     let field_type = classify(&ft, ff).to_string();
-    let value = field_value(d, b"V");
-    let default_value = field_value(d, b"DV");
+    let value = field_value(doc, d, b"V");
+    let default_value = field_value(doc, d, b"DV");
 
     let mut states = Vec::new();
     collect_on_states(doc, d, &mut states);
@@ -177,8 +177,10 @@ fn describe_field(
 
     let options = d
         .get(b"Opt")
-        .and_then(|o| o.as_array())
-        .map(|a| a.iter().map(opt_export).collect())
+        .ok()
+        .map(|o| resolve(doc, o))
+        .and_then(|o| o.as_array().ok())
+        .map(|a| a.iter().map(|e| opt_export(doc, e)).collect())
         .unwrap_or_default();
 
     // `/MaxLen` is a text-field property; ignore it for other field types.
@@ -253,7 +255,7 @@ fn describe_field(
         comb: field_type == "text" && is_comb(ff),
         editable: field_type == "dropdown" && is_combo_edit(ff),
         align: quadding_to_align(inherited_int(doc, d, b"Q").unwrap_or(0)),
-        tooltip: d.get(b"TU").ok().and_then(value_to_string),
+        tooltip: d.get(b"TU").ok().and_then(|o| value_to_string(doc, o)),
         font_name,
         font_size,
         widgets,
@@ -359,6 +361,22 @@ pub(crate) fn has_xfa(doc: &Document) -> bool {
     acroform(doc).map(|a| a.has(b"XFA")).unwrap_or(false)
 }
 
+/// Follow Object::Reference chains (max 32 hops) to the target object.
+/// Non-references are returned as-is; a dangling reference returns itself.
+pub(crate) fn resolve<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
+    let mut cur = o;
+    for _ in 0..32 {
+        match cur {
+            Object::Reference(id) => match doc.get_object(*id) {
+                Ok(next) => cur = next,
+                Err(_) => return cur,
+            },
+            _ => return cur,
+        }
+    }
+    cur
+}
+
 pub(crate) fn as_dict<'a>(doc: &'a Document, o: &'a Object) -> Result<&'a Dictionary, String> {
     match o {
         Object::Reference(id) => doc.get_dictionary(*id).map_err(|e| e.to_string()),
@@ -428,24 +446,27 @@ fn inherited<'a>(doc: &'a Document, d: &'a Dictionary, key: &[u8]) -> Option<&'a
 /// Read a field's value-bearing entry (`/V` or `/DV`) as a string. Array
 /// values (multi-select choices) are joined with ", "; an empty array or a
 /// non-textual value yields `None`.
-fn field_value(d: &Dictionary, key: &[u8]) -> Option<String> {
-    d.get(key).ok().and_then(|o| match o {
-        Object::Array(a) => {
-            let parts: Vec<String> = a.iter().filter_map(value_to_string).collect();
-            if parts.is_empty() {
-                None
-            } else {
-                Some(parts.join(", "))
+fn field_value(doc: &Document, d: &Dictionary, key: &[u8]) -> Option<String> {
+    d.get(key)
+        .ok()
+        .map(|o| resolve(doc, o))
+        .and_then(|o| match o {
+            Object::Array(a) => {
+                let parts: Vec<String> = a.iter().filter_map(|e| value_to_string(doc, e)).collect();
+                if parts.is_empty() {
+                    None
+                } else {
+                    Some(parts.join(", "))
+                }
             }
-        }
-        other => value_to_string(other),
-    })
+            other => value_to_string(doc, other),
+        })
 }
 
-fn value_to_string(o: &Object) -> Option<String> {
-    match o {
+fn value_to_string(doc: &Document, o: &Object) -> Option<String> {
+    match resolve(doc, o) {
         Object::Name(n) => Some(String::from_utf8_lossy(n).into_owned()),
-        Object::String(_, _) => decode_text_string(o).ok(),
+        s @ Object::String(_, _) => decode_text_string(s).ok(),
         _ => None,
     }
 }
@@ -465,10 +486,13 @@ pub(crate) fn collect_on_states(doc: &Document, widget: &Dictionary, out: &mut V
     }
 }
 
-pub(crate) fn opt_export(o: &Object) -> String {
-    match o {
-        Object::Array(a) => a.first().and_then(value_to_string).unwrap_or_default(),
-        other => value_to_string(other).unwrap_or_default(),
+pub(crate) fn opt_export(doc: &Document, o: &Object) -> String {
+    match resolve(doc, o) {
+        Object::Array(a) => a
+            .first()
+            .and_then(|e| value_to_string(doc, e))
+            .unwrap_or_default(),
+        other => value_to_string(doc, other).unwrap_or_default(),
     }
 }
 
@@ -729,6 +753,22 @@ mod tests {
         assert!(names.contains(&"First Name 🚀"), "names were {names:?}");
         assert!(names.contains(&"Historical Figures 🐺"));
         assert!(names.contains(&"Choose A Gundam 🤖"));
+    }
+
+    #[test]
+    fn resolves_indirect_value_and_options() {
+        const FANCY: &[u8] = include_bytes!("../../../tests/fixtures/pdf-lib/fancy_fields.pdf");
+        let f = fields(FANCY);
+        let dropdown = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "Choose A Gundam 🤖")
+            .expect("dropdown present (requires Task 3)");
+        assert_eq!(dropdown["value"], "Dynames");
+        let opts = dropdown["options"].as_array().unwrap();
+        assert!(!opts.is_empty(), "indirect /Opt must be dereferenced");
+        assert!(opts.iter().any(|o| o == "Dynames"), "opts were {opts:?}");
     }
 
     #[test]

@@ -371,7 +371,7 @@ fn resolve_flags(
             ));
         }
 
-        let value = read_v_string(dict).unwrap_or_default();
+        let value = read_v_string(doc, dict).unwrap_or_default();
         let mut ap = ap_inputs(doc, field_id, dict, &op.name, new_ff, None, None)?;
         if let Some(ml) = write_max_len {
             ap.max_len = ml;
@@ -433,8 +433,8 @@ fn resolve_default_value(
         "text" | "dropdown" | "listbox" => {
             if (kind == "dropdown" || kind == "listbox")
                 && dv != "Off"
-                && has_opt(dict)
-                && dropdown_index(dict, dv).is_none()
+                && has_opt(doc, dict)
+                && dropdown_index(doc, dict, dv).is_none()
             {
                 return Err(format!("'{}' is not a valid option for {}", dv, op.name));
             }
@@ -509,12 +509,14 @@ fn resolve_reset(
             .unwrap_or_default();
         let options: Vec<String> = dict
             .get(b"Opt")
-            .and_then(|o| o.as_array())
-            .map(|a| a.iter().map(forms::opt_export).collect())
+            .ok()
+            .map(|o| forms::resolve(doc, o))
+            .and_then(|o| o.as_array().ok())
+            .map(|a| a.iter().map(|e| forms::opt_export(doc, e)).collect())
             .unwrap_or_default();
         let mut pairs: Vec<(i64, String)> = Vec::new();
         for v in &dv_values {
-            if let Some(i) = dropdown_index(dict, v) {
+            if let Some(i) = dropdown_index(doc, dict, v) {
                 pairs.push((i, v.clone()));
             }
         }
@@ -595,14 +597,16 @@ fn resolve_value(
             }
             let options: Vec<String> = dict
                 .get(b"Opt")
-                .and_then(|o| o.as_array())
-                .map(|a| a.iter().map(forms::opt_export).collect())
+                .ok()
+                .map(|o| forms::resolve(doc, o))
+                .and_then(|o| o.as_array().ok())
+                .map(|a| a.iter().map(|e| forms::opt_export(doc, e)).collect())
                 .unwrap_or_default();
             // Build (index, value) pairs so /V and /I stay positionally aligned
             // after sorting by index (PDF §12.7.4.4 requires /V to match /I order).
             let mut pairs: Vec<(i64, String)> = Vec::with_capacity(values.len());
             for v in values {
-                match dropdown_index(dict, v) {
+                match dropdown_index(doc, dict, v) {
                     Some(i) => pairs.push((i, v.clone())),
                     None => {
                         return Err(format!("'{}' is not a valid option for {}", v, op.name));
@@ -676,8 +680,8 @@ fn value_apply(
             }
         }
         "dropdown" | "listbox" => {
-            let index = dropdown_index(dict, value);
-            if validate_option && value != "Off" && index.is_none() && has_opt(dict) {
+            let index = dropdown_index(doc, dict, value);
+            if validate_option && value != "Off" && index.is_none() && has_opt(doc, dict) {
                 return Err(format!("'{}' is not a valid option for {}", value, name));
             }
             Apply::Dropdown {
@@ -772,8 +776,11 @@ fn ap_inputs(
 }
 
 /// Read a field's `/V` (current value) as a string, if present.
-fn read_v_string(dict: &Dictionary) -> Option<String> {
-    dict.get(b"V").ok().and_then(|o| decode_text_string(o).ok())
+fn read_v_string(doc: &Document, dict: &Dictionary) -> Option<String> {
+    dict.get(b"V")
+        .ok()
+        .map(|o| forms::resolve(doc, o))
+        .and_then(|o| decode_text_string(o).ok())
 }
 
 /// Effective /DA: field's own, else inherited, else AcroForm's, else default.
@@ -930,18 +937,20 @@ fn widget_has_state(doc: &Document, widget: &Dictionary, state: &str) -> bool {
     found.iter().any(|s| s == state)
 }
 
-fn has_opt(dict: &Dictionary) -> bool {
+fn has_opt(doc: &Document, dict: &Dictionary) -> bool {
     dict.get(b"Opt")
-        .and_then(|o| o.as_array())
+        .ok()
+        .map(|o| forms::resolve(doc, o))
+        .and_then(|o| o.as_array().ok())
         .map(|a| !a.is_empty())
         .unwrap_or(false)
 }
 
 /// Index of `value` within /Opt (matching export value), if present.
-fn dropdown_index(dict: &Dictionary, value: &str) -> Option<i64> {
-    let arr = dict.get(b"Opt").ok()?.as_array().ok()?;
+fn dropdown_index(doc: &Document, dict: &Dictionary, value: &str) -> Option<i64> {
+    let arr = forms::resolve(doc, dict.get(b"Opt").ok()?).as_array().ok()?;
     arr.iter()
-        .position(|o| forms::opt_export(o) == value)
+        .position(|o| forms::opt_export(doc, o) == value)
         .map(|i| i as i64)
 }
 
