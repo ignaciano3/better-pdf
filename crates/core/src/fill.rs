@@ -501,8 +501,13 @@ fn resolve_reset(
         let dv_values: Vec<String> = dict
             .get(b"DV")
             .ok()
+            .map(|o| forms::resolve(doc, o))
             .and_then(|o| match o {
-                Object::Array(a) => Some(a.iter().filter_map(read_object_string).collect()),
+                Object::Array(a) => Some(
+                    a.iter()
+                        .filter_map(|e| read_object_string(doc, e))
+                        .collect(),
+                ),
                 s @ Object::String(..) => decode_text_string(s).ok().map(|v| vec![v]),
                 _ => None,
             })
@@ -532,7 +537,7 @@ fn resolve_reset(
             },
         });
     }
-    let value = read_dv_string(dict).unwrap_or_else(|| match kind {
+    let value = read_dv_string(doc, dict).unwrap_or_else(|| match kind {
         "checkbox" | "radio" => "Off".to_string(),
         _ => String::new(),
     });
@@ -696,14 +701,17 @@ fn value_apply(
 
 /// Read a field's `/DV` (default value) as a string. Button fields store it as a
 /// Name; text/choice fields as a text string.
-fn read_dv_string(dict: &Dictionary) -> Option<String> {
-    dict.get(b"DV").ok().and_then(read_object_string)
+fn read_dv_string(doc: &Document, dict: &Dictionary) -> Option<String> {
+    dict.get(b"DV")
+        .ok()
+        .and_then(|o| read_object_string(doc, o))
 }
 
 /// Extract a string from a Name or text-string object (e.g. a `/DV` array
-/// element); returns `None` for other object types.
-fn read_object_string(o: &Object) -> Option<String> {
-    match o {
+/// element), dereferencing indirect references; returns `None` for other
+/// object types.
+fn read_object_string(doc: &Document, o: &Object) -> Option<String> {
+    match forms::resolve(doc, o) {
         Object::Name(n) => Some(String::from_utf8_lossy(n).into_owned()),
         s @ Object::String(..) => decode_text_string(s).ok(),
         _ => None,
@@ -1657,6 +1665,39 @@ mod tests {
             &[], false
         )
         .unwrap();
+        let filled = fill_fields_json(
+            &with_dv,
+            &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#),
+            &[], false
+        )
+        .unwrap();
+        assert_eq!(reparse_value(&filled, name).as_deref(), Some("OTHER"));
+        let reset = fill_fields_json(
+            &filled,
+            &format!(r#"[{{"name":"{name}","reset":true}}]"#),
+            &[], false
+        )
+        .unwrap();
+        assert_eq!(reparse_value(&reset, name).as_deref(), Some("DEF"));
+        Document::load_mem(&reset).unwrap();
+    }
+
+    #[test]
+    fn reset_restores_value_from_indirect_default() {
+        let name = "beneficiario.apellidos_nombres";
+        // Point the field's /DV at an indirect string object (as some writers do).
+        let mut doc = Document::load_mem(FICHA).unwrap();
+        let dv_id = doc.add_object(Object::String(
+            b"DEF".to_vec(),
+            StringFormat::Literal,
+        ));
+        let (field_id, _) = find_field(&doc, name).unwrap();
+        doc.get_dictionary_mut(field_id)
+            .unwrap()
+            .set("DV", Object::Reference(dv_id));
+        let mut with_dv = Vec::new();
+        doc.save_to(&mut with_dv).unwrap();
+
         let filled = fill_fields_json(
             &with_dv,
             &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#),
