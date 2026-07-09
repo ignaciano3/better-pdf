@@ -182,10 +182,13 @@ describe("fancy_fields.pdf form (pdf-lib PDFForm.spec)", () => {
   test("reads initial checkbox and radio values", async () => {
     const form = (await load("fancy_fields.pdf")).getForm();
     const val = (n: string) => form.getField(n)?.value;
-    expect(val("Are You A Fairy? 🌿")).toBeTruthy();
-    expect(val("Is Your Power Level Over 9000? 💪")).toBeFalsy();
-    expect(val("Can You Defeat Enemies In One Punch? 👊")).toBeTruthy();
-    expect(val("Will You Ever Let Me Down? ☕️")).toBeFalsy();
+    // pdf-lib's isChecked() ≡ value present and not "Off"; better-pdf reports
+    // the raw state name, so "Off" (a truthy string) means unchecked.
+    const checked = (n: string) => val(n) != null && val(n) !== "Off";
+    expect(checked("Are You A Fairy? 🌿")).toBe(true);
+    expect(checked("Is Your Power Level Over 9000? 💪")).toBe(false);
+    expect(checked("Can You Defeat Enemies In One Punch? 👊")).toBe(true);
+    expect(checked("Will You Ever Let Me Down? ☕️")).toBe(false);
     expect(val("Historical Figures 🐺")).toBe("Marcus Aurelius 🏛️");
   });
 
@@ -199,8 +202,12 @@ describe("fancy_fields.pdf form (pdf-lib PDFForm.spec)", () => {
     const out = await doc.save();
     const rf = (await PdfDocument.load(out)).getForm();
     expect(rf.getField("First Name 🚀")?.value).toBe("Dr. Slump");
-    expect(rf.getField("Is Your Power Level Over 9000? 💪")?.value).toBeTruthy();
-    expect(rf.getField("Are You A Fairy? 🌿")?.value).toBeFalsy();
+    const on = (n: string) => {
+      const v = rf.getField(n)?.value;
+      return v != null && v !== "Off";
+    };
+    expect(on("Is Your Power Level Over 9000? 💪")).toBe(true);
+    expect(on("Are You A Fairy? 🌿")).toBe(false);
     expect(rf.getField("Historical Figures 🐺")?.value).toBe("Alexander Hamilton 🇺🇸");
   });
 
