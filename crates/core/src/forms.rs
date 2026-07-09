@@ -145,7 +145,7 @@ fn append_orphan_widget_fields(
     let existing: std::collections::HashSet<&str> = out.iter().map(|f| f.name.as_str()).collect();
     let mut orphans: Vec<FieldInfo> = Vec::new();
     let mut added: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
-    for (_, &pid) in doc.get_pages().iter() {
+    for &pid in doc.get_pages().values() {
         let Ok(page) = doc.get_dictionary(pid) else {
             continue;
         };
@@ -233,7 +233,7 @@ fn walk_field(
 /// Acrobat merges fields by fully-qualified name, so we do too.
 fn annot_widgets_by_name(doc: &Document) -> HashMap<String, Vec<RawWidget>> {
     let mut map: HashMap<String, Vec<RawWidget>> = HashMap::new();
-    for (_, &pid) in doc.get_pages().iter() {
+    for &pid in doc.get_pages().values() {
         let Ok(page) = doc.get_dictionary(pid) else {
             continue;
         };

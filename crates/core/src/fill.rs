@@ -1091,7 +1091,7 @@ fn find_orphan_widget_field<'a>(
     doc: &'a Document,
     name: &str,
 ) -> Option<(ObjectId, &'a Dictionary)> {
-    for (_, &pid) in doc.get_pages().iter() {
+    for &pid in doc.get_pages().values() {
         let page = doc.get_dictionary(pid).ok()?;
         let Some(annots) = page
             .get(b"Annots")
