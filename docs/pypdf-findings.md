@@ -5,18 +5,25 @@ into `tests/pypdf-ported.test.ts` (2026-07-09). Items to revisit.
 
 ## Bugs
 
-### 1. AESV2 without `/Length` fails to decrypt
+### 1. AESV2 without `/Length` fails to decrypt — FIXED (workaround) + lopdf bug filed
 - **Fixture:** `tests/fixtures/pypdf/encryption/r4-aes-v2-no-key-length.pdf`
-- **Symptom:** `PdfDocument.load(bytes, { password: "" })` throws `IncorrectPasswordError`.
-- **Expected:** decrypts to a 1-page doc. When `/Encrypt` omits `/Length`, the key
-  length should default to 128-bit by reading the crypt-filter (`/CF`) dict, not the
-  spec's 40-bit default for the top-level dict.
-- **Root cause:** decryption is fully delegated to **lopdf 0.41**
-  (`crates/core/src/doc_io.rs`, `load_mem_with_options`), which defaults to 40-bit here.
-- **Fix options:** (a) upstream a fix to lopdf; (b) pre-inject `/Length 128` into the
-  `/Encrypt` dict before handing bytes to lopdf.
-- **Test:** `tests/pypdf-ported.test.ts` — `test.skip("r4-aes-v2-no-key-length ... KNOWN LIMITATION")`.
-  Unskip once fixed.
+- **Was:** `PdfDocument.load(bytes, { password: "" })` threw `IncorrectPasswordError`.
+- **Root cause (confirmed in lopdf 0.41):** PDF §7.6.1 fixes the V4 file-encryption-key
+  length at 128 bits, so a conforming V4 `/Encrypt` need not carry `/Length`. But
+  `encryption/algorithms.rs` `PasswordAlgorithm::try_from` sets `length` only from the
+  top-level `/Length` (never defaulting V4→128), and `compute_file_encryption_key_r4`
+  then does `self.length.unwrap_or(40)` → a 40-bit key → wrong key → `InvalidPassword`.
+  The one-line upstream fix is to default `length` to 128 for V=4 (256 for V=5) when
+  the entry is absent. See `docs/lopdf-v4-length-issue.md` for the issue write-up.
+- **Workaround (shipped):** `repair.rs` `inject_v4_length` — invoked **only after** a
+  decrypt attempt fails: it injects `/Length 128` into a V4 `/Encrypt` dict that lacks
+  a top-level `/Length` and rebuilds the file with a fresh xref, reusing the original
+  `trailer` verbatim so `/ID` (hashed into the key) stays byte-exact. `decrypt_pdf`
+  retries on the patched bytes. Because it runs post-failure, it can't affect
+  well-formed files. Classic-trailer files only (xref-stream files decline → `None`).
+- **Tests:** `tests/pypdf-ported.test.ts` "r4-aes-v2-no-key-length.pdf decrypts with
+  empty password" (unskipped). Rust: `doc_io::decrypts_v4_aes128_missing_length_entry`,
+  `doc_io::inject_v4_length_declines_non_matching_files`.
 
 ### 2. Filling a std-14 `/DA` font absent from `/DR` throws — FIXED
 - **Fixture:** `tests/fixtures/pypdf/issues/iss2670-f1040.pdf` (IRS Form 1040)

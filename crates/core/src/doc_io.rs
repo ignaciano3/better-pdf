@@ -34,9 +34,28 @@ pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
             doc.save_to(&mut out).map_err(|e| e.to_string())?;
             Ok(out)
         }
-        Err(lopdf::Error::InvalidPassword) => Err(format!(
-            "{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF"
-        )),
+        Err(lopdf::Error::InvalidPassword) => {
+            // lopdf mis-derives a 40-bit key for a V4 /Encrypt dict that omits
+            // the top-level /Length (spec fixes V4 at 128-bit). If this is that
+            // shape, inject /Length 128 and retry once before reporting a bad
+            // password. The retry only runs on an already-failed decrypt, so it
+            // cannot affect well-formed files.
+            if let Some(fixed) = crate::repair::inject_v4_length(data)
+                && let Ok(mut doc) = Document::load_mem_with_options(
+                    &fixed,
+                    lopdf::LoadOptions::with_password(password),
+                )
+                && doc.was_encrypted()
+            {
+                doc.trailer.remove(b"Encrypt");
+                let mut out = Vec::new();
+                doc.save_to(&mut out).map_err(|e| e.to_string())?;
+                return Ok(out);
+            }
+            Err(format!(
+                "{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF"
+            ))
+        }
         // Defensive / forward-compatible: lopdf 0.41 surfaces wrong passwords as
         // the load-time `InvalidPassword` above, but retain this arm in case a
         // future version raises a `Decryption` error during loading instead.
@@ -413,6 +432,29 @@ mod tests {
     #[test]
     fn decrypts_with_correct_password() {
         assert_decrypted_ficha(&decrypt_pdf(FICHA_RC4_PW, "secret").unwrap());
+    }
+
+    const AESV2_NO_LENGTH: &[u8] =
+        include_bytes!("../../../tests/fixtures/pypdf/encryption/r4-aes-v2-no-key-length.pdf");
+
+    #[test]
+    fn decrypts_v4_aes128_missing_length_entry() {
+        // A V4 /Encrypt dict without a top-level /Length: lopdf mis-derives a
+        // 40-bit key and rejects the password; the /Length-128 injection retry
+        // recovers it. Output must be plaintext and readable.
+        let out = decrypt_pdf(AESV2_NO_LENGTH, "").unwrap();
+        let doc = Document::load_mem(&out).unwrap();
+        assert!(!doc.trailer.has(b"Encrypt"), "must decrypt to plaintext");
+        assert_eq!(doc.get_pages().len(), 1);
+        // /Info survives so metadata is intact (the fixture's author is "cheng").
+        assert!(load_pdf(&out).is_ok(), "decrypted output must reload");
+    }
+
+    #[test]
+    fn inject_v4_length_declines_non_matching_files() {
+        // A plain PDF has no /Encrypt, so the fallback must decline (None),
+        // never fabricate a rebuild.
+        assert!(crate::repair::inject_v4_length(&plain_pdf_bytes()).is_none());
     }
 
     #[test]

@@ -118,6 +118,191 @@ fn dict_type_is(o: &Object, ty: &[u8]) -> bool {
         == Some(ty)
 }
 
+/// Normalize a V4 (`/V 4`) `/Encrypt` dictionary that omits the top-level
+/// `/Length` by injecting `/Length 128`, then rebuild the file with a fresh
+/// xref. Returns `None` when the pattern doesn't apply (no classic trailer, no
+/// V4 `/Encrypt`, or a top-level `/Length` already present) so the caller can
+/// fall back to its original error.
+///
+/// Why this exists: PDF §7.6.1 fixes the V4 file-encryption-key length at 128
+/// bits, so a conforming V4 `/Encrypt` need not carry `/Length`. lopdf 0.41,
+/// however, derives the key length from the top-level `/Length` and defaults to
+/// **40** bits when it is absent (`compute_file_encryption_key_r4`:
+/// `self.length.unwrap_or(40)`), computing the wrong key and rejecting the
+/// password. Making the field explicit (`/Length 128`) restores the correct
+/// key. Invoked only after a decrypt attempt has already failed, so it can
+/// never perturb the normal path — a bad rebuild just fails the retry too.
+pub(crate) fn inject_v4_length(data: &[u8]) -> Option<Vec<u8>> {
+    let (trailer_dict_start, trailer_dict_end) = find_trailer_dict(data)?;
+    let trailer = &data[trailer_dict_start..trailer_dict_end];
+    let encrypt_num = read_ref_num(trailer, b"/Encrypt")?;
+
+    let objs = scan_objects(data);
+    // Last occurrence of the object number wins (incremental updates).
+    let enc = objs.iter().rev().find(|o| o.num == encrypt_num)?;
+    let span = &data[enc.span.clone()];
+
+    // The top-level dict opens at the first `<<` after the `obj` keyword.
+    let open = find_keyword(span, b"<<")?;
+    let after_open = open + 2;
+    // Bail unless this is a V4 handler that is genuinely missing a top-level
+    // `/Length` (injecting a duplicate key would be worse than the bug).
+    if top_level_int(&span[after_open..], b"/V") != Some(4) {
+        return None;
+    }
+    if top_level_has_key(&span[after_open..], b"/Length") {
+        return None;
+    }
+
+    // Splice `/Length 128 ` in right after the top-level `<<`.
+    let mut patched: Vec<u8> = Vec::with_capacity(span.len() + 13);
+    patched.extend_from_slice(&span[..after_open]);
+    patched.extend_from_slice(b" /Length 128");
+    patched.extend_from_slice(&span[after_open..]);
+
+    Some(rebuild_preserving_trailer(data, &objs, encrypt_num, &patched, trailer))
+}
+
+/// The `<< … >>` byte range of the file's last `trailer` dictionary, or `None`
+/// for xref-stream files (which have no `trailer` keyword — deliberately
+/// unsupported here so we never mangle a compressed cross-reference).
+fn find_trailer_dict(data: &[u8]) -> Option<(usize, usize)> {
+    let kw = data
+        .windows(b"trailer".len())
+        .rposition(|w| w == b"trailer")?;
+    let mut i = kw + b"trailer".len();
+    while i < data.len() && !data[i..].starts_with(b"<<") {
+        if !matches!(data[i], b' ' | b'\t' | b'\r' | b'\n' | b'\0' | b'\x0c') {
+            return None;
+        }
+        i += 1;
+    }
+    let start = i;
+    // Balance `<<`/`>>` to find the matching close.
+    let mut depth = 0usize;
+    while i < data.len() {
+        if data[i..].starts_with(b"<<") {
+            depth += 1;
+            i += 2;
+        } else if data[i..].starts_with(b">>") {
+            depth -= 1;
+            i += 2;
+            if depth == 0 {
+                return Some((start, i));
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+/// Read `key N G R` from a dictionary's bytes, returning the object number `N`.
+fn read_ref_num(dict: &[u8], key: &[u8]) -> Option<u32> {
+    let at = find_keyword(dict, key)?;
+    let mut i = at + key.len();
+    skip_ws(dict, &mut i)?;
+    let num = read_uint(dict, &mut i)?;
+    skip_ws(dict, &mut i)?;
+    let _generation = read_uint(dict, &mut i)?;
+    skip_ws(dict, &mut i)?;
+    (dict.get(i) == Some(&b'R')).then_some(num as u32)
+}
+
+/// True when `key` appears at brace-depth 1 within `body` (the bytes just after
+/// a dict's opening `<<`), i.e. a direct entry rather than a nested one.
+fn top_level_has_key(body: &[u8], key: &[u8]) -> bool {
+    depth1_key_pos(body, key).is_some()
+}
+
+/// Read the integer value of a depth-1 `key` (e.g. `/V 4`), if present.
+fn top_level_int(body: &[u8], key: &[u8]) -> Option<i64> {
+    let at = depth1_key_pos(body, key)?;
+    let mut i = at + key.len();
+    skip_ws(body, &mut i)?;
+    // Handle an optional leading sign, then digits.
+    let neg = body.get(i) == Some(&b'-');
+    if neg {
+        i += 1;
+    }
+    let v = read_uint(body, &mut i)? as i64;
+    Some(if neg { -v } else { v })
+}
+
+/// Position of `key` at brace-depth 1 within `body` (bytes after the opening
+/// `<<` of the dict), skipping nested dictionaries.
+fn depth1_key_pos(body: &[u8], key: &[u8]) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut i = 0;
+    while i < body.len() {
+        if body[i..].starts_with(b"<<") {
+            depth += 1;
+            i += 2;
+        } else if body[i..].starts_with(b">>") {
+            if depth == 1 {
+                return None; // reached the end of this dict
+            }
+            depth -= 1;
+            i += 2;
+        } else if depth == 1 && body[i..].starts_with(key) {
+            return Some(i);
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+/// Re-emit every object (with `encrypt_num` replaced by `patched` bytes) under a
+/// fresh xref, reusing the original `trailer` dict verbatim so `/ID` (which the
+/// key derivation hashes) and `/Root`/`/Encrypt` survive byte-exact.
+fn rebuild_preserving_trailer(
+    data: &[u8],
+    objs: &[RawObj],
+    encrypt_num: u32,
+    patched: &[u8],
+    trailer: &[u8],
+) -> Vec<u8> {
+    use std::collections::BTreeMap;
+    let mut by_num: BTreeMap<u32, &RawObj> = BTreeMap::new();
+    for o in objs {
+        by_num.insert(o.num, o); // last occurrence wins
+    }
+
+    let mut out: Vec<u8> = b"%PDF-1.7\n%\xC7\xEC\x8F\xA2\n".to_vec();
+    let mut offsets: BTreeMap<u32, (u64, u16)> = BTreeMap::new();
+    for (&num, o) in &by_num {
+        offsets.insert(num, (out.len() as u64, o.generation));
+        let bytes: &[u8] = if num == encrypt_num {
+            patched
+        } else {
+            &data[o.span.clone()]
+        };
+        out.extend_from_slice(bytes);
+        if !out.ends_with(b"endobj") {
+            out.extend_from_slice(b"\nendobj");
+        }
+        out.push(b'\n');
+    }
+
+    let xref_pos = out.len();
+    let max_num = *offsets.keys().next_back().unwrap();
+    out.extend_from_slice(format!("xref\n0 {}\n", max_num + 1).as_bytes());
+    out.extend_from_slice(b"0000000000 65535 f \n");
+    for num in 1..=max_num {
+        match offsets.get(&num) {
+            Some(&(off, generation)) => {
+                out.extend_from_slice(format!("{off:010} {generation:05} n \n").as_bytes())
+            }
+            None => out.extend_from_slice(b"0000000000 65535 f \n"),
+        }
+    }
+    out.extend_from_slice(b"trailer\n");
+    out.extend_from_slice(trailer);
+    out.extend_from_slice(format!("\nstartxref\n{xref_pos}\n%%EOF\n").as_bytes());
+    out
+}
+
 /// Find every `N G obj` header outside stream data and delimit its span.
 fn scan_objects(data: &[u8]) -> Vec<RawObj> {
     // Precompute every occurrence of the keywords `skip_stream` needs, once,

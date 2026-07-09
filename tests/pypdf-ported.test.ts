@@ -85,12 +85,11 @@ describe("encryption matrix (pypdf resources/encryption)", () => {
     expect(doc.getPage(0).width).toBeGreaterThan(0);
   });
 
-  // pypdf test_aesv2_without_length_in_encrypt_dict: an AESV2 file that omits
-  // /Length from the main /Encrypt dict should default to 128-bit by reading the
-  // crypt-filter dict. lopdf 0.41 (better-pdf's decryptor) instead defaults to 40
-  // bits and fails to authenticate. Tracked as a known limitation — unskip once
-  // the underlying decryptor reads the crypt-filter length.
-  test.skip("r4-aes-v2-no-key-length.pdf decrypts with empty password (KNOWN LIMITATION)", async () => {
+  // pypdf test_aesv2_without_length_in_encrypt_dict: a V4 (AES-128) file that
+  // omits /Length from the main /Encrypt dict is fixed at 128-bit by spec. lopdf
+  // 0.41 defaults to 40 bits and fails to authenticate; better-pdf injects
+  // /Length 128 and retries so the file decrypts.
+  test("r4-aes-v2-no-key-length.pdf decrypts with empty password", async () => {
     const doc = await PdfDocument.load(bytes("encryption/r4-aes-v2-no-key-length.pdf"), { password: "" });
     expect(doc.getPageCount()).toBe(1);
   });
