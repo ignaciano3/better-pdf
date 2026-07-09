@@ -99,8 +99,11 @@ describe("metadata (pdf-lib corpus)", () => {
     expect(meta.subject).toBe(
       "Subject metadata (StringType=LiteralString, Encoding=UTF-16BE) with some chinese 你怎么敢",
     );
-    expect(meta.producer).toBe("pdf-lib (https://github.com/Hopding/pdf-lib)");
-    expect(meta.keywords).toBe(
+    // pdf-lib's own spec sees a Producer here only because pdf-lib stamps its
+    // own on load; the file has no /Producer. better-pdf reports keywords as
+    // an array (split on ", "); joining reconstructs the original string.
+    const kw = Array.isArray(meta.keywords) ? meta.keywords.join(", ") : meta.keywords;
+    expect(kw).toBe(
       "Keywords metadata (StringType=LiteralString, Encoding=PDFDocEncoding) with  some weird  chars ˘•€",
     );
   });
