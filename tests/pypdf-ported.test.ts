@@ -266,3 +266,116 @@ startxref
     expect(() => doc.getPageCount()).toThrow(PdfError);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tier 5 — Real-world issue fixtures (downloaded from pypdf GitHub issues).
+//   Fixtures under fixtures/pypdf/issues/ are the attachments referenced by the
+//   named pypdf regression tests. See docs/pypdf-findings.md for the gaps these
+//   surfaced in better-pdf (skipped tests below track them).
+// ---------------------------------------------------------------------------
+const iss = (name: string) => bytes(`issues/${name}`);
+const loadIss = (name: string) => PdfDocument.load(iss(name));
+
+describe("issue fixtures — forms (pypdf)", () => {
+  // pypdf test_form_button__v_value_should_be_name_object (issue #3115): a set
+  // button /V must serialize as a name object (/V /On), never a string (/V (/On)).
+  test("iss3115: checked button serializes /V as a name object", async () => {
+    const doc = await loadIss("iss3115-blank-form.pdf");
+    expect(doc.getForm().getField("Other")?.states).toEqual(["On"]);
+    doc.getForm().getCheckBox("Other").check();
+    const raw = Buffer.from(await doc.save()).toString("latin1");
+    expect(raw).toMatch(/\/V\s*\/On\b/);
+    expect(raw).not.toMatch(/\/V\s*\(On\)/);
+  });
+
+  // pypdf test_i_in_choice_fields (issue #2611): setting a choice value must not
+  // leave a stale selection index that overrides the displayed value.
+  test("iss2611: dropdown selection round-trips (choice /I not stale)", async () => {
+    const doc = await loadIss("iss2611-FRA.F.6180.150.pdf");
+    expect(doc.getForm().getField("State")?.options).toContain("NY");
+    doc.getForm().getDropdown("State").select("NY");
+    const reloaded = await PdfDocument.load(await doc.save());
+    expect(reloaded.getForm().getField("State")?.value).toBe("NY");
+  });
+
+  // pypdf test_field_box_upside_down (issue #2724): the widget's rectangle is
+  // flipped (top < bottom). Filling it must still produce a valid appearance and
+  // round-trip, not error out on the negative-height box.
+  test("iss2724: filling a flipped-BBox text field round-trips", async () => {
+    const doc = await loadIss("iss2724-FRA.F.6180.55.pdf");
+    const w = doc.getForm().getField("FreightTrainMiles")?.widgets[0]!;
+    expect(w.rect[1]).toBeGreaterThan(w.rect[3]); // confirm the box is flipped
+    doc.getForm().getTextField("FreightTrainMiles").setText("0");
+    const reloaded = await PdfDocument.load(await doc.save());
+    expect(reloaded.getForm().getField("FreightTrainMiles")?.value).toBe("0");
+  });
+
+  // pypdf test_get_fields (tika-972486): a checkbox button exposes its on-state.
+  // pypdf reports /_States_ == ["/On","/Off"]; better-pdf lists only the on-state
+  // ("On"), with "Off" implicit.
+  test("tika-972486: checkbox c1-1 exposes its on-state", async () => {
+    const doc = await loadIss("tika-972486.pdf");
+    expect(doc.getPageCount()).toBe(3);
+    const fields = doc.getForm().getFields();
+    expect(fields.length).toBeGreaterThan(100);
+    const c1 = doc.getForm().getField("c1-1");
+    expect(c1?.type).toBe("checkbox");
+    expect(c1?.states).toEqual(["On"]);
+  });
+
+  // pypdf test_get_full_qualified_fields: better-pdf reads the leaf text field but
+  // does NOT yet expand the parent/child hierarchy into "customer.name".
+  test("fields_with_dots: leaf text field reads its value", async () => {
+    const doc = await loadIss("fields_with_dots.pdf");
+    expect(doc.getForm().getField("other_field")?.value).toBe("Hello world!");
+  });
+
+  // pypdf test_looping_form (issue #2643): a deep/recursive field tree resolves
+  // without looping. better-pdf loads it and resolves top-level names; the deep
+  // dotted descendants are part of the hierarchy gap (see skip below).
+  test("iss2643: deep field tree loads and resolves top-level names", async () => {
+    const doc = await loadIss("iss2643-inheritance.pdf");
+    expect(doc.getPageCount()).toBe(26);
+    const names = doc.getForm().getFields().map((f) => f.name);
+    expect(names).toContain("Text10");
+    expect(names).toContain("DSS#3pg3#0hgu7");
+  });
+
+  // KNOWN LIMITATION — hierarchical dotted field names. pypdf resolves
+  // "customer.name"; better-pdf reports the parent "customer" as an unknown-type
+  // field and does not expose the terminal child. See docs/pypdf-findings.md.
+  test.skip("fields_with_dots: qualified child name customer.name is resolved", async () => {
+    const doc = await loadIss("fields_with_dots.pdf");
+    const names = doc.getForm().getFields().map((f) => f.name);
+    expect(names).toContain("customer.name");
+  });
+
+  // KNOWN LIMITATION — filling a field whose /DA names a standard-14 font that is
+  // absent from /DR throws instead of adding the font to the appearance's
+  // /Resources/Font (pypdf test_no_resource_for_14_std_fonts, issue #2670).
+  test.skip("iss2670: filling a std-14 /DA font absent from /DR", async () => {
+    const doc = await loadIss("iss2670-f1040.pdf");
+    const tf = doc.getForm().getFields().find((f) => f.type === "text")!;
+    doc.getForm().getTextField(tf.name).setText("Brooks");
+    const reloaded = await PdfDocument.load(await doc.save());
+    expect(reloaded.getForm().getField(tf.name)?.value).toBe("Brooks");
+  });
+});
+
+describe("issue fixtures — recovery (pypdf)", () => {
+  // pypdf test_truncated_xref (issue #2575): a truncated xref table is rebuilt.
+  test("iss2575: truncated xref rebuilds and pages are readable", async () => {
+    const doc = await loadIss("iss2575-libreoffice-broken.pdf");
+    expect(doc.getPageCount()).toBeGreaterThan(0);
+    const out = await doc.save();
+    expect((await PdfDocument.load(out)).getPageCount()).toBe(doc.getPageCount());
+  });
+
+  // KNOWN LIMITATION — pypdf test_corrupted_xref (issue #2516) recovers the
+  // catalog and pages; better-pdf loads without error but recovers 0 pages.
+  // See docs/pypdf-findings.md.
+  test.skip("iss2516: corrupted xref recovers the page tree", async () => {
+    const doc = await loadIss("iss2516.pdf");
+    expect(doc.getPageCount()).toBeGreaterThan(0);
+  });
+});
