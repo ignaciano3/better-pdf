@@ -6,7 +6,7 @@
 //   bun run tests/scripts/gen-qpdf-fixtures.ts
 //
 // See tests/fixtures/qpdf/LICENSE.qpdf for provenance.
-import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "fixtures", "qpdf");
@@ -38,8 +38,12 @@ const BASE = `%PDF-1.4
 4 0 obj<</Author(qpdf-fixture)>>endobj
 trailer<</Size 5/Root 1 0 R/Info 4 0 R>>
 %%EOF`;
+// The raw string has no xref table, so qpdf reconstructs it (a warning) on every
+// read. Normalize it once into a clean base.pdf so the downstream --encrypt /
+// object-stream calls read a well-formed file and stay quiet.
+const rawBase = join(ROOT, "base-raw.pdf");
 const basePath = join(ROOT, "base.pdf");
-writeFileSync(basePath, BASE);
+writeFileSync(rawBase, BASE);
 
 function qpdf(args: string[], out: string) {
   const r = Bun.spawnSync(["qpdf", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -50,13 +54,21 @@ function qpdf(args: string[], out: string) {
   console.log(`  wrote ${out}`);
 }
 
+// Normalize the raw base into a clean, well-formed base.pdf (qpdf reconstructs
+// the missing xref here, once, instead of on every downstream call).
+qpdf([rawBase, basePath], "base.pdf");
+
 // --- Encryption matrix (mirrors QPDF's --encrypt key-length / revision cases) ---
-// Signature: qpdf --encrypt <user> <owner> <bits> [opts] -- in out
+// Signature: qpdf [globals] --encrypt <user> <owner> <bits> [opts] -- in out
+// Modern qpdf (11+) refuses to *write* RC4 (the R2/R3 revisions) unless
+// --allow-weak-crypto is passed — RC4 is exactly the legacy scheme a reader must
+// still handle, so we opt in for those cases. AES (R4/R6) needs no such flag.
+const WEAK = "--allow-weak-crypto";
 console.log("encryption/");
-qpdf(["--encrypt", "", "", "40", "--", basePath, join(ENC, "r2-rc4-40-empty.pdf")], "r2-rc4-40-empty.pdf");
-qpdf(["--encrypt", "", "", "128", "--use-aes=n", "--", basePath, join(ENC, "r3-rc4-128-empty.pdf")], "r3-rc4-128-empty.pdf");
+qpdf([WEAK, "--encrypt", "", "", "40", "--", basePath, join(ENC, "r2-rc4-40-empty.pdf")], "r2-rc4-40-empty.pdf");
+qpdf([WEAK, "--encrypt", "", "", "128", "--use-aes=n", "--", basePath, join(ENC, "r3-rc4-128-empty.pdf")], "r3-rc4-128-empty.pdf");
 qpdf(["--encrypt", "", "", "256", "--", basePath, join(ENC, "r6-aes-256-empty.pdf")], "r6-aes-256-empty.pdf");
-qpdf(["--encrypt", "asdfzxcv", "", "40", "--", basePath, join(ENC, "r2-rc4-40-user.pdf")], "r2-rc4-40-user.pdf");
+qpdf([WEAK, "--encrypt", "asdfzxcv", "", "40", "--", basePath, join(ENC, "r2-rc4-40-user.pdf")], "r2-rc4-40-user.pdf");
 qpdf(["--encrypt", "asdfzxcv", "", "128", "--use-aes=y", "--", basePath, join(ENC, "r4-aes-128-user.pdf")], "r4-aes-128-user.pdf");
 // A file with distinct non-empty user AND owner passwords, so a wrong password
 // authenticates against neither (empty-owner files open as owner for any string).
@@ -67,7 +79,7 @@ console.log("structure/");
 qpdf(["--object-streams=generate", "--compress-streams=y", "--", basePath, join(STRUCT, "object-streams.pdf")], "object-streams.pdf");
 qpdf(["--linearize", "--", basePath, join(STRUCT, "linearized.pdf")], "linearized.pdf");
 
+// base.pdf is kept as the plaintext oracle for the encryption tests; drop the
+// pre-normalization raw copy.
+rmSync(rawBase, { force: true });
 console.log("done.");
-if (existsSync(basePath)) {
-  // keep base.pdf: it's the plaintext oracle for the encryption round-trip tests.
-}

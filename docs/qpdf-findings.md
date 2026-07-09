@@ -62,9 +62,23 @@ clear message if qpdf is absent.
 
 ## Findings
 
-_None yet — Tiers 2–3 have not been run against generated fixtures. Record any
-gaps QPDF-produced files surface here, in the numbered style of
-`docs/pypdf-findings.md` (Was / Root cause / Fix / Tests)._
+### G1. Generator — modern qpdf refuses to write RC4 — FIXED (generator flag)
+- **Surfaced:** first CI run of the generator. qpdf 11+ exits 2 with "refusing to
+  write a file with RC4, a weak cryptographic algorithm" for the R2 (RC4-40) and
+  R3 (RC4-128) `--encrypt` cases.
+- **Fix:** pass `--allow-weak-crypto` on the RC4 invocations only (AES R4/R6 need
+  no flag). RC4 is exactly the legacy scheme a *reader* must still handle, so the
+  fixtures are worth producing. See `gen-qpdf-fixtures.ts`.
+
+### G2. Generator — raw base triggers reconstruction warnings — FIXED (normalize once)
+- **Surfaced:** same run. The hand-written `base.pdf` has no xref table, so qpdf
+  reconstructs it (a warning) on every `--encrypt` call — noisy and fragile.
+- **Fix:** normalize the raw string through `qpdf raw base.pdf` once up front so
+  all downstream calls read a clean, well-formed file.
+
+_Reader-side findings (better-pdf failing to read a qpdf-produced file) go below,
+in the numbered style of `docs/pypdf-findings.md` (Was / Root cause / Fix / Tests).
+None yet — pending the first green generator run._
 
 ## Candidate future tiers (QPDF areas not yet touched)
 - **Free-object / generation-number** handling (reused object numbers across
