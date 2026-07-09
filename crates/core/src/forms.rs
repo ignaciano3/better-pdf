@@ -162,9 +162,6 @@ fn describe_field(
     let ft = inherited_name(doc, d, b"FT").unwrap_or_default();
     let ff = inherited_int(doc, d, b"Ff").unwrap_or(0);
     let field_type = classify(&ft, ff).to_string();
-    let value = field_value(doc, d, b"V");
-    let default_value = field_value(doc, d, b"DV");
-
     let mut states = Vec::new();
     collect_on_states(doc, d, &mut states);
     if let Ok(kids) = d.get(b"Kids").and_then(|o| o.as_array()) {
@@ -175,13 +172,31 @@ fn describe_field(
         }
     }
 
-    let options = d
+    let options: Vec<String> = d
         .get(b"Opt")
         .ok()
         .map(|o| resolve(doc, o))
         .and_then(|o| o.as_array().ok())
         .map(|a| a.iter().map(|e| opt_export(doc, e)).collect())
         .unwrap_or_default();
+
+    let value = field_value(doc, d, b"V");
+    let default_value = field_value(doc, d, b"DV");
+
+    // Radio /Opt semantics (PDF 32000-1 §12.7.4.2.3): when /Opt is present the
+    // widget on-states are indices into it; surface the /Opt label instead.
+    let map_opt = |v: Option<String>| -> Option<String> {
+        let v = v?;
+        if field_type == "radio" && !options.is_empty()
+            && let Ok(i) = v.parse::<usize>()
+            && let Some(label) = options.get(i)
+        {
+            return Some(label.clone());
+        }
+        Some(v)
+    };
+    let value = map_opt(value);
+    let default_value = map_opt(default_value);
 
     // `/MaxLen` is a text-field property; ignore it for other field types.
     let max_length = if field_type == "text" {
@@ -769,6 +784,20 @@ mod tests {
         let opts = dropdown["options"].as_array().unwrap();
         assert!(!opts.is_empty(), "indirect /Opt must be dereferenced");
         assert!(opts.iter().any(|o| o == "Dynames"), "opts were {opts:?}");
+    }
+
+    #[test]
+    fn radio_value_maps_through_opt() {
+        const FANCY: &[u8] = include_bytes!("../../../tests/fixtures/pdf-lib/fancy_fields.pdf");
+        let f = fields(FANCY);
+        let radio = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "Historical Figures 🐺")
+            .unwrap();
+        assert_eq!(radio["type"], "radio");
+        assert_eq!(radio["value"], "Marcus Aurelius 🏛️");
     }
 
     #[test]

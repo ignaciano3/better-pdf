@@ -678,9 +678,15 @@ fn value_apply(
             }
         }
         "checkbox" | "radio" => {
-            let widgets = button_widgets(doc, field_id, dict, value)?;
+            let (effective, widgets) = match button_widgets(doc, field_id, dict, value) {
+                Ok(w) => (value.to_string(), w),
+                Err(e) => match opt_index_state(doc, dict, value) {
+                    Some(idx) => (idx.clone(), button_widgets(doc, field_id, dict, &idx)?),
+                    None => return Err(e),
+                },
+            };
             Apply::Button {
-                value: value.to_string(),
+                value: effective,
                 widgets,
             }
         }
@@ -960,6 +966,15 @@ fn dropdown_index(doc: &Document, dict: &Dictionary, value: &str) -> Option<i64>
     arr.iter()
         .position(|o| forms::opt_export(doc, o) == value)
         .map(|i| i as i64)
+}
+
+/// When a radio group carries /Opt, its on-states are indices; translate an
+/// /Opt label to its index state ("Marcus Aurelius 🏛️" -> "0").
+fn opt_index_state(doc: &Document, dict: &Dictionary, label: &str) -> Option<String> {
+    let arr = forms::resolve(doc, dict.get(b"Opt").ok()?).as_array().ok()?;
+    arr.iter()
+        .position(|o| forms::opt_export(doc, o) == label)
+        .map(|i| i.to_string())
 }
 
 /// Walk /AcroForm/Fields (and /Kids) to find the field whose fully-qualified
@@ -1820,6 +1835,22 @@ mod tests {
             reparse_value(&out, "beneficiario.tipo_beneficiario").as_deref(),
             Some("Titular")
         );
+    }
+
+    #[test]
+    fn radio_select_accepts_opt_label() {
+        const FANCY: &[u8] = include_bytes!("../../../tests/fixtures/pdf-lib/fancy_fields.pdf");
+        let ops = r#"[{"name":"Historical Figures 🐺","value":"Alexander Hamilton 🇺🇸"}]"#;
+        let out = fill_fields_json(FANCY, ops, &[], false).unwrap();
+        let fields: serde_json::Value =
+            serde_json::from_str(&crate::forms::read_fields_json(&out).unwrap()).unwrap();
+        let radio = fields
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "Historical Figures 🐺")
+            .unwrap();
+        assert_eq!(radio["value"], "Alexander Hamilton 🇺🇸");
     }
 
     #[test]

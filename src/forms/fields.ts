@@ -426,7 +426,7 @@ export class PdfRadioGroup<Opt extends string = string> extends PdfField {
    * ```
    */
   get options(): string[] {
-    return this.info.states;
+    return this.info.options.length ? this.info.options : this.info.states;
   }
   /**
    * Select one radio option by its real export value.
@@ -441,7 +441,7 @@ export class PdfRadioGroup<Opt extends string = string> extends PdfField {
    * ```
    */
   select(value: Opt): void {
-    this.applyChoice(this.info.states, "radio", value, false, false);
+    this.applyChoice(this.options, "radio", value, false, false);
   }
 
   /**
@@ -460,7 +460,7 @@ export class PdfRadioGroup<Opt extends string = string> extends PdfField {
    * ```
    */
   setDefaultSelected(value: Opt): void {
-    this.applyChoice(this.info.states, "radio", value, true, false);
+    this.applyChoice(this.options, "radio", value, true, false);
   }
 }
 
