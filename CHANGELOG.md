@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-08
+
+### Added
+
+- **Recovery loader**: PDFs with broken or missing xref tables/trailers, junk
+  before the `%PDF` header, invalid `/Root` references, or missing
+  `endstream`/`endobj` keywords are now repaired on load instead of failing
+  (ported pdf-lib robustness corpus).
+- Test suite: added `tests/pdf-lib-ported.test.ts` (65 behavioral tests ported
+  from pdf-lib) plus its fixture corpus under `tests/fixtures/pdf-lib/`.
+
+### Fixed
+
+- Field names stored as UTF-16BE text strings (FE FF BOM) are decoded
+  correctly (affects lookup, fill, and flatten by name).
+- Indirect references in `/V`, `/DV`, and `/Opt` are dereferenced when
+  reading and filling fields.
+- Radio groups with `/Opt` report and accept the option label instead
+  of the raw index on-state; TS API options via `PdfRadioGroup.select()`
+  now surface `/Opt` labels.
+
 ## [1.12.1] - 2026-07-08
 
 ### Fixed
