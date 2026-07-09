@@ -108,6 +108,22 @@ describe("PdfDocument.isEncrypted (pypdf reader.is_encrypted)", () => {
   });
 });
 
+// pypdf decrypt() returns a PasswordType (USER/OWNER) — classify the password.
+describe("PdfDocument.passwordType (pypdf PasswordType)", () => {
+  test("distinguishes owner, user, wrong, and unencrypted", async () => {
+    const both = bytes("encryption/r6-both-passwords.pdf"); // user=foo, owner=bar
+    expect(await PdfDocument.passwordType(both, "bar")).toBe("owner");
+    expect(await PdfDocument.passwordType(both, "foo")).toBe("user");
+    expect(await PdfDocument.passwordType(both, "nope")).toBe(null);
+    // owner="asdfzxcv", empty user.
+    const owner = bytes("encryption/r6-owner-password.pdf");
+    expect(await PdfDocument.passwordType(owner, "asdfzxcv")).toBe("owner");
+    expect(await PdfDocument.passwordType(owner, "")).toBe("user");
+    // Unencrypted → no password type.
+    expect(await PdfDocument.passwordType(bytes("encryption/unencrypted.pdf"), "")).toBe(null);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tier 2 — Form field value semantics (pypdf test_reader.py / test_writer.py)
 // ---------------------------------------------------------------------------

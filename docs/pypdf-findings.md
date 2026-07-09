@@ -109,9 +109,23 @@ into `tests/pypdf-ported.test.ts` (2026-07-09). Items to revisit.
 - **Tests:** `tests/pypdf-ported.test.ts` "PdfDocument.isEncrypted ..."; Rust
   `doc_io::is_encrypted_detects_encrypted_and_plain`, `is_encrypted_false_on_garbage`.
 
-### 7. User-vs-owner password-type reporting
-pypdf's `decrypt()` returns `PasswordType.USER_PASSWORD` / `OWNER_PASSWORD`. better-pdf
-just opens. Relevant for permission-aware flows.
+### 7. User-vs-owner password-type reporting — ADDED
+- **API:** `await PdfDocument.passwordType(bytes, password): "owner" | "user" | null`
+  — classifies how a password authorizes an encrypted PDF (owner = full access,
+  user = restricted). `null` when it authenticates neither (wrong password) or the
+  file is not an encrypted classic-`trailer` PDF. Owner wins when both checks pass.
+- **Impl:** lopdf's loader eagerly decrypts and strips `/Encrypt`, and its public
+  `authenticate_owner_password`/`authenticate_user_password` need a retained
+  `/Encrypt` — so `doc_io::password_type` authenticates against a minimal plaintext
+  probe (`repair::build_encrypt_probe`) carrying just the `/Encrypt` dict + `/ID`,
+  with `/Encrypt` re-pointed on the loaded probe. Verified correct across R2/R4/R6
+  (incl. empty-owner: `""` → owner, since an empty owner password grants owner
+  access). **Limitation:** xref-stream encrypted files return `null` (no classic
+  trailer to probe).
+- **Tests:** `tests/pypdf-ported.test.ts` "PdfDocument.passwordType ..."; Rust
+  `doc_io::password_type_classifies_user_vs_owner`,
+  `password_type_reports_owner_for_owner_password_and_user_for_user`,
+  `password_type_none_for_unencrypted`.
 
 ## Ported (Tier 5, issue fixtures under `fixtures/pypdf/issues/`)
 

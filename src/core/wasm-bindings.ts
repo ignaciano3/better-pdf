@@ -10,6 +10,7 @@ import type { CoreWasm } from "./document.js";
 export interface RawBindings {
   decrypt_pdf(data: Uint8Array, password: string): Uint8Array;
   is_encrypted(data: Uint8Array): boolean;
+  password_type(data: Uint8Array, password: string): string | undefined;
   read_fields(data: Uint8Array): string;
   fill_fields(data: Uint8Array, opsJson: string, images: Uint8Array, compress: boolean): Uint8Array;
   flatten_fields(data: Uint8Array, namesJson: string, compress: boolean): Uint8Array;
@@ -76,6 +77,8 @@ export function makeBindings(raw: RawBindings, guard: () => void = () => {}): Co
   return {
     decryptPdf: (data, password) => (guard(), raw.decrypt_pdf(data, password)),
     isEncrypted: (data) => (guard(), raw.is_encrypted(data)),
+    passwordType: (data, password) =>
+      (guard(), (raw.password_type(data, password) ?? null) as "owner" | "user" | null),
     readFields: (data) => (guard(), raw.read_fields(data)),
     fillFields: (data, opsJson, images, compress = true) =>
       (guard(), raw.fill_fields(data, opsJson, images, compress)),

@@ -114,6 +114,7 @@ function buildPageIndexResolver(
 export interface CoreWasm {
   decryptPdf(data: Uint8Array, password: string): Uint8Array;
   isEncrypted(data: Uint8Array): boolean;
+  passwordType(data: Uint8Array, password: string): "owner" | "user" | null;
   readFields(data: Uint8Array): string;
   fillFields(data: Uint8Array, opsJson: string, images: Uint8Array, compress?: boolean): Uint8Array;
   flattenFields(data: Uint8Array, namesJson: string, compress?: boolean): Uint8Array;
@@ -950,6 +951,16 @@ export class PdfDocumentBase {
   ): boolean {
     const raw = input instanceof Uint8Array ? input : new Uint8Array(input);
     return wasmBinding.isEncrypted(raw);
+  }
+
+  /** @internal Shared `PdfDocument.passwordType` body. */
+  protected static passwordTypeImpl(
+    wasmBinding: CoreWasm,
+    input: Uint8Array | ArrayBuffer,
+    password: string,
+  ): "owner" | "user" | null {
+    const raw = input instanceof Uint8Array ? input : new Uint8Array(input);
+    return wasmBinding.passwordType(raw, password);
   }
 
   /** @internal Shared `PdfDocument.assemble` body. */

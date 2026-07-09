@@ -118,6 +118,71 @@ fn dict_type_is(o: &Object, ty: &[u8]) -> bool {
         == Some(ty)
 }
 
+/// Build a minimal **plaintext** PDF that carries the original file's `/Encrypt`
+/// dictionary as a regular object plus its trailer `/ID`, but with no `/Encrypt`
+/// in the trailer — so lopdf loads it without attempting decryption. The caller
+/// re-points the trailer at the dict and uses lopdf's public
+/// `authenticate_owner_password` / `authenticate_user_password` to classify a
+/// password (user vs owner) without ever decrypting the real document.
+///
+/// Returns `None` for xref-stream files (no classic `trailer`) or when the
+/// `/Encrypt` object or `/ID` can't be located.
+pub(crate) fn build_encrypt_probe(data: &[u8]) -> Option<Vec<u8>> {
+    let (ts, te) = find_trailer_dict(data)?;
+    let trailer = &data[ts..te];
+    let id = bracketed_value(trailer, b"/ID")?; // "[<..><..>]" incl. brackets
+    let encrypt_num = read_ref_num(trailer, b"/Encrypt")?;
+    let objs = scan_objects(data);
+    let enc = objs.iter().rev().find(|o| o.num == encrypt_num)?;
+    let dict = balanced_dict(&data[enc.span.clone()])?; // "<< … >>"
+
+    let mut out: Vec<u8> = b"%PDF-1.7\n".to_vec();
+    let off1 = out.len();
+    out.extend_from_slice(b"1 0 obj\n");
+    out.extend_from_slice(dict);
+    out.extend_from_slice(b"\nendobj\n");
+    let off2 = out.len();
+    out.extend_from_slice(b"2 0 obj\n<< /Type /Catalog >>\nendobj\n");
+    let xref = out.len();
+    out.extend_from_slice(b"xref\n0 3\n0000000000 65535 f \n");
+    out.extend_from_slice(format!("{off1:010} 00000 n \n{off2:010} 00000 n \n").as_bytes());
+    out.extend_from_slice(b"trailer\n<< /Root 2 0 R /Size 3 /ID ");
+    out.extend_from_slice(id);
+    out.extend_from_slice(format!(" >>\nstartxref\n{xref}\n%%EOF\n").as_bytes());
+    Some(out)
+}
+
+/// The `<< … >>` slice of `span` (its first balanced dictionary).
+fn balanced_dict(span: &[u8]) -> Option<&[u8]> {
+    let start = find_keyword(span, b"<<")?;
+    let mut depth = 0usize;
+    let mut i = start;
+    while i < span.len() {
+        if span[i..].starts_with(b"<<") {
+            depth += 1;
+            i += 2;
+        } else if span[i..].starts_with(b">>") {
+            depth -= 1;
+            i += 2;
+            if depth == 0 {
+                return Some(&span[start..i]);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+/// The `[ … ]` slice (incl. brackets) of the value of `key` within `dict`.
+/// Assumes bracket contents have no nested `]` (true for `/ID`'s hex strings).
+fn bracketed_value<'a>(dict: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
+    let at = find_keyword(dict, key)?;
+    let open = at + dict[at..].iter().position(|&b| b == b'[')?;
+    let close = open + dict[open..].iter().position(|&b| b == b']')?;
+    Some(&dict[open..=close])
+}
+
 /// True when the raw bytes carry an `/Encrypt` trailer reference outside any
 /// object span — the same trailer-only test `repair_load` uses to refuse
 /// repairing an encrypted file. Used as `is_encrypted`'s fallback when the

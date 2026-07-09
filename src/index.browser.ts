@@ -68,6 +68,18 @@ export class PdfDocument extends PdfDocumentBase {
     return PdfDocumentBase.isEncryptedImpl(wasm, input);
   }
 
+  /**
+   * Classify how a password authorizes an encrypted PDF (`"owner"` / `"user"` /
+   * `null`). See {@link PdfDocument.passwordType} in the Node build.
+   */
+  static async passwordType(
+    input: Uint8Array | ArrayBuffer,
+    password: string,
+  ): Promise<"owner" | "user" | null> {
+    await initializeWasm();
+    return PdfDocumentBase.passwordTypeImpl(wasm, input, password);
+  }
+
   /** Create a new, empty document. Add pages with {@link PdfDocument.addPage}. */
   static async create(): Promise<PdfDocument> {
     await initializeWasm();

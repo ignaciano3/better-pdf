@@ -243,6 +243,14 @@ pub fn is_encrypted(data: &[u8]) -> bool {
     doc_io::is_encrypted(data)
 }
 
+/// Classify how `password` authorizes an encrypted PDF: `"owner"`, `"user"`, or
+/// `undefined` when it authenticates neither (wrong password) or the file isn't
+/// an encrypted classic-trailer PDF.
+#[wasm_bindgen]
+pub fn password_type(data: &[u8], password: &str) -> Option<String> {
+    doc_io::password_type(data, password).map(|s| s.to_string())
+}
+
 /// Internal re-exports for the fuzz targets in `fuzz/`. Not a public API.
 #[doc(hidden)]
 pub mod fuzz_api {

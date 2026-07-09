@@ -29,6 +29,7 @@ function ensureInitialized(): void {
 export const {
   decryptPdf,
   isEncrypted,
+  passwordType,
   readFields,
   fillFields,
   flattenFields,

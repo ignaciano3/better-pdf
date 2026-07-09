@@ -82,6 +82,34 @@ pub fn is_encrypted(data: &[u8]) -> bool {
     }
 }
 
+/// Classify how `password` authorizes an encrypted PDF: `"owner"` (full
+/// access), `"user"` (restricted access), or `None` when it authenticates
+/// neither role (wrong password) or the document isn't encrypted / can't be
+/// probed. Owner is reported when the owner check passes, even if the user
+/// check would too (owner grants a superset of access) — matching pypdf's
+/// `PasswordType`.
+///
+/// lopdf's loader eagerly decrypts and strips `/Encrypt`, and its
+/// `authenticate_*_password` need a retained `/Encrypt`; so we authenticate
+/// against a minimal plaintext probe carrying just the `/Encrypt` dict and
+/// `/ID` (`repair::build_encrypt_probe`) rather than the live document.
+/// Limited to classic-`trailer` files — xref-stream encrypted files return
+/// `None`.
+pub fn password_type(data: &[u8], password: &str) -> Option<&'static str> {
+    let probe = crate::repair::build_encrypt_probe(data)?;
+    let mut doc = Document::load_mem(&probe).ok()?;
+    // The probe deliberately omits /Encrypt from its trailer (so lopdf loads it
+    // as plaintext); wire it back to the embedded dict for authentication.
+    doc.trailer.set("Encrypt", Object::Reference((1, 0)));
+    if doc.authenticate_owner_password(password).is_ok() {
+        return Some("owner");
+    }
+    if doc.authenticate_user_password(password).is_ok() {
+        return Some("user");
+    }
+    None
+}
+
 /// Map a lopdf decryption error to one of our stable prefixes.
 fn classify_decryption_error(de: lopdf::encryption::DecryptionError) -> String {
     use lopdf::encryption::DecryptionError::{
@@ -485,6 +513,36 @@ mod tests {
     #[test]
     fn is_encrypted_false_on_garbage() {
         assert!(!is_encrypted(b"not a pdf at all"));
+    }
+
+    fn enc(file: &str) -> Vec<u8> {
+        std::fs::read(format!("../../tests/fixtures/pypdf/encryption/{file}")).unwrap()
+    }
+
+    #[test]
+    fn password_type_classifies_user_vs_owner() {
+        // Genuinely distinct non-empty passwords (user=foo, owner=bar).
+        assert_eq!(password_type(&enc("r6-both-passwords.pdf"), "bar"), Some("owner"));
+        assert_eq!(password_type(&enc("r6-both-passwords.pdf"), "foo"), Some("user"));
+        // Wrong password authenticates neither role.
+        assert_eq!(password_type(&enc("r6-both-passwords.pdf"), "nope"), None);
+    }
+
+    #[test]
+    fn password_type_reports_owner_for_owner_password_and_user_for_user() {
+        // owner="asdfzxcv", empty user: the owner password → owner, "" → user.
+        assert_eq!(password_type(&enc("r6-owner-password.pdf"), "asdfzxcv"), Some("owner"));
+        assert_eq!(password_type(&enc("r6-owner-password.pdf"), ""), Some("user"));
+        // user="asdfzxcv", empty owner: the user password → user, "" → owner
+        // (an empty owner password grants owner access to any opener).
+        assert_eq!(password_type(&enc("r6-user-password.pdf"), "asdfzxcv"), Some("user"));
+        assert_eq!(password_type(&enc("r6-user-password.pdf"), ""), Some("owner"));
+    }
+
+    #[test]
+    fn password_type_none_for_unencrypted() {
+        assert_eq!(password_type(&enc("unencrypted.pdf"), ""), None);
+        assert_eq!(password_type(&plain_pdf_bytes(), "anything"), None);
     }
 
     #[test]

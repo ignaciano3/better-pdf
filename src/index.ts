@@ -75,6 +75,31 @@ export class PdfDocument extends PdfDocumentBase {
     return PdfDocumentBase.isEncryptedImpl(wasm, input);
   }
 
+  /**
+   * Classify how a password authorizes an encrypted PDF: `"owner"` (full
+   * access) or `"user"` (restricted access). Returns `null` when the password
+   * authenticates neither role (wrong password) or the document is not an
+   * encrypted classic-`trailer` PDF.
+   *
+   * Owner is reported when the password satisfies the owner check even if it
+   * would also satisfy the user check, since owner access is a superset.
+   *
+   * @param input - The bytes of a PDF file.
+   * @param password - The password to classify (use `""` for the common
+   *   owner-locked case).
+   *
+   * @example
+   * ```ts
+   * const kind = await PdfDocument.passwordType(bytes, pw); // "owner" | "user" | null
+   * ```
+   */
+  static async passwordType(
+    input: Uint8Array | ArrayBuffer,
+    password: string,
+  ): Promise<"owner" | "user" | null> {
+    return PdfDocumentBase.passwordTypeImpl(wasm, input, password);
+  }
+
   /** Create a new, empty document. Add pages with {@link PdfDocument.addPage}. */
   static async create(): Promise<PdfDocument> {
     return new PdfDocument(new Uint8Array(), wasm, "create");
