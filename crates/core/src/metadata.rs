@@ -1,6 +1,6 @@
 //! Metadata module: read and incrementally write the PDF Info dictionary.
 
-use lopdf::{Dictionary, Document, IncrementalDocument, Object, StringFormat};
+use lopdf::{Dictionary, Document, IncrementalDocument, Object, StringFormat, decode_text_string};
 use serde::{Deserialize, Serialize};
 
 /// Representation of the PDF Info dictionary entries.
@@ -57,26 +57,9 @@ pub(crate) fn build_info_dict(meta: &Metadata) -> Dictionary {
 }
 
 /// Helper: extract a String value from a PDF string Object.
-/// Detects UTF-16BE by the FE FF BOM; otherwise falls back to lossy UTF-8.
+/// Handles UTF-16BE (with BOM) and PDFDocEncoding via decode_text_string.
 fn get_str(dict: &Dictionary, key: &[u8]) -> Option<String> {
-    match dict.get(key) {
-        Ok(Object::String(bytes, _)) => {
-            if bytes.starts_with(&[0xFE, 0xFF]) {
-                // UTF-16BE: skip 2-byte BOM then decode pairs.
-                let units: Vec<u16> = bytes[2..]
-                    .chunks_exact(2)
-                    .map(|c| u16::from_be_bytes([c[0], c[1]]))
-                    .collect();
-                let s: String = char::decode_utf16(units)
-                    .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
-                    .collect();
-                Some(s)
-            } else {
-                Some(String::from_utf8_lossy(bytes).into_owned())
-            }
-        }
-        _ => None,
-    }
+    dict.get(key).ok().and_then(|o| decode_text_string(o).ok())
 }
 
 /// Read the Info dictionary of `data` and return it as a JSON object string.
@@ -191,5 +174,19 @@ mod tests {
     fn ascii_metadata_still_round_trips() {
         let out = set_metadata_json(FICHA, r#"{"title":"Plain ASCII"}"#, false).unwrap();
         assert!(read_metadata_json(&out).unwrap().contains("Plain ASCII"));
+    }
+
+    #[test]
+    fn reads_exotic_metadata_strings() {
+        const JUST_METADATA: &[u8] = include_bytes!("../../../tests/fixtures/pdf-lib/just_metadata.pdf");
+        let json = read_metadata_json(JUST_METADATA).unwrap();
+        assert!(
+            json.contains("some weird chars ˘•€"),
+            "title should contain PDFDocEncoding chars; got: {json}"
+        );
+        assert!(
+            json.contains("你怎么敢"),
+            "author/subject should contain UTF-16BE Chinese; got: {json}"
+        );
     }
 }

@@ -372,10 +372,8 @@ pub(crate) fn as_dict<'a>(doc: &'a Document, o: &'a Object) -> Result<&'a Dictio
 pub(crate) const MAX_PARENT_DEPTH: usize = 128;
 
 pub(crate) fn name_part(d: &Dictionary) -> Option<String> {
-    d.get(b"T")
-        .ok()
-        .and_then(|o| o.as_str().ok())
-        .map(|s| String::from_utf8_lossy(s).into_owned())
+    // /T is a PDF text string: may be UTF-16BE with a FE FF BOM.
+    d.get(b"T").ok().and_then(|o| decode_text_string(o).ok())
 }
 
 /// Resolve a dictionary's /Parent to a dictionary, if present and well-formed.
@@ -716,6 +714,21 @@ mod tests {
         let widgets = f[0]["widgets"].as_array().unwrap();
         assert_eq!(widgets.len(), 1, "widget should be recovered from page /Annots");
         assert_eq!(widgets[0]["page"], 0);
+    }
+
+    #[test]
+    fn decodes_utf16_field_names() {
+        const FANCY: &[u8] = include_bytes!("../../../tests/fixtures/pdf-lib/fancy_fields.pdf");
+        let f = fields(FANCY);
+        let names: Vec<&str> = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"First Name 🚀"), "names were {names:?}");
+        assert!(names.contains(&"Historical Figures 🐺"));
+        assert!(names.contains(&"Choose A Gundam 🤖"));
     }
 
     #[test]
