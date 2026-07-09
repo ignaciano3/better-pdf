@@ -678,10 +678,17 @@ fn value_apply(
             }
         }
         "checkbox" | "radio" => {
+            // /Opt-indexed on-states only exist for radio groups (PDF §12.7.4.2.3);
+            // checkboxes never carry /Opt, so gate the fallback to radio buttons —
+            // matching the Ff radio-bit discriminator forms::classify uses.
+            let is_radio = kind == "radio" && ff & (1 << 15) != 0;
             let (effective, widgets) = match button_widgets(doc, field_id, dict, value) {
                 Ok(w) => (value.to_string(), w),
-                Err(e) => match opt_index_state(doc, dict, value) {
-                    Some(idx) => (idx.clone(), button_widgets(doc, field_id, dict, &idx)?),
+                Err(e) => match is_radio.then(|| opt_index_state(doc, dict, value)).flatten() {
+                    Some(idx) => {
+                        let widgets = button_widgets(doc, field_id, dict, &idx)?;
+                        (idx, widgets)
+                    }
                     None => return Err(e),
                 },
             };

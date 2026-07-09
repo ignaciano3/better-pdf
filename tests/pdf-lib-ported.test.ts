@@ -64,9 +64,12 @@ describe("loading tricky / malformed PDFs (pdf-lib corpus)", () => {
 describe("encrypted PDFs (pdf-lib corpus)", () => {
   for (const file of ["encrypted_old.pdf", "encrypted_new.pdf"]) {
     test(`${file}: surfaces encryption instead of garbage`, async () => {
-      // better-pdf is lazy: load may succeed, but touching content without a
-      // password must raise EncryptedPdfError/IncorrectPasswordError — never
-      // return corrupt data silently.
+      // Both fixtures have intact xrefs, so they reliably hit doc_io's
+      // trailer-based encryption gate. better-pdf is lazy: load may succeed,
+      // but touching content without a password must raise
+      // EncryptedPdfError/IncorrectPasswordError — never silently return
+      // corrupt/garbage data. Asserting only "if something threw" let a
+      // silently-succeeding (corrupt) load pass; require the throw.
       let threw: unknown = null;
       try {
         const doc = await PdfDocument.load(bytes(file));
@@ -75,13 +78,12 @@ describe("encrypted PDFs (pdf-lib corpus)", () => {
       } catch (e) {
         threw = e;
       }
-      if (threw !== null) {
-        expect(
-          threw instanceof EncryptedPdfError ||
-            threw instanceof IncorrectPasswordError ||
-            threw instanceof PdfError,
-        ).toBe(true);
-      }
+      expect(threw).not.toBeNull();
+      expect(
+        threw instanceof EncryptedPdfError ||
+          threw instanceof IncorrectPasswordError ||
+          threw instanceof PdfError,
+      ).toBe(true);
     });
   }
 });

@@ -21,6 +21,19 @@ pub(crate) fn repair_load(data: &[u8]) -> Result<Document, String> {
     if objs.is_empty() {
         return Err("repair failed: no indirect objects found".to_string());
     }
+    // Detect encryption in the ORIGINAL bytes before rebuilding: `rebuild`
+    // only emits /Root and /Info in the fresh trailer, silently dropping any
+    // /Encrypt entry from a file whose xref was merely broken (not actually
+    // decrypted) — the strings/streams stay ciphertext while doc_io's
+    // encryption gate is left with nothing to see. Mirror `find_info_ref`'s
+    // "outside any object span" check: a trailer-only match, not one that
+    // just happens to appear inside stream/string data.
+    if find_encrypt_ref(data, &span_index(&objs)) {
+        return Err(format!(
+            "{} this PDF is encrypted; load it with PdfDocument.load(bytes, {{ password }}) (use \"\" for owner-locked files)",
+            crate::doc_io::ENCRYPTED_PREFIX
+        ));
+    }
     let rebuilt = rebuild(data, &objs)?;
     Document::load_mem(&rebuilt).map_err(|e| format!("repair failed: {e}"))
 }
@@ -186,7 +199,7 @@ fn rebuild(data: &[u8], objs: &[RawObj]) -> Result<Vec<u8>, String> {
         .find(|o| contains_outside_stream(&data[o.span.clone()], b"/Catalog"))
         .map(|o| (o.num, o.generation))
         .ok_or("repair failed: no /Type /Catalog object found")?;
-    let info = find_info_ref(data, objs, &by_num);
+    let info = find_info_ref(data, &span_index(objs), &by_num);
 
     let mut out: Vec<u8> = b"%PDF-1.7\n%\xC7\xEC\x8F\xA2\n".to_vec();
     let mut offsets: BTreeMap<u32, (u64, u16)> = BTreeMap::new();
@@ -229,6 +242,61 @@ fn contains_outside_stream(span: &[u8], needle: &[u8]) -> bool {
     find_keyword(&span[..limit], needle).is_some()
 }
 
+/// Sorted (span.start, span.end) pairs, precomputed once so membership tests
+/// (`in_any_span`) are a `partition_point` binary search instead of a linear
+/// scan over every object per match — matters on malformed files with many
+/// small objects, where `/Info`/`/Encrypt` scanning would otherwise be
+/// O(matches * objects).
+fn span_index(objs: &[RawObj]) -> Vec<(usize, usize)> {
+    let mut spans: Vec<(usize, usize)> = objs.iter().map(|o| (o.span.start, o.span.end)).collect();
+    spans.sort_unstable_by_key(|&(start, _)| start);
+    spans
+}
+
+/// True when `pos` falls inside some span in a `span_index()` result. Spans
+/// don't overlap, so the last span starting at or before `pos` is the only
+/// candidate.
+fn in_any_span(spans: &[(usize, usize)], pos: usize) -> bool {
+    let idx = spans.partition_point(|&(start, _)| start <= pos);
+    idx > 0 && spans[idx - 1].1 > pos
+}
+
+/// True when an `/Encrypt` token appears in the original bytes outside every
+/// detected object span (i.e. in trailer text, mirroring `find_info_ref`) and
+/// is followed by either an indirect reference (`N G R`) or an inline
+/// dictionary (`<<`). A broken-xref file that's genuinely encrypted still has
+/// this token in its trailer even though its objects can't be parsed
+/// normally; `rebuild` only emits /Root and /Info, so without this check an
+/// encrypted-but-xref-broken file would come out of `repair_load` looking
+/// like a plain, loadable (but still-ciphertext) document.
+fn find_encrypt_ref(data: &[u8], spans: &[(usize, usize)]) -> bool {
+    let mut search_from = 0;
+    while let Some(rel) = find_keyword(&data[search_from..], b"/Encrypt") {
+        let match_pos = search_from + rel;
+        if in_any_span(spans, match_pos) {
+            search_from += rel + 1;
+            continue;
+        }
+        let mut i = match_pos + b"/Encrypt".len();
+        let _ = skip_ws(data, &mut i);
+        // Inline dictionary: `/Encrypt << ... >>`.
+        if data[i..].starts_with(b"<<") {
+            return true;
+        }
+        // Indirect reference: `/Encrypt N G R`.
+        if let Some(_num) = read_uint(data, &mut i)
+            && skip_ws(data, &mut i).is_some()
+            && let Some(_generation) = read_uint(data, &mut i)
+            && skip_ws(data, &mut i).is_some()
+            && data.get(i) == Some(&b'R')
+        {
+            return true;
+        }
+        search_from += rel + 1;
+    }
+    false
+}
+
 /// Recover `/Info N G R` from the original file's trailer text, keeping it
 /// only when object N was actually found. Matches that fall inside any
 /// detected object's span (which may include its stream payload) are
@@ -237,16 +305,14 @@ fn contains_outside_stream(span: &[u8], needle: &[u8]) -> bool {
 /// real trailer reference.
 fn find_info_ref(
     data: &[u8],
-    objs: &[RawObj],
+    spans: &[(usize, usize)],
     by_num: &std::collections::BTreeMap<u32, &RawObj>,
 ) -> Option<(u32, u16)> {
-    let in_any_span = |pos: usize| objs.iter().any(|o| o.span.contains(&pos));
-
     let mut search_from = 0;
     let mut last: Option<(u32, u16)> = None;
     while let Some(rel) = find_keyword(&data[search_from..], b"/Info") {
         let match_pos = search_from + rel;
-        if in_any_span(match_pos) {
+        if in_any_span(spans, match_pos) {
             search_from += rel + 1;
             continue;
         }
@@ -322,5 +388,33 @@ mod tests {
     #[test]
     fn garbage_still_fails() {
         assert!(repair_load(b"this is not a pdf at all").is_err());
+    }
+
+    const ENCRYPTED_MIN: &[u8] =
+        include_bytes!("../../../tests/fixtures/generated/encrypted-min.pdf");
+
+    /// A broken-xref encrypted PDF must be rejected as encrypted, never
+    /// "repaired" into a document that looks plaintext-loadable while its
+    /// strings/streams are still ciphertext (the bug this module's
+    /// `find_encrypt_ref` check exists to close).
+    #[test]
+    fn rejects_encrypted_pdf_with_broken_xref() {
+        // Corrupt startxref so `Document::load_mem` fails and falls through to
+        // the recovery loader, same as `doc_io::load_pdf` does on strict-parse
+        // failure.
+        let mut corrupted = ENCRYPTED_MIN.to_vec();
+        let pos = find_keyword(&corrupted, b"startxref").expect("fixture has startxref");
+        corrupted[pos..pos + b"startxref".len()].copy_from_slice(b"xxxxxxxxx");
+        assert!(
+            lopdf::Document::load_mem(&corrupted).is_err(),
+            "corruption must actually break the strict parser"
+        );
+
+        let err = crate::doc_io::load_pdf(&corrupted)
+            .expect_err("encrypted PDF with broken xref must not be silently repaired");
+        assert!(
+            err.starts_with(crate::doc_io::ENCRYPTED_PREFIX),
+            "got: {err}"
+        );
     }
 }

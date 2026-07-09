@@ -90,7 +90,18 @@ pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
         // Strict parse failed (broken xref/trailer, junk before header, …):
         // fall back to the recovery loader. Only this error path pays the
         // repair cost; well-formed files never reach it.
-        Err(primary) => crate::repair::repair_load(data).map_err(|_| primary.to_string())?,
+        Err(primary) => crate::repair::repair_load(data).map_err(|repair_err| {
+            // repair_load rejects originally-encrypted PDFs (broken xref, but
+            // still ciphertext) with an ENCRYPTED_PREFIX error before it ever
+            // gets to rebuild a "plaintext" trailer. That must propagate as-is
+            // rather than being swallowed by the primary parse error below, or
+            // callers would silently accept a still-encrypted document.
+            if repair_err.starts_with(ENCRYPTED_PREFIX) {
+                repair_err
+            } else {
+                primary.to_string()
+            }
+        })?,
     };
     // Check encryption first, before validating root, so encrypted documents
     // are rejected regardless of root validity.
@@ -104,8 +115,16 @@ pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
     let doc = if root_is_valid(&doc) {
         doc
     } else {
-        crate::repair::repair_load(data)
-            .map_err(|_| "invalid /Root reference and repair failed".to_string())?
+        crate::repair::repair_load(data).map_err(|repair_err| {
+            // Same rationale as the primary-parse-failure arm above: a
+            // still-encrypted document with an invalid /Root must be reported
+            // as encrypted, not masked behind the generic repair-failed message.
+            if repair_err.starts_with(ENCRYPTED_PREFIX) {
+                repair_err
+            } else {
+                "invalid /Root reference and repair failed".to_string()
+            }
+        })?
     };
     Ok(doc)
 }
