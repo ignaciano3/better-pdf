@@ -58,6 +58,17 @@ fn classify_decryption_error(de: lopdf::encryption::DecryptionError) -> String {
     }
 }
 
+/// True when the trailer /Root resolves to a dictionary that has /Pages.
+fn root_is_valid(doc: &Document) -> bool {
+    doc.trailer
+        .get(b"Root")
+        .ok()
+        .and_then(|o| o.as_reference().ok())
+        .and_then(|id| doc.get_dictionary(id).ok())
+        .map(|d| d.has(b"Pages"))
+        .unwrap_or(false)
+}
+
 /// Parse PDF bytes into a `Document`, failing fast on encrypted files.
 ///
 /// Rejects any originally-encrypted PDF so the operation fails loudly rather than
@@ -81,11 +92,21 @@ pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
         // repair cost; well-formed files never reach it.
         Err(primary) => crate::repair::repair_load(data).map_err(|_| primary.to_string())?,
     };
+    // Check encryption first, before validating root, so encrypted documents
+    // are rejected regardless of root validity.
     if doc.trailer.has(b"Encrypt") || doc.was_encrypted() {
         return Err(format!(
             "{ENCRYPTED_PREFIX} this PDF is encrypted; load it with PdfDocument.load(bytes, {{ password }}) (use \"\" for owner-locked files)"
         ));
     }
+    // A parse can "succeed" with a /Root pointing at a non-catalog object
+    // (pdf-lib's invalid_root_ref.pdf). Treat that as a failed parse too.
+    let doc = if root_is_valid(&doc) {
+        doc
+    } else {
+        crate::repair::repair_load(data)
+            .map_err(|_| "invalid /Root reference and repair failed".to_string())?
+    };
     Ok(doc)
 }
 
@@ -389,5 +410,13 @@ mod tests {
     #[test]
     fn decrypts_aes256_with_correct_password() {
         assert_decrypted_ficha(&decrypt_pdf(FICHA_AES256_PW, "secret").unwrap());
+    }
+
+    #[test]
+    fn recovers_invalid_root_ref() {
+        const INVALID_ROOT: &[u8] =
+            include_bytes!("../../../tests/fixtures/pdf-lib/invalid_root_ref.pdf");
+        let doc = load_pdf(INVALID_ROOT).unwrap();
+        assert!(!doc.get_pages().is_empty(), "must recover the real catalog");
     }
 }
