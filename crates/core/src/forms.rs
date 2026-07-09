@@ -96,7 +96,89 @@ fn collect_fields(doc: &Document) -> Result<Vec<FieldInfo>, String> {
         let d = as_dict(doc, entry)?;
         walk_field(doc, id, d, &pages, &annot_fallback, 0, &mut out);
     }
+    append_orphan_widget_fields(doc, entries, &pages, &annot_fallback, &mut out);
     Ok(out)
+}
+
+/// Object ids reachable from the AcroForm `/Fields` array by walking `/Kids`
+/// downward (each field entry plus every descendant). Membership means a widget
+/// or field is already accounted for by the normal `/Fields` traversal.
+fn reachable_field_ids(doc: &Document, entries: &[Object]) -> std::collections::HashSet<ObjectId> {
+    let mut seen = std::collections::HashSet::new();
+    let mut stack: Vec<ObjectId> = entries.iter().filter_map(|o| o.as_reference().ok()).collect();
+    while let Some(id) = stack.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        if let Ok(d) = doc.get_dictionary(id)
+            && let Ok(kids) = d.get(b"Kids").and_then(|o| o.as_array())
+        {
+            for k in kids {
+                if let Ok(r) = k.as_reference() {
+                    stack.push(r);
+                }
+            }
+        }
+    }
+    seen
+}
+
+/// Surface **orphaned** form-field widgets: Widget annotations present on a page
+/// but not linked into `/AcroForm/Fields` (directly or via `/Kids`). Some
+/// producers emit widgets that carry their own `/T` (a terminal field) yet
+/// forget to add them to `/Fields`; strict readers then miss them entirely.
+/// pypdf recovers these with `reattach_fields()` — we do the equivalent at read
+/// time so `getFields` (and, via `find_field`'s matching fallback, fill/flatten)
+/// see them. A widget with no `/T` is skipped (it's a bare appearance of some
+/// other field, not a field in its own right).
+fn append_orphan_widget_fields(
+    doc: &Document,
+    entries: &[Object],
+    pages: &HashMap<ObjectId, usize>,
+    annot_fallback: &HashMap<String, Vec<RawWidget>>,
+    out: &mut Vec<FieldInfo>,
+) {
+    let reachable = reachable_field_ids(doc, entries);
+    // Names already emitted from /Fields — a page widget sharing one of these is
+    // that field's on-page appearance (the annot_widgets_by_name merge case),
+    // not a distinct orphan.
+    let existing: std::collections::HashSet<&str> = out.iter().map(|f| f.name.as_str()).collect();
+    let mut orphans: Vec<FieldInfo> = Vec::new();
+    let mut added: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
+    for (_, &pid) in doc.get_pages().iter() {
+        let Ok(page) = doc.get_dictionary(pid) else {
+            continue;
+        };
+        let Some(annots) = page
+            .get(b"Annots")
+            .ok()
+            .and_then(|o| doc.dereference(o).ok())
+            .and_then(|(_, o)| o.as_array().ok())
+        else {
+            continue;
+        };
+        for a in annots {
+            let Ok(id) = a.as_reference() else { continue };
+            if reachable.contains(&id) || !added.insert(id) {
+                continue;
+            }
+            let Ok(d) = doc.get_dictionary(id) else { continue };
+            if d.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) != Some(b"Widget") {
+                continue;
+            }
+            // Only a widget that is itself a terminal field (has its own /T)
+            // qualifies; a bare appearance widget is left to its parent field.
+            if name_part(d).is_none() {
+                continue;
+            }
+            let name = fully_qualified_name(doc, d);
+            if existing.contains(name.as_str()) || orphans.iter().any(|f| f.name == name) {
+                continue;
+            }
+            orphans.push(describe_field(doc, Some(id), d, pages, annot_fallback));
+        }
+    }
+    out.extend(orphans);
 }
 
 /// True when a `/Kids` entry is itself a child *field* — i.e. it carries its
@@ -614,6 +696,36 @@ mod tests {
         assert_eq!(f.as_array().unwrap().len(), 54);
         assert_eq!(f[0]["name"], "viajero.destino");
         assert_eq!(f[0]["type"], "text");
+    }
+
+    #[test]
+    fn surfaces_orphaned_widget_fields_not_in_acroform_fields() {
+        // iss2453: 8 fields are linked in /AcroForm/Fields; 7 more are Widget
+        // annotations on the page that carry their own /T but were never added
+        // to /Fields. All 15 must be surfaced (pypdf reattach_fields).
+        const ISS: &[u8] =
+            include_bytes!("../../../tests/fixtures/pypdf/issues/iss2453-ExampleForm.pdf");
+        let f = fields(ISS);
+        let names: Vec<&str> = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names.len(), 15, "expected 8 linked + 7 orphaned: {names:?}");
+        // A representative orphan is exposed as a real text field.
+        let orphan = f
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "Contact Name")
+            .expect("orphaned widget 'Contact Name' should be surfaced");
+        assert_eq!(orphan["type"], "text");
+        // No duplicates.
+        let mut uniq: Vec<&str> = names.clone();
+        uniq.sort_unstable();
+        uniq.dedup();
+        assert_eq!(uniq.len(), names.len(), "orphan pass must not duplicate: {names:?}");
     }
 
     #[test]
@@ -1199,3 +1311,4 @@ mod tests {
         std::fs::write(&dest, &out).expect("failed to write fixture");
     }
 }
+

@@ -79,13 +79,21 @@ into `tests/pypdf-ported.test.ts` (2026-07-09). Items to revisit.
   `repair::repairs_catalog_pointing_pages_at_wrong_object`,
   `repair::load_pdf_recovers_corrupt_pages_reference`.
 
-### 5. No orphaned-widget reattachment
+### 5. No orphaned-widget reattachment — FIXED
 - **Fixture:** `tests/fixtures/pypdf/issues/iss2453-ExampleForm.pdf`
-- **Symptom:** better-pdf finds 8 form fields; the widget annotations not linked
-  into `/AcroForm/Fields` are missed. pypdf's `reattach_fields()` relinks them,
-  reaching 15.
-- **Expected:** a repair/reattach step (or lenient field discovery via page
-  `/Annots`) that surfaces orphaned widgets. No test written (no current API).
+- **Was:** better-pdf found 8 form fields; 7 Widget annotations present on the
+  page but not linked into `/AcroForm/Fields` were missed (pypdf `reattach_fields`
+  reaches 15).
+- **Fix:** lenient read-time discovery. `forms.rs` `append_orphan_widget_fields`
+  computes the ids reachable from `/Fields` (via `reachable_field_ids`), then
+  surfaces any page `/Annots` Widget that carries its own `/T` and isn't reachable
+  (skipping names already emitted, so the Quartz by-name merge isn't
+  double-counted). `fill.rs` `find_field` gained a matching page-annots fallback
+  (`find_orphan_widget_field`) so orphaned fields are fillable and round-trip.
+- **Tests:** `tests/pypdf-ported.test.ts` "iss2453: orphaned page widgets are
+  surfaced and fillable" (15 fields + fill round-trip). Rust:
+  `forms::surfaces_orphaned_widget_fields_not_in_acroform_fields`,
+  `fill::fills_orphaned_widget_field_by_name`.
 
 ## Candidate API additions
 

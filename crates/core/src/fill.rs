@@ -1078,6 +1078,40 @@ pub(crate) fn find_field<'a>(doc: &'a Document, name: &str) -> Option<(ObjectId,
             }
         }
     }
+    // Fallback: an orphaned widget field — a Widget annotation with its own /T
+    // that was never linked into /AcroForm/Fields (see forms::append_orphan_widget_fields).
+    // Match it on the page /Annots by fully-qualified name so it stays fillable.
+    find_orphan_widget_field(doc, name)
+}
+
+/// Scan page `/Annots` for a Widget annotation whose fully-qualified name is
+/// `name` and that carries its own `/T` (a terminal field), for fields that
+/// exist only on the page and not in `/AcroForm/Fields`.
+fn find_orphan_widget_field<'a>(
+    doc: &'a Document,
+    name: &str,
+) -> Option<(ObjectId, &'a Dictionary)> {
+    for (_, &pid) in doc.get_pages().iter() {
+        let page = doc.get_dictionary(pid).ok()?;
+        let Some(annots) = page
+            .get(b"Annots")
+            .ok()
+            .and_then(|o| doc.dereference(o).ok())
+            .and_then(|(_, o)| o.as_array().ok())
+        else {
+            continue;
+        };
+        for a in annots {
+            let Ok(id) = a.as_reference() else { continue };
+            let Ok(d) = doc.get_dictionary(id) else { continue };
+            if d.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) == Some(b"Widget")
+                && d.has(b"T")
+                && forms::fully_qualified_name(doc, d) == name
+            {
+                return Some((id, d));
+            }
+        }
+    }
     None
 }
 
@@ -2824,6 +2858,17 @@ mod tests {
         .unwrap();
         let err = fill_fields_json(&base, r#"[{"name":"n","value":"B"}]"#, &[], false).unwrap_err();
         assert!(err.contains("pass { font }"), "got: {err}");
+    }
+
+    #[test]
+    fn fills_orphaned_widget_field_by_name() {
+        // An orphaned widget field (on the page, absent from /AcroForm/Fields)
+        // is fillable via find_field's page-annots fallback and round-trips.
+        const ISS: &[u8] =
+            include_bytes!("../../../tests/fixtures/pypdf/issues/iss2453-ExampleForm.pdf");
+        let out = fill_fields_json(ISS, r#"[{"name":"Contact Name","value":"Ada"}]"#, &[], false)
+            .unwrap();
+        assert_eq!(reparse_value(&out, "Contact Name").as_deref(), Some("Ada"));
     }
 
     #[test]

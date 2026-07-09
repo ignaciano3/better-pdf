@@ -386,6 +386,19 @@ describe("issue fixtures — forms (pypdf)", () => {
     expect(names.some((n) => n.startsWith("Text10."))).toBe(true);
   });
 
+  // pypdf reattach_fields (issue #2453): widgets present on the page but never
+  // linked into /AcroForm/Fields are surfaced as fields (8 linked + 7 orphaned)
+  // and remain fillable by their name.
+  test("iss2453: orphaned page widgets are surfaced and fillable", async () => {
+    const doc = await loadIss("iss2453-ExampleForm.pdf");
+    const names = doc.getForm().getFields().map((f) => f.name);
+    expect(names.length).toBe(15);
+    expect(names).toContain("Contact Name");
+    doc.getForm().getTextField("Contact Name").setText("Ada Lovelace");
+    const reloaded = await PdfDocument.load(await doc.save());
+    expect(reloaded.getForm().getField("Contact Name")?.value).toBe("Ada Lovelace");
+  });
+
   // A field whose /DA names a standard-14 font that is absent from /DR is filled
   // by synthesizing that font into the appearance's /Resources/Font instead of
   // throwing (pypdf test_no_resource_for_14_std_fonts, issue #2670).
