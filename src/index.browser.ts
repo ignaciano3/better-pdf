@@ -59,6 +59,15 @@ export class PdfDocument extends PdfDocumentBase {
     return new PdfDocument(PdfDocumentBase.loadBytes(wasm, input, opts), wasm);
   }
 
+  /**
+   * Report whether a PDF is encrypted, without decrypting it or needing a
+   * password. See {@link PdfDocument.isEncrypted} in the Node build.
+   */
+  static async isEncrypted(input: Uint8Array | ArrayBuffer): Promise<boolean> {
+    await initializeWasm();
+    return PdfDocumentBase.isEncryptedImpl(wasm, input);
+  }
+
   /** Create a new, empty document. Add pages with {@link PdfDocument.addPage}. */
   static async create(): Promise<PdfDocument> {
     await initializeWasm();

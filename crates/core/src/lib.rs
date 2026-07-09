@@ -236,6 +236,13 @@ pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, JsError> {
     doc_io::decrypt_pdf(data, password).map_err(|e| JsError::new(&e))
 }
 
+/// True when `data` is an encrypted PDF, checked without decrypting or needing a
+/// password. Lets callers decide whether to pass a password to `load`.
+#[wasm_bindgen]
+pub fn is_encrypted(data: &[u8]) -> bool {
+    doc_io::is_encrypted(data)
+}
+
 /// Internal re-exports for the fuzz targets in `fuzz/`. Not a public API.
 #[doc(hidden)]
 pub mod fuzz_api {

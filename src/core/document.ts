@@ -113,6 +113,7 @@ function buildPageIndexResolver(
 /** WASM bindings a PdfDocument needs; satisfied by both wasm.ts and wasm-browser.ts. @internal */
 export interface CoreWasm {
   decryptPdf(data: Uint8Array, password: string): Uint8Array;
+  isEncrypted(data: Uint8Array): boolean;
   readFields(data: Uint8Array): string;
   fillFields(data: Uint8Array, opsJson: string, images: Uint8Array, compress?: boolean): Uint8Array;
   flattenFields(data: Uint8Array, namesJson: string, compress?: boolean): Uint8Array;
@@ -940,6 +941,15 @@ export class PdfDocumentBase {
     if (opts?.password === undefined) return raw;
     const password = opts.password;
     return callBytes(() => wasmBinding.decryptPdf(raw, password));
+  }
+
+  /** @internal Shared `PdfDocument.isEncrypted` body. */
+  protected static isEncryptedImpl(
+    wasmBinding: CoreWasm,
+    input: Uint8Array | ArrayBuffer,
+  ): boolean {
+    const raw = input instanceof Uint8Array ? input : new Uint8Array(input);
+    return wasmBinding.isEncrypted(raw);
   }
 
   /** @internal Shared `PdfDocument.assemble` body. */

@@ -13,6 +13,7 @@ raw.initSync({
 // of these are called.
 export const {
   decryptPdf,
+  isEncrypted,
   readFields,
   fillFields,
   flattenFields,

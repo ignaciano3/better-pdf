@@ -89,10 +89,17 @@ into `tests/pypdf-ported.test.ts` (2026-07-09). Items to revisit.
 
 ## Candidate API additions
 
-### 6. `isEncrypted` predicate
-pypdf exposes `reader.is_encrypted`. better-pdf only surfaces encryption by throwing on
-use (lazy). A cheap `doc.isEncrypted` boolean would let callers branch without a
-try/catch. See [[encrypted-pdf-load-api]] semantics.
+### 6. `isEncrypted` predicate — ADDED
+- **API:** `await PdfDocument.isEncrypted(bytes): boolean` — a static predicate that
+  reports encryption without decrypting or needing a password, so callers can branch
+  before deciding whether to pass `{ password }` to `load`.
+- **Impl:** `doc_io::is_encrypted` (wasm `is_encrypted`): a normal parse reports via
+  trailer `/Encrypt` or `was_encrypted()` (catches empty-password files whose
+  `/Encrypt` lopdf already stripped); an `InvalidPassword` parse is encrypted by
+  definition; other parse failures fall back to `repair::has_encrypt_marker` (raw-byte
+  trailer scan). TS static added to both entry points via `isEncryptedImpl`.
+- **Tests:** `tests/pypdf-ported.test.ts` "PdfDocument.isEncrypted ..."; Rust
+  `doc_io::is_encrypted_detects_encrypted_and_plain`, `is_encrypted_false_on_garbage`.
 
 ### 7. User-vs-owner password-type reporting
 pypdf's `decrypt()` returns `PasswordType.USER_PASSWORD` / `OWNER_PASSWORD`. better-pdf

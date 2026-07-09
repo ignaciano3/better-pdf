@@ -9,6 +9,7 @@ import type { CoreWasm } from "./document.js";
 /** The snake_case functions exported by the generated `better_pdf_core.js`. */
 export interface RawBindings {
   decrypt_pdf(data: Uint8Array, password: string): Uint8Array;
+  is_encrypted(data: Uint8Array): boolean;
   read_fields(data: Uint8Array): string;
   fill_fields(data: Uint8Array, opsJson: string, images: Uint8Array, compress: boolean): Uint8Array;
   flatten_fields(data: Uint8Array, namesJson: string, compress: boolean): Uint8Array;
@@ -74,6 +75,7 @@ const EMPTY = new Uint8Array();
 export function makeBindings(raw: RawBindings, guard: () => void = () => {}): CoreWasm {
   return {
     decryptPdf: (data, password) => (guard(), raw.decrypt_pdf(data, password)),
+    isEncrypted: (data) => (guard(), raw.is_encrypted(data)),
     readFields: (data) => (guard(), raw.read_fields(data)),
     fillFields: (data, opsJson, images, compress = true) =>
       (guard(), raw.fill_fields(data, opsJson, images, compress)),

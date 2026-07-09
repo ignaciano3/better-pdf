@@ -64,6 +64,24 @@ pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
     }
 }
 
+/// True when `data` is an encrypted PDF, without attempting to decrypt or
+/// requiring a password. Lets callers branch (e.g. prompt for a password)
+/// instead of catching a throw on first use.
+///
+/// Detection is robust to lopdf's eager decryption: a normal parse reports it
+/// via the trailer `/Encrypt` or `was_encrypted()` (the latter catches
+/// empty-password files whose `/Encrypt` lopdf already stripped); a parse that
+/// fails for a wrong/absent password is by definition encrypted; and a parse
+/// that fails for other reasons (broken xref) falls back to scanning the raw
+/// bytes for an `/Encrypt` trailer reference.
+pub fn is_encrypted(data: &[u8]) -> bool {
+    match Document::load_mem(data) {
+        Ok(doc) => doc.trailer.has(b"Encrypt") || doc.was_encrypted(),
+        Err(lopdf::Error::InvalidPassword) => true,
+        Err(_) => crate::repair::has_encrypt_marker(data),
+    }
+}
+
 /// Map a lopdf decryption error to one of our stable prefixes.
 fn classify_decryption_error(de: lopdf::encryption::DecryptionError) -> String {
     use lopdf::encryption::DecryptionError::{
@@ -448,6 +466,25 @@ mod tests {
         assert_eq!(doc.get_pages().len(), 1);
         // /Info survives so metadata is intact (the fixture's author is "cheng").
         assert!(load_pdf(&out).is_ok(), "decrypted output must reload");
+    }
+
+    #[test]
+    fn is_encrypted_detects_encrypted_and_plain() {
+        // Plain and created documents are not encrypted.
+        assert!(!is_encrypted(&plain_pdf_bytes()));
+        assert!(!is_encrypted(FICHA));
+        // Empty-user-password files (lopdf strips /Encrypt on load, was_encrypted
+        // stays true), password-protected files, and a V4-missing-/Length file
+        // are all detected as encrypted without a password.
+        assert!(is_encrypted(FICHA_RC4));
+        assert!(is_encrypted(FICHA_AES256));
+        assert!(is_encrypted(FICHA_RC4_PW));
+        assert!(is_encrypted(AESV2_NO_LENGTH));
+    }
+
+    #[test]
+    fn is_encrypted_false_on_garbage() {
+        assert!(!is_encrypted(b"not a pdf at all"));
     }
 
     #[test]

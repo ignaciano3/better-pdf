@@ -118,6 +118,15 @@ fn dict_type_is(o: &Object, ty: &[u8]) -> bool {
         == Some(ty)
 }
 
+/// True when the raw bytes carry an `/Encrypt` trailer reference outside any
+/// object span — the same trailer-only test `repair_load` uses to refuse
+/// repairing an encrypted file. Used as `is_encrypted`'s fallback when the
+/// strict parser fails for a non-password reason.
+pub(crate) fn has_encrypt_marker(data: &[u8]) -> bool {
+    let objs = scan_objects(data);
+    find_encrypt_ref(data, &span_index(&objs))
+}
+
 /// Normalize a V4 (`/V 4`) `/Encrypt` dictionary that omits the top-level
 /// `/Length` by injecting `/Length 128`, then rebuild the file with a fresh
 /// xref. Returns `None` when the pattern doesn't apply (no classic trailer, no
@@ -125,13 +134,14 @@ fn dict_type_is(o: &Object, ty: &[u8]) -> bool {
 /// fall back to its original error.
 ///
 /// Why this exists: PDF §7.6.1 fixes the V4 file-encryption-key length at 128
-/// bits, so a conforming V4 `/Encrypt` need not carry `/Length`. lopdf 0.41,
-/// however, derives the key length from the top-level `/Length` and defaults to
-/// **40** bits when it is absent (`compute_file_encryption_key_r4`:
+/// bits, so a conforming V4 `/Encrypt` need not carry `/Length`. lopdf (through
+/// at least 0.43) instead derives the key length from the top-level `/Length`
+/// and defaults to **40** bits when it is absent (`compute_file_encryption_key_r4`:
 /// `self.length.unwrap_or(40)`), computing the wrong key and rejecting the
 /// password. Making the field explicit (`/Length 128`) restores the correct
 /// key. Invoked only after a decrypt attempt has already failed, so it can
 /// never perturb the normal path — a bad rebuild just fails the retry too.
+/// See `docs/lopdf-v4-length-issue.md` for the upstream fix.
 pub(crate) fn inject_v4_length(data: &[u8]) -> Option<Vec<u8>> {
     let (trailer_dict_start, trailer_dict_end) = find_trailer_dict(data)?;
     let trailer = &data[trailer_dict_start..trailer_dict_end];

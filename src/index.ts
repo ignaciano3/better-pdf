@@ -56,6 +56,25 @@ export class PdfDocument extends PdfDocumentBase {
     return new PdfDocument(PdfDocumentBase.loadBytes(wasm, input, opts), wasm);
   }
 
+  /**
+   * Report whether a PDF is encrypted, without decrypting it or needing a
+   * password. Use this to decide whether to pass a `password` to
+   * {@link PdfDocument.load}.
+   *
+   * @param input - The bytes of a PDF file.
+   * @returns `true` when the document is encrypted.
+   *
+   * @example
+   * ```ts
+   * if (await PdfDocument.isEncrypted(bytes)) {
+   *   doc = await PdfDocument.load(bytes, { password });
+   * }
+   * ```
+   */
+  static async isEncrypted(input: Uint8Array | ArrayBuffer): Promise<boolean> {
+    return PdfDocumentBase.isEncryptedImpl(wasm, input);
+  }
+
   /** Create a new, empty document. Add pages with {@link PdfDocument.addPage}. */
   static async create(): Promise<PdfDocument> {
     return new PdfDocument(new Uint8Array(), wasm, "create");

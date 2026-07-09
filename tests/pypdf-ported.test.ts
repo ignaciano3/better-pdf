@@ -95,6 +95,19 @@ describe("encryption matrix (pypdf resources/encryption)", () => {
   });
 });
 
+// pypdf reader.is_encrypted — a password-free predicate so callers can branch.
+describe("PdfDocument.isEncrypted (pypdf reader.is_encrypted)", () => {
+  test("reports true for encrypted files, false for plain", async () => {
+    expect(await PdfDocument.isEncrypted(bytes("encryption/r2-empty-password.pdf"))).toBe(true);
+    expect(await PdfDocument.isEncrypted(bytes("encryption/r6-both-passwords.pdf"))).toBe(true);
+    expect(
+      await PdfDocument.isEncrypted(bytes("encryption/r4-aes-v2-no-key-length.pdf")),
+    ).toBe(true);
+    expect(await PdfDocument.isEncrypted(bytes("encryption/unencrypted.pdf"))).toBe(false);
+    expect(await PdfDocument.isEncrypted(bytes("form.pdf"))).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tier 2 — Form field value semantics (pypdf test_reader.py / test_writer.py)
 // ---------------------------------------------------------------------------
