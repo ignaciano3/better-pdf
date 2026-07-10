@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-07-09
+
+### Changed
+
+- `form.flatten()` field resolution is now linear in the number of fields
+  instead of quadratic: queued names are resolved in a single walk of the
+  field tree (plus one orphaned-widget page scan) rather than one full walk
+  per name. Flatten-all on a 250-page / 1,000-field form drops from ~217 ms
+  to ~51 ms — about 3.4x faster than pdf-lib on the same document, where it
+  previously trailed it. No behavioral change: match order, orphaned-widget
+  fallback, and error messages are preserved.
+
 ## [1.14.0] - 2026-07-09
 
 ### Added
