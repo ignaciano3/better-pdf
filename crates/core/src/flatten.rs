@@ -2,7 +2,7 @@
 //! widget + AcroForm entry. Operates on existing `/AP` streams (see the M5
 //! plan): fill (M4) generates appearances, flatten stamps them down.
 
-use crate::fill::find_field;
+use crate::fill::find_fields;
 use crate::forms;
 use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream};
 
@@ -54,11 +54,13 @@ pub(crate) fn flatten_resolve(
                 .to_string(),
         );
     }
+    let resolved = find_fields(doc, names);
     let mut field_ids: Vec<ObjectId> = Vec::new();
     let mut stamps: Vec<WidgetStamp> = Vec::new();
     for name in names {
-        let (field_id, dict) =
-            find_field(doc, name).ok_or_else(|| format!("no such field: {name}"))?;
+        let &(field_id, dict) = resolved
+            .get(name)
+            .ok_or_else(|| format!("no such field: {name}"))?;
         field_ids.push(field_id);
         for w in field_widgets(doc, field_id, dict) {
             stamps.push(resolve_stamp(doc, w));

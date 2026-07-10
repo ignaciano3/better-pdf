@@ -1050,14 +1050,35 @@ fn opt_index_state(doc: &Document, dict: &Dictionary, label: &str) -> Option<Str
 /// Walk /AcroForm/Fields (and /Kids) to find the field whose fully-qualified
 /// name equals `name`. Only reference-addressable fields are considered.
 pub(crate) fn find_field<'a>(doc: &'a Document, name: &str) -> Option<(ObjectId, &'a Dictionary)> {
-    let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
-    let catalog = doc.get_dictionary(root).ok()?;
-    let acro = forms::as_dict(doc, catalog.get(b"AcroForm").ok()?).ok()?;
-    let entries = acro.get(b"Fields").ok()?.as_array().ok()?;
+    let names = [name.to_string()];
+    find_fields(doc, &names).remove(name)
+}
+
+/// Resolve a batch of fully-qualified names in one pass: a single walk of
+/// /AcroForm/Fields (and /Kids) computing each node's fully-qualified name
+/// once, then a single page-/Annots scan for names not found in the tree —
+/// orphaned widget fields, Widget annotations carrying their own /T that were
+/// never linked into /AcroForm/Fields (see forms::append_orphan_widget_fields).
+/// For each name the first match in traversal order wins, and a name matched
+/// in the tree is never shadowed by an orphan, matching per-name `find_field`.
+/// Resolving per name walks the tree once per name — O(names × tree) — which
+/// is what made flatten-all quadratic on page-heavy forms.
+pub(crate) fn find_fields<'a>(
+    doc: &'a Document,
+    names: &[String],
+) -> HashMap<String, (ObjectId, &'a Dictionary)> {
+    let wanted: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
+    let mut found: HashMap<String, (ObjectId, &'a Dictionary)> = HashMap::new();
+
+    let entries = (|| {
+        let root = doc.trailer.get(b"Root").ok()?.as_reference().ok()?;
+        let catalog = doc.get_dictionary(root).ok()?;
+        let acro = forms::as_dict(doc, catalog.get(b"AcroForm").ok()?).ok()?;
+        acro.get(b"Fields").ok()?.as_array().ok()
+    })();
     let mut stack: Vec<ObjectId> = entries
-        .iter()
-        .filter_map(|e| e.as_reference().ok())
-        .collect();
+        .map(|a| a.iter().filter_map(|e| e.as_reference().ok()).collect())
+        .unwrap_or_default();
     let mut seen = 0usize;
     while let Some(id) = stack.pop() {
         seen += 1;
@@ -1067,8 +1088,12 @@ pub(crate) fn find_field<'a>(doc: &'a Document, name: &str) -> Option<(ObjectId,
         let Ok(d) = doc.get_dictionary(id) else {
             continue;
         };
-        if forms::fully_qualified_name(doc, d) == name {
-            return Some((id, d));
+        let name = forms::fully_qualified_name(doc, d);
+        if wanted.contains(name.as_str()) && !found.contains_key(&name) {
+            found.insert(name, (id, d));
+            if found.len() == wanted.len() {
+                return found;
+            }
         }
         if let Ok(kids) = d.get(b"Kids").and_then(|o| o.as_array()) {
             for k in kids {
@@ -1078,21 +1103,14 @@ pub(crate) fn find_field<'a>(doc: &'a Document, name: &str) -> Option<(ObjectId,
             }
         }
     }
-    // Fallback: an orphaned widget field — a Widget annotation with its own /T
-    // that was never linked into /AcroForm/Fields (see forms::append_orphan_widget_fields).
-    // Match it on the page /Annots by fully-qualified name so it stays fillable.
-    find_orphan_widget_field(doc, name)
-}
 
-/// Scan page `/Annots` for a Widget annotation whose fully-qualified name is
-/// `name` and that carries its own `/T` (a terminal field), for fields that
-/// exist only on the page and not in `/AcroForm/Fields`.
-fn find_orphan_widget_field<'a>(
-    doc: &'a Document,
-    name: &str,
-) -> Option<(ObjectId, &'a Dictionary)> {
     for &pid in doc.get_pages().values() {
-        let page = doc.get_dictionary(pid).ok()?;
+        if found.len() == wanted.len() {
+            break;
+        }
+        let Ok(page) = doc.get_dictionary(pid) else {
+            continue;
+        };
         let Some(annots) = page
             .get(b"Annots")
             .ok()
@@ -1104,15 +1122,18 @@ fn find_orphan_widget_field<'a>(
         for a in annots {
             let Ok(id) = a.as_reference() else { continue };
             let Ok(d) = doc.get_dictionary(id) else { continue };
-            if d.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) == Some(b"Widget")
-                && d.has(b"T")
-                && forms::fully_qualified_name(doc, d) == name
+            if d.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) != Some(b"Widget")
+                || !d.has(b"T")
             {
-                return Some((id, d));
+                continue;
+            }
+            let name = forms::fully_qualified_name(doc, d);
+            if wanted.contains(name.as_str()) && !found.contains_key(&name) {
+                found.insert(name, (id, d));
             }
         }
     }
-    None
+    found
 }
 
 /// Always encode as UTF-16BE (with BOM), regardless of ASCII-ness. Used for
@@ -1726,6 +1747,39 @@ mod tests {
             .iter()
             .find(|f| f["name"] == field_name)
             .and_then(|f| f["defaultValue"].as_str().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn find_fields_batch_matches_per_name_lookup() {
+        let doc = Document::load_mem(FICHA).unwrap();
+        let json = crate::forms::read_fields_json(FICHA).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let names: Vec<String> = v
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["name"].as_str().unwrap().to_string())
+            .collect();
+        assert!(names.len() > 10, "fixture should enumerate fields");
+
+        let batch = super::find_fields(&doc, &names);
+        assert_eq!(batch.len(), names.len());
+        for name in &names {
+            let (id, _) = find_field(&doc, name).unwrap();
+            assert_eq!(batch[name.as_str()].0, id, "batch disagrees for {name}");
+        }
+    }
+
+    #[test]
+    fn find_fields_missing_name_does_not_break_the_rest() {
+        let doc = Document::load_mem(FICHA).unwrap();
+        let names = vec![
+            "nope.nope".to_string(),
+            "beneficiario.apellidos_nombres".to_string(),
+        ];
+        let batch = super::find_fields(&doc, &names);
+        assert!(!batch.contains_key("nope.nope"));
+        assert!(batch.contains_key("beneficiario.apellidos_nombres"));
     }
 
     #[test]
