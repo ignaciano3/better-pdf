@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-07-30
+
 ### Added
 
 - **Typed forms expose `reset()` and `resetField()`**: the reset API shipped on
