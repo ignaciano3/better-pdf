@@ -81,7 +81,19 @@ export function generateFormTypes(
     lines.push(`    exported: ${field.exported ? "true" : "false"},`);
     lines.push(`    maxLength: ${field.maxLength === null ? "null" : field.maxLength},`);
     lines.push(`    multiSelect: ${field.multiSelect ? "true" : "false"},`);
+    lines.push(`    password: ${field.password ? "true" : "false"},`);
+    lines.push(`    multiline: ${field.multiline ? "true" : "false"},`);
+    lines.push(`    comb: ${field.comb ? "true" : "false"},`);
+    lines.push(`    editable: ${field.editable ? "true" : "false"},`);
+    lines.push(`    align: ${quote(field.align)},`);
+    lines.push(`    tooltip: ${field.tooltip === null ? "null" : quote(field.tooltip)},`);
+    lines.push(`    fontName: ${field.fontName === null ? "null" : quote(field.fontName)},`);
+    lines.push(`    fontSize: ${field.fontSize === null ? "null" : field.fontSize},`);
     lines.push(`    value: ${field.value === null ? "null" : quote(field.value)},`);
+    lines.push(
+      `    defaultValue: ${field.defaultValue === null ? "null" : quote(field.defaultValue)},`,
+    );
+    lines.push(`    pages: ${readonlyNumberTuple([...new Set(field.widgets.map((w) => w.page))])},`);
     lines.push(`    states: ${readonlyTuple(field.states)},`);
     lines.push(`    options: ${readonlyTuple(field.options)},`);
     lines.push("  },");
@@ -136,6 +148,11 @@ function literalUnion(values: readonly string[]): string {
 function readonlyTuple(values: readonly string[]): string {
   if (values.length === 0) return "[] as const";
   return `[${values.map(quote).join(", ")}] as const`;
+}
+
+function readonlyNumberTuple(values: readonly number[]): string {
+  if (values.length === 0) return "[] as const";
+  return `[${values.join(", ")}] as const`;
 }
 
 function quote(value: string): string {

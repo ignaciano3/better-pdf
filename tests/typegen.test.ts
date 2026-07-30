@@ -18,7 +18,7 @@ const fields: FieldInfo[] = [
     name: "beneficiario.apellidos_nombres",
     type: "text",
     value: null,
-    defaultValue: null,
+    defaultValue: "SIN DATO",
     states: [],
     options: [],
     readOnly: false,
@@ -27,14 +27,18 @@ const fields: FieldInfo[] = [
     maxLength: 40,
     multiSelect: false,
     password: false,
-    multiline: false,
+    multiline: true,
     comb: false,
     editable: false,
-    align: "left",
-    tooltip: null,
-    fontName: null,
-    fontSize: null,
-    widgets: [],
+    align: "center",
+    tooltip: "Apellidos y nombres",
+    fontName: "Helv",
+    fontSize: 0,
+    widgets: [
+      { page: 0, rect: [0, 0, 10, 10], hidden: false, print: true, noView: false },
+      { page: 2, rect: [0, 0, 10, 10], hidden: false, print: true, noView: false },
+      { page: 2, rect: [20, 0, 30, 10], hidden: false, print: true, noView: false },
+    ],
   },
   {
     name: "beneficiario.estado_civil",
@@ -101,6 +105,61 @@ test("generates field name and typed metadata declarations", () => {
   expect(source).toContain(
     "export type AnexoFormOptions<TName extends AnexoFormChoiceFieldName>",
   );
+});
+
+test("emits the read-side field flags and appearance metadata", () => {
+  const source = generateFormTypes(fields, { typeName: "AnexoForm" });
+
+  expect(source).toContain('defaultValue: "SIN DATO",');
+  expect(source).toContain("password: false,");
+  expect(source).toContain("multiline: true,");
+  expect(source).toContain("comb: false,");
+  expect(source).toContain("editable: false,");
+  expect(source).toContain('align: "center",');
+  expect(source).toContain('tooltip: "Apellidos y nombres",');
+  expect(source).toContain('fontName: "Helv",');
+  expect(source).toContain("fontSize: 0,");
+  // Widget pages collapse to a deduplicated page tuple: a field repeated on the
+  // same page twice contributes that page once.
+  expect(source).toContain("pages: [0, 2] as const,");
+  expect(source).toContain("pages: [] as const,");
+});
+
+test("every FieldInfo property reaches the generated metadata", () => {
+  // Drift guard: FieldInfo has grown repeatedly (defaultValue, password, comb,
+  // DA font, widgets…) while typegen silently kept emitting the old subset.
+  // Every readable property must appear in the output, so adding one to
+  // FieldInfo without teaching typegen about it fails here.
+  const source = generateFormTypes(fields, { typeName: "AnexoForm" });
+  // Exhaustive by construction: a new FieldInfo property makes this object
+  // literal fail to typecheck until it is given a marker here.
+  const emittedAs: Record<keyof FieldInfo, string> = {
+    // `name` is the metadata object's key; `widgets` is projected to `pages`.
+    name: "beneficiario.apellidos_nombres",
+    widgets: "pages:",
+    type: "type:",
+    value: "value:",
+    defaultValue: "defaultValue:",
+    states: "states:",
+    options: "options:",
+    readOnly: "readOnly:",
+    required: "required:",
+    exported: "exported:",
+    maxLength: "maxLength:",
+    multiSelect: "multiSelect:",
+    password: "password:",
+    multiline: "multiline:",
+    comb: "comb:",
+    editable: "editable:",
+    align: "align:",
+    tooltip: "tooltip:",
+    fontName: "fontName:",
+    fontSize: "fontSize:",
+  };
+
+  for (const marker of Object.values(emittedAs)) {
+    expect(source).toContain(marker);
+  }
 });
 
 test("FieldType covers every field type, not only the ones present", () => {

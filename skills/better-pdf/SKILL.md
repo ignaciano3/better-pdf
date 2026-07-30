@@ -40,6 +40,7 @@ Generate a types module from the PDF, then pass it to `getForm` for compile-time
 
 ```bash
 npx better-pdf-generate-types form.pdf src/form-types.ts --name EnrollmentForm
+npx better-pdf-generate-types secured.pdf --name Secured --password s3cret  # encrypted input
 ```
 
 ```ts

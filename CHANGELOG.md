@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Typed forms expose `reset()` and `resetField()`**: the reset API shipped on
+  `PdfForm` but was never added to `TypedPdfForm`, so `doc.getForm<typeof
+  myFormFields>().reset()` failed to compile. Both are now declared, with
+  `resetField` narrowed to the schema's field names.
+- **`better-pdf-generate-types --password PW`**: the types CLI can now open
+  encrypted PDFs. Previously it called `PdfDocument.load` without options, so
+  any encrypted file failed with an error pointing at an API the CLI did not
+  expose. Pass `--password ''` for owner-locked files.
+- **Generated metadata covers every readable field property.** Field reads have
+  grown a lot (`defaultValue`, `password`, `multiline`, `comb`, `editable`,
+  `align`, `tooltip`, `fontName`, `fontSize`, widget geometry) while the
+  generated module still emitted the original subset. All of them are now
+  emitted, plus a deduplicated `pages` tuple projected from each field's
+  widgets. A test asserts the generated module keeps pace with `FieldInfo`, so
+  the next added property cannot silently skip typegen.
+
 ## [1.14.1] - 2026-07-09
 
 ### Changed

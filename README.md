@@ -775,9 +775,15 @@ Generate a TypeScript module from an existing PDF:
 better-pdf-generate-types form.pdf src/form-types.ts --name EnrollmentForm
 ```
 
-The generated module exports field-name unions and literal metadata for field
-types, dropdown/listbox options, radio states, read-only flags, and current
-values.
+Encrypted PDFs need a password — pass `--password s3cret`, or `--password ''`
+for owner-locked files that open without a user password.
+
+The generated module exports field-name unions and literal metadata for every
+readable property of a field: type, dropdown/listbox options, radio states,
+current and default values, the read-only/required/exported/multi-select flags,
+text flags (`password`, `multiline`, `comb`, `maxLength`), editable combo boxes,
+alignment, tooltip, the `/DA` font name and size, and the page indices the
+field's widgets sit on.
 
 Then pass the generated metadata as a type argument to get a fully-narrowed
 form — unknown field names, wrong-type access, and invalid option/state values

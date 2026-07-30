@@ -77,4 +77,8 @@ export interface TypedPdfForm<S extends FormSchema> {
   flattenField(name: FieldNameOf<S>): void;
   /** Queue every field to be flattened when the document is saved. */
   flatten(): void;
+  /** Queue one declared field to be reset to its default value on save. */
+  resetField(name: FieldNameOf<S>): void;
+  /** Queue every value-bearing field to be reset to its default value on save. */
+  reset(): void;
 }

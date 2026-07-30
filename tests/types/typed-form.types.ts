@@ -23,6 +23,9 @@ form.getRadioGroup("applicant.kind").select("Primary");
 form.getListBox("applicant.lang").select("EN");
 form.getSignature("applicant.signature");
 form.flattenField("applicant.name");
+form.flatten();
+form.resetField("applicant.status");
+form.reset();
 
 // Negative — each next line MUST be a type error.
 // @ts-expect-error unknown field name
@@ -39,6 +42,8 @@ form.getListBox("applicant.lang").select("DE");
 form.getDropdown("applicant.lang");
 // @ts-expect-error unknown field name for flatten
 form.flattenField("nope");
+// @ts-expect-error unknown field name for reset
+form.resetField("nope");
 
 // Backward compatibility — the untyped form keeps accepting plain strings.
 declare const loose: PdfDocument;

@@ -6,19 +6,30 @@ import { generateFormTypes } from "../forms/typegen.js";
 
 function usage(): string {
   return [
-    "Usage: better-pdf-generate-types <input.pdf> [output.ts] [--name TypeName]",
+    "Usage: better-pdf-generate-types <input.pdf> [output.ts] [--name TypeName] [--password PW]",
     "",
     "Examples:",
     "  better-pdf-generate-types form.pdf src/form-types.ts",
     "  better-pdf-generate-types form.pdf --name EnrollmentForm > src/form-types.ts",
+    "  better-pdf-generate-types secured.pdf --password s3cret > src/form-types.ts",
+    "",
+    "Encrypted PDFs need --password; pass an empty one (--password '') for",
+    "owner-locked files that open without a user password.",
   ].join("\n");
 }
 
-function readName(args: string[]): string | undefined {
-  const index = args.indexOf("--name");
+/**
+ * Read `--flag value`, removing both from `args`. Returns `undefined` when the
+ * flag is absent. An empty value is only accepted when `allowEmpty` is set —
+ * `--password ""` is meaningful (owner-locked files), `--name ""` is not.
+ */
+function readOption(args: string[], flag: string, allowEmpty: boolean): string | undefined {
+  const index = args.indexOf(flag);
   if (index === -1) return undefined;
   const value = args[index + 1];
-  if (!value) throw new Error("--name requires a TypeScript identifier");
+  if (value === undefined || (!allowEmpty && value === "")) {
+    throw new Error(`${flag} requires a value`);
+  }
   args.splice(index, 2);
   return value;
 }
@@ -30,14 +41,15 @@ export async function runGenerateTypesCli(args: string[]): Promise<void> {
     return;
   }
 
-  const typeName = readName(mutableArgs);
+  const typeName = readOption(mutableArgs, "--name", false);
+  const password = readOption(mutableArgs, "--password", true);
   const [inputPath, outputPath, extra] = mutableArgs;
   if (!inputPath || extra) {
     throw new Error(usage());
   }
 
   const bytes = new Uint8Array(await readFile(inputPath));
-  const doc = await PdfDocument.load(bytes);
+  const doc = await PdfDocument.load(bytes, password === undefined ? undefined : { password });
   const source = generateFormTypes(doc.getForm().getFields(), { typeName });
 
   if (outputPath) {
