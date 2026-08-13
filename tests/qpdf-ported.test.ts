@@ -228,6 +228,108 @@ describe.skipIf(!encReady)("encryption matrix (qpdf --encrypt)", () => {
     expect(await PdfDocument.passwordType(both, "foo")).toBe("user");
     expect(await PdfDocument.passwordType(both, "nope")).toBe(null);
   });
+
+  // Regression: files whose trailer is a cross-reference *stream* (no `trailer`
+  // keyword at all) once reported passwordType null for every password — the
+  // same answer as a wrong password — while load() decrypted them fine.
+  // The user-password fixtures were written with an empty owner password, which
+  // qpdf fills in with the user password — so that password authenticates as
+  // owner (the superset), exactly as it does for their classic-trailer twins.
+  const xrefStm: Array<{ file: string; password: string; expected: "user" | "owner" }> = [
+    { file: "r2-rc4-40-user-xrefstm.pdf", password: "asdfzxcv", expected: "owner" },
+    { file: "r3-rc4-128-user-xrefstm.pdf", password: "asdfzxcv", expected: "owner" },
+    { file: "r6-both-passwords-xrefstm.pdf", password: "foo", expected: "user" },
+    { file: "r6-both-passwords-xrefstm.pdf", password: "bar", expected: "owner" },
+  ];
+  for (const { file, password, expected } of xrefStm) {
+    test(`passwordType classifies ${file} with "${password}" as ${expected}`, async () => {
+      const data = bytes(`encryption/${file}`);
+      // Guard the premise: this fixture really has no classic trailer.
+      expect(new TextDecoder("latin1").decode(data)).not.toContain("trailer");
+      expect(await PdfDocument.passwordType(data, password)).toBe(expected);
+      expect((await PdfDocument.load(data, { password })).getPageCount()).toBe(1);
+    });
+  }
+
+  // Structure must not change the answer: each xref-stream fixture has a
+  // classic-trailer twin encrypted with the same passwords.
+  test("xref-stream files classify identically to their classic-trailer twins", async () => {
+    const twins: Array<[string, string, string[]]> = [
+      ["r2-rc4-40-user.pdf", "r2-rc4-40-user-xrefstm.pdf", ["asdfzxcv", "nope"]],
+      ["r6-both-passwords.pdf", "r6-both-passwords-xrefstm.pdf", ["foo", "bar", "nope"]],
+    ];
+    for (const [classic, xref, passwords] of twins) {
+      for (const password of passwords) {
+        expect({
+          password,
+          type: await PdfDocument.passwordType(bytes(`encryption/${xref}`), password),
+        }).toEqual({
+          password,
+          type: await PdfDocument.passwordType(bytes(`encryption/${classic}`), password),
+        });
+      }
+    }
+  });
+
+  // Known limitation, pinned so it stays visible: lopdf SASLprep-normalizes R6
+  // passwords with no raw-bytes load path, so a file qpdf keyed off the raw NFD
+  // bytes of "café" cannot be opened with any spelling of that password. The
+  // owner password (plain ASCII) still works, and — the part that matters —
+  // passwordType and load agree. See docs/lopdf-saslprep-issue.md.
+  const NFD = "cafe\u0301"; // "café" with a combining acute
+  for (const file of ["r6-nfd-password.pdf", "r6-nfd-password-xrefstm.pdf"]) {
+    test(`non-normalized Unicode password is rejected consistently (${file})`, async () => {
+      const data = bytes(`encryption/${file}`);
+      for (const password of [NFD, "caf\u00e9"]) {
+        expect(await PdfDocument.passwordType(data, password)).toBe(null);
+        await expect(PdfDocument.load(data, { password })).rejects.toThrow();
+      }
+      // The ASCII owner password of the same file opens it normally.
+      expect(await PdfDocument.passwordType(data, "owner")).toBe("owner");
+      expect((await PdfDocument.load(data, { password: "owner" })).getPageCount()).toBe(1);
+    });
+  }
+
+  // An encrypted file whose xref is damaged must still be refused as encrypted:
+  // the recovery loader rebuilds a fresh trailer, so if the encryption gate
+  // misses the /Encrypt declaration the file "loads" with no password at all,
+  // its strings and streams still ciphertext. The declaration sits inside the
+  // xref stream object here, where a trailer-only scan cannot see it.
+  test("damaged encrypted xref-stream file is refused, not silently repaired", async () => {
+    const original = bytes("encryption/r3-rc4-128-user-xrefstm.pdf");
+    const broken = new Uint8Array(original);
+    const at = new TextDecoder("latin1").decode(original).lastIndexOf("startxref");
+    broken.fill(0x78, at, at + "startxref".length); // clobber → strict parse fails
+    expect(await PdfDocument.isEncrypted(broken)).toBe(true);
+    // `load` is lazy — parsing happens on first use, so the refusal surfaces
+    // there rather than from the load call itself.
+    const doc = await PdfDocument.load(broken);
+    expect(() => doc.getPageCount()).toThrow(/encrypted/i);
+    // The intact file is unaffected.
+    expect((await PdfDocument.load(original, { password: "asdfzxcv" })).getPageCount()).toBe(1);
+  });
+
+  test("passwordType and load agree on every encryption fixture", async () => {
+    // The invariant callers depend on: a non-null passwordType means the
+    // password opens the file, and null means it does not. Anything else makes
+    // a caller that gates on passwordType reject valid passwords (or accept
+    // invalid ones).
+    const all: Array<[string, string]> = [
+      ...cases.map(({ file, password }) => [file, password] as [string, string]),
+      ...xrefStm.map(({ file, password }) => [file, password] as [string, string]),
+      ["r6-both-passwords.pdf", "nope"],
+      ["r6-both-passwords-xrefstm.pdf", "nope"],
+    ];
+    for (const [file, password] of all) {
+      const data = bytes(`encryption/${file}`);
+      const classified = (await PdfDocument.passwordType(data, password)) !== null;
+      const opens = await PdfDocument.load(data, { password }).then(
+        () => true,
+        () => false,
+      );
+      expect({ file, password, classified }).toEqual({ file, password, classified: opens });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

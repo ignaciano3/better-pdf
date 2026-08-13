@@ -27,8 +27,10 @@ pub(crate) fn repair_load(data: &[u8]) -> Result<Document, String> {
     // decrypted) — the strings/streams stay ciphertext while doc_io's
     // encryption gate is left with nothing to see. Mirror `find_info_ref`'s
     // "outside any object span" check: a trailer-only match, not one that
-    // just happens to appear inside stream/string data.
-    if find_encrypt_ref(data, &span_index(&objs)) {
+    // just happens to appear inside stream/string data — plus the xref-stream
+    // case, where the entry lives *inside* an object span (the xref stream's
+    // own dictionary) and the span check alone would miss it.
+    if find_encrypt_ref(data, &span_index(&objs)) || xref_stream_declares_encrypt(data) {
         return Err(format!(
             "{} this PDF is encrypted; load it with PdfDocument.load(bytes, {{ password }}) (use \"\" for owner-locked files)",
             crate::doc_io::ENCRYPTED_PREFIX
@@ -125,11 +127,11 @@ fn dict_type_is(o: &Object, ty: &[u8]) -> bool {
 /// `authenticate_owner_password` / `authenticate_user_password` to classify a
 /// password (user vs owner) without ever decrypting the real document.
 ///
-/// Returns `None` for xref-stream files (no classic `trailer`) or when the
-/// `/Encrypt` object or `/ID` can't be located.
+/// Works for both classic `trailer` files and cross-reference-stream files
+/// (PDF 1.5+), whose trailer entries live in the xref stream's dictionary.
+/// Returns `None` when the `/Encrypt` object or the `/ID` can't be located.
 pub(crate) fn build_encrypt_probe(data: &[u8]) -> Option<Vec<u8>> {
-    let (ts, te) = find_trailer_dict(data)?;
-    let trailer = &data[ts..te];
+    let trailer = find_encrypt_trailer(data)?;
     let id = bracketed_value(trailer, b"/ID")?; // "[<..><..>]" incl. brackets
     let encrypt_num = read_ref_num(trailer, b"/Encrypt")?;
     let objs = scan_objects(data);
@@ -150,6 +152,82 @@ pub(crate) fn build_encrypt_probe(data: &[u8]) -> Option<Vec<u8>> {
     out.extend_from_slice(id);
     out.extend_from_slice(format!(" >>\nstartxref\n{xref}\n%%EOF\n").as_bytes());
     Some(out)
+}
+
+/// The trailer dictionary that carries both an `/Encrypt` reference and an
+/// `/ID`, searched newest-first.
+///
+/// A file's trailer entries live either in a classic `trailer << … >>` or — for
+/// cross-reference-stream files (PDF 1.5+, what most modern producers emit) —
+/// in the dictionary of the xref stream object itself. Both are plaintext even
+/// in an encrypted document (the `/Encrypt` dict and the trailer `/ID` are never
+/// encrypted, and an xref stream's dictionary is not compressed), so locating
+/// them by scanning raw bytes is sound.
+///
+/// Newest-first also covers incremental updates and hybrid-reference files: the
+/// first section carrying both entries wins, so an older section that predates
+/// the encryption never shadows the current one.
+fn find_encrypt_trailer(data: &[u8]) -> Option<&[u8]> {
+    trailer_dicts(data)
+        .into_iter()
+        .find(|d| read_ref_num(d, b"/Encrypt").is_some() && bracketed_value(d, b"/ID").is_some())
+}
+
+/// Every dictionary that can hold trailer entries, newest first: the classic
+/// `trailer` dictionary, then each cross-reference stream's dictionary in
+/// reverse file order.
+fn trailer_dicts(data: &[u8]) -> Vec<&[u8]> {
+    let mut out = Vec::new();
+    if let Some((start, end)) = find_trailer_dict(data) {
+        out.push(&data[start..end]);
+    }
+    for o in scan_objects(data).iter().rev() {
+        if let Some(dict) = balanced_dict(&data[o.span.clone()])
+            && top_level_name_is(dict, b"/Type", b"/XRef")
+        {
+            out.push(dict);
+        }
+    }
+    out
+}
+
+/// True when `dict` (a `<< … >>` slice) has `key` at depth 1 with the name
+/// `name` as its value, e.g. `/Type /XRef`.
+fn top_level_name_is(dict: &[u8], key: &[u8], name: &[u8]) -> bool {
+    let Some(body) = dict.strip_prefix(b"<<") else {
+        return false;
+    };
+    let Some(at) = depth1_key_pos(body, key) else {
+        return false;
+    };
+    // Whitespace between key and value is optional: `/Type/XRef` is as valid as
+    // `/Type /XRef`, since `/` is itself a delimiter.
+    let mut i = at + key.len();
+    while body.get(i).is_some_and(|b| is_whitespace(*b)) {
+        i += 1;
+    }
+    // The value must be the whole name, not a prefix of a longer one
+    // (`/XRefStm` must not match `/XRef`).
+    body[i..].starts_with(name)
+        && body
+            .get(i + name.len())
+            .is_none_or(|b| ends_name_token(*b))
+}
+
+/// True for the six PDF whitespace bytes.
+fn is_whitespace(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\r' | b'\n' | b'\0' | b'\x0c')
+}
+
+/// True for bytes that terminate a PDF name token: whitespace or any delimiter.
+/// Wider than `is_delim_or_ws` (which serves object-header scanning) — a name
+/// can butt straight against the next key, as in `/Type/XRef/Size`.
+fn ends_name_token(b: u8) -> bool {
+    is_whitespace(b)
+        || matches!(
+            b,
+            b'/' | b'<' | b'>' | b'[' | b']' | b'(' | b')' | b'{' | b'}' | b'%'
+        )
 }
 
 /// The `<< … >>` slice of `span` (its first balanced dictionary).
@@ -183,13 +261,30 @@ fn bracketed_value<'a>(dict: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
     Some(&dict[open..=close])
 }
 
-/// True when the raw bytes carry an `/Encrypt` trailer reference outside any
-/// object span — the same trailer-only test `repair_load` uses to refuse
-/// repairing an encrypted file. Used as `is_encrypted`'s fallback when the
-/// strict parser fails for a non-password reason.
+/// True when the raw bytes declare an `/Encrypt` trailer reference — the same
+/// test `repair_load` uses to refuse repairing an encrypted file. Used as
+/// `is_encrypted`'s fallback when the strict parser fails for a non-password
+/// reason.
 pub(crate) fn has_encrypt_marker(data: &[u8]) -> bool {
     let objs = scan_objects(data);
-    find_encrypt_ref(data, &span_index(&objs))
+    find_encrypt_ref(data, &span_index(&objs)) || xref_stream_declares_encrypt(data)
+}
+
+/// True when a cross-reference stream's dictionary declares `/Encrypt`.
+///
+/// `find_encrypt_ref` only counts matches *outside* every object span, which is
+/// the right test for a classic `trailer` but blind to xref-stream files, where
+/// the trailer entries live inside the xref stream object. Without this, a
+/// damaged encrypted xref-stream file passes the encryption gate and gets
+/// "repaired" into a document that looks plaintext while its strings and
+/// streams are still ciphertext.
+///
+/// Scoped to `/Type /XRef` dictionaries, so an `/Encrypt` occurring in ordinary
+/// stream or string data can't trip it.
+fn xref_stream_declares_encrypt(data: &[u8]) -> bool {
+    trailer_dicts(data)
+        .iter()
+        .any(|d| read_ref_num(d, b"/Encrypt").is_some())
 }
 
 /// Normalize a V4 (`/V 4`) `/Encrypt` dictionary that omits the top-level
@@ -241,6 +336,13 @@ pub(crate) fn inject_v4_length(data: &[u8]) -> Option<Vec<u8>> {
 /// The `<< … >>` byte range of the file's last `trailer` dictionary, or `None`
 /// for xref-stream files (which have no `trailer` keyword — deliberately
 /// unsupported here so we never mangle a compressed cross-reference).
+///
+/// Read-only callers that just need the trailer's entries should use
+/// [`find_encrypt_trailer`], which also covers xref-stream files; this one
+/// gates the *rewriting* path in [`inject_v4_length`], which re-emits the file
+/// with a classic trailer and can only carry over objects the raw scanner can
+/// see — objects compressed into object streams (the norm alongside xref
+/// streams) would be dropped.
 fn find_trailer_dict(data: &[u8]) -> Option<(usize, usize)> {
     let kw = data
         .windows(b"trailer".len())
@@ -728,6 +830,88 @@ mod tests {
     #[test]
     fn garbage_still_fails() {
         assert!(repair_load(b"this is not a pdf at all").is_err());
+    }
+
+    /// Minimal xref-stream file shape: trailer entries live in the `/Type /XRef`
+    /// object's dictionary, with no `trailer` keyword anywhere. Stream data is
+    /// nonsense on purpose — the probe must find `/Encrypt` and `/ID` by
+    /// scanning, without parsing the cross-reference itself.
+    const XREF_STREAM_ENCRYPTED: &[u8] = b"%PDF-1.7\n\
+1 0 obj\n<< /Filter /Standard /V 2 /Length 128 /R 3 /O <41> /U <42> /P -4 >>\nendobj\n\
+2 0 obj\n<< /Type /Catalog /Pages 3 0 R >>\nendobj\n\
+3 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n\
+4 0 obj\n<< /Type /XRef /Size 5 /W [1 2 1] /Root 2 0 R /Encrypt 1 0 R \
+/ID [<A6BAF052E456E28BC5F475112BFF95EB> <C29B2328D4CF3DBB2B91C863816F956A>] \
+/Filter /FlateDecode /Length 4 >>\nstream\nxxxx\nendstream\nendobj\n\
+startxref\n0\n%%EOF\n";
+
+    #[test]
+    fn encrypt_probe_reads_a_cross_reference_stream_trailer() {
+        // Regression: files whose trailer is an xref stream (PDF 1.5+, what most
+        // modern producers emit) yielded no probe at all, so password_type
+        // reported None — indistinguishable from a wrong password — for
+        // passwords that decrypt_pdf accepts.
+        let probe = build_encrypt_probe(XREF_STREAM_ENCRYPTED)
+            .expect("xref-stream trailer must yield a probe");
+        let doc = lopdf::Document::load_mem(&probe).expect("probe must be loadable plaintext");
+        assert!(doc.trailer.has(b"ID"), "probe must carry the trailer /ID");
+        // Object 1 is the /Encrypt dict the probe re-points the trailer at.
+        let enc = doc.get_dictionary((1, 0)).expect("probe carries /Encrypt");
+        assert_eq!(enc.get(b"R").unwrap().as_i64().unwrap(), 3);
+    }
+
+    #[test]
+    fn encrypt_probe_ignores_xref_stream_without_encryption() {
+        // Same shape minus /Encrypt: nothing to probe, so None (not a panic and
+        // not a fabricated probe).
+        let plain = String::from_utf8_lossy(XREF_STREAM_ENCRYPTED).replace("/Encrypt 1 0 R ", "");
+        assert!(build_encrypt_probe(plain.as_bytes()).is_none());
+    }
+
+    #[test]
+    fn xref_stream_encryption_blocks_the_recovery_loader() {
+        // The /Encrypt reference of an xref-stream file lives *inside* an object
+        // span, so the "outside any span" trailer test alone reports the file as
+        // unencrypted — and recovery then rebuilds it into a document that looks
+        // plaintext while its strings and streams are still ciphertext.
+        assert!(has_encrypt_marker(XREF_STREAM_ENCRYPTED));
+        let err = repair_load(XREF_STREAM_ENCRYPTED)
+            .expect_err("an encrypted xref-stream file must not be repaired");
+        assert!(err.starts_with(crate::doc_io::ENCRYPTED_PREFIX), "got: {err}");
+    }
+
+    #[test]
+    fn plain_xref_stream_file_still_repairs() {
+        // The guard must key off a real /Encrypt declaration, not the mere
+        // presence of an xref stream.
+        let plain = String::from_utf8_lossy(XREF_STREAM_ENCRYPTED).replace("/Encrypt 1 0 R ", "");
+        assert!(!has_encrypt_marker(plain.as_bytes()));
+    }
+
+    #[test]
+    fn top_level_name_is_matches_whole_names_only() {
+        assert!(top_level_name_is(
+            b"<< /Type /XRef /Size 5 >>",
+            b"/Type",
+            b"/XRef"
+        ));
+        assert!(top_level_name_is(
+            b"<< /Type/XRef/Size 5 >>",
+            b"/Type",
+            b"/XRef"
+        ));
+        // /XRefStm is a different name and must not match /XRef.
+        assert!(!top_level_name_is(
+            b"<< /Type /XRefStm /Size 5 >>",
+            b"/Type",
+            b"/XRef"
+        ));
+        // A nested /Type must not be mistaken for the dict's own.
+        assert!(!top_level_name_is(
+            b"<< /Sub << /Type /XRef >> /Size 5 >>",
+            b"/Type",
+            b"/XRef"
+        ));
     }
 
     const CORRUPT_PAGES_REF: &[u8] =
