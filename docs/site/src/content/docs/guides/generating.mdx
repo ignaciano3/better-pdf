@@ -468,6 +468,19 @@ Page operations work across multiple loaded documents (static methods) and on a
 single loaded document (instance methods). All four methods return a new
 `Uint8Array` PDF — no source document is mutated.
 
+To work with every page handle at once, `doc.getPages()` returns the full
+`PdfPage[]` in document order (the same instances `doc.getPage(i)` returns):
+
+```ts
+const pages = doc.getPages();
+for (const page of pages) {
+  page.drawText("DRAFT", { x: 50, y: 50, size: 24, opacity: 0.2 });
+}
+```
+
+`doc.getPageCount()` reports the number of pages; `doc.getPage(i)` fetches one
+by zero-based index and throws `PageOutOfRangeError` when it is out of range.
+
 ### Merge multiple PDFs
 
 Combine an array of PDFs into one, preserving the page order:

@@ -32,6 +32,17 @@ widget annotation giving its 0-based `page` index, `rect` (`[x0, y0, x1, y1]`
 in PDF points, origin bottom-left), and the annotation visibility flags
 `hidden` / `print` / `noView` (from `/F`).
 
+To inspect a single field by name without throwing, use `form.getField(name)` —
+it returns the `FieldInfo` or `undefined` when no field has that name (the
+type-specific getters below throw `UnknownFieldError` instead):
+
+```ts
+const field = form.getField("beneficiario.estado_civil");
+if (field?.type === "dropdown") {
+  console.log(field.options);
+}
+```
+
 ## Fill
 
 ```ts
