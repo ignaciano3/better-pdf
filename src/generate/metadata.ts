@@ -1,12 +1,20 @@
 /** User-facing document metadata shape. */
 export interface DocumentMetadata {
+  /** Document title (`/Title`). */
   title?: string;
+  /** Document author (`/Author`). */
   author?: string;
+  /** Document subject (`/Subject`). */
   subject?: string;
+  /** Document keywords (`/Keywords`). */
   keywords?: string[];
+  /** Name of the software that created the document (`/Creator`). */
   creator?: string;
+  /** Name of the software that produced the PDF (`/Producer`). */
   producer?: string;
+  /** Creation date (`/CreationDate`). */
   creationDate?: Date;
+  /** Last-modification date (`/ModDate`). */
   modificationDate?: Date;
 }
 

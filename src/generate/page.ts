@@ -9,7 +9,9 @@ import { parseSvgPath, type Segment } from "./svg-path.js";
 
 /** Options for {@link PdfPage.drawText}. Coordinates use the PDF convention: origin bottom-left. */
 export interface DrawTextOptions {
+  /** X coordinate of the first line's baseline start, in PDF points. */
   x: number;
+  /** Y coordinate of the first line's baseline, in PDF points. */
   y: number;
   /** Font size in points. Must be > 0. */
   size: number;
@@ -38,7 +40,9 @@ export interface DrawTextOptions {
 
 /** Options for {@link PdfPage.drawLine}. Coordinates use the PDF convention: origin bottom-left. */
 export interface DrawLineOptions {
+  /** Line start point. */
   start: { x: number; y: number };
+  /** Line end point. */
   end: { x: number; y: number };
   /** Stroke width in points. Default 1. */
   strokeWidth?: number;
@@ -57,9 +61,13 @@ export interface DrawLineOptions {
 
 /** Options for {@link PdfPage.drawRectangle}. `(x, y)` is the lower-left corner. */
 export interface DrawRectangleOptions {
+  /** X of the lower-left corner, in PDF points. */
   x: number;
+  /** Y of the lower-left corner, in PDF points. */
   y: number;
+  /** Width in PDF points. Must be > 0. */
   width: number;
+  /** Height in PDF points. Must be > 0. */
   height: number;
   /** Fill color. Omit for no fill. */
   fill?: Color;
@@ -77,9 +85,13 @@ export interface DrawRectangleOptions {
 
 /** Options for {@link PdfPage.drawLink}. `(x, y)` is the lower-left corner. Coordinates use the PDF convention: origin bottom-left. */
 export interface DrawLinkOptions {
+  /** X of the clickable region's lower-left corner, in PDF points. */
   x: number;
+  /** Y of the clickable region's lower-left corner, in PDF points. */
   y: number;
+  /** Clickable region width in PDF points. Must be > 0. */
   width: number;
+  /** Clickable region height in PDF points. Must be > 0. */
   height: number;
   /** URI target. Exactly one of `url` or `goToPage` must be provided. */
   url?: string;
@@ -123,7 +135,9 @@ export interface DrawPolygonOptions {
 
 /** Options for {@link PdfPage.drawEllipse}. `(x, y)` is the center. */
 export interface DrawEllipseOptions {
+  /** X of the ellipse center, in PDF points. */
   x: number;
+  /** Y of the ellipse center, in PDF points. */
   y: number;
   /** Horizontal radius in points. */
   radiusX: number;
@@ -145,7 +159,9 @@ export interface DrawEllipseOptions {
 
 /** Options for {@link PdfPage.drawImage}. Coordinates use the PDF convention: origin bottom-left. */
 export interface DrawImageOptions {
+  /** X of the image's bottom-left corner, in PDF points. */
   x: number;
+  /** Y of the image's bottom-left corner, in PDF points. */
   y: number;
   /** Width in PDF points. Defaults to the image's intrinsic pixel width. */
   width?: number;
@@ -163,7 +179,9 @@ export interface DrawImageOptions {
 
 /** Options for {@link PdfPage.drawPage}. Coordinates use the PDF convention: origin bottom-left. */
 export interface DrawPageOptions {
+  /** X of the stamped page's bottom-left corner, in PDF points. */
   x: number;
+  /** Y of the stamped page's bottom-left corner, in PDF points. */
   y: number;
   /** Width in PDF points. Defaults to the embedded page's intrinsic width. */
   width?: number;
@@ -507,12 +525,13 @@ export class PdfPage {
   }
 
   /**
-   * Draw a vector path described by an SVG path `d` string. Supports M/L/H/V/C/S/Q/T/Z
-   * commands; arc (A) commands throw an error. Coordinates use the PDF convention:
-   * origin bottom-left.
+   * Draw a vector path described by an SVG path `d` string. Supports
+   * `M`/`L`/`H`/`V`/`C`/`S`/`Q`/`T`/`A`/`Z` commands (absolute and relative);
+   * elliptical arcs are converted to cubic béziers. Coordinates use the PDF
+   * convention: origin bottom-left.
    *
    * @param d - SVG path data string.
-   * @param opts - Optional fill, stroke, strokeWidth, and opacity.
+   * @param opts - Optional fill, stroke, strokeWidth, dash, and opacity.
    */
   drawSvgPath(d: string, opts: DrawSvgPathOptions = {}): void {
     const { fill, stroke, strokeWidth, opacity, dash, dashPhase } = opts;

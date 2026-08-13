@@ -15,6 +15,9 @@ export class PdfError extends Error {
 
 /** Thrown when a field name does not exist in the form. */
 export class UnknownFieldError extends PdfError {
+  /**
+   * @param field - The fully-qualified field name that was not found.
+   */
   constructor(readonly field: string) {
     super(`no such field: ${field}`);
   }
@@ -22,6 +25,11 @@ export class UnknownFieldError extends PdfError {
 
 /** Thrown when a field is accessed as the wrong type (e.g. dropdown vs text). */
 export class FieldTypeError extends PdfError {
+  /**
+   * @param field - The fully-qualified field name.
+   * @param actual - The field's actual type.
+   * @param expected - The type it was accessed as.
+   */
   constructor(
     readonly field: string,
     readonly actual: FieldType,
@@ -33,6 +41,12 @@ export class FieldTypeError extends PdfError {
 
 /** Thrown when selecting a value that is not one of a field's valid options. */
 export class InvalidOptionError extends PdfError {
+  /**
+   * @param field - The fully-qualified field name.
+   * @param fieldType - The field's type (radio, dropdown, or listbox).
+   * @param value - The rejected value.
+   * @param options - The field's valid export values.
+   */
   constructor(
     readonly field: string,
     readonly fieldType: FieldType,
@@ -47,6 +61,11 @@ export class InvalidOptionError extends PdfError {
 
 /** Thrown when setting text longer than a field's declared `/MaxLen`. */
 export class MaxLengthExceededError extends PdfError {
+  /**
+   * @param field - The fully-qualified field name.
+   * @param maxLength - The field's `/MaxLen` limit.
+   * @param actualLength - The length of the value that exceeded it.
+   */
   constructor(
     readonly field: string,
     readonly maxLength: number,
@@ -60,6 +79,9 @@ export class MaxLengthExceededError extends PdfError {
 
 /** Thrown when checking a checkbox that declares no on-state in its widgets. */
 export class MissingOnStateError extends PdfError {
+  /**
+   * @param field - The fully-qualified checkbox field name.
+   */
   constructor(readonly field: string) {
     super(`checkbox '${field}' has no on-state`);
   }
@@ -67,6 +89,9 @@ export class MissingOnStateError extends PdfError {
 
 /** Thrown when `selectMultiple` is called on a single-select list box. */
 export class MultiSelectError extends PdfError {
+  /**
+   * @param field - The fully-qualified list-box field name.
+   */
   constructor(readonly field: string) {
     super(`list box '${field}' is single-select; use select() instead of selectMultiple()`);
   }
@@ -80,6 +105,9 @@ export class PdfCoreError extends PdfError {}
 
 /** Thrown when text contains characters the embedded font has no glyph for. */
 export class MissingGlyphError extends PdfError {
+  /**
+   * @param detail - The core message naming the missing glyph(s).
+   */
   constructor(readonly detail: string) {
     super(detail); // detail is the core message: 'missing glyphs in font for …: "㐀" (U+3400)'
   }
@@ -109,6 +137,10 @@ export class IncorrectPasswordError extends PdfError {
 
 /** Thrown when a page index is outside the document's page range. */
 export class PageOutOfRangeError extends PdfError {
+  /**
+   * @param index - The requested zero-based page index.
+   * @param pageCount - The number of pages in the document.
+   */
   constructor(readonly index: number, readonly pageCount: number) {
     super(`page ${index} out of range (document has ${pageCount} pages)`);
   }
@@ -119,6 +151,9 @@ export class InvalidImageError extends PdfError {}
 
 /** Thrown when a rotation value is not a multiple of 90 degrees. */
 export class InvalidRotationError extends PdfError {
+  /**
+   * @param degrees - The rejected rotation value.
+   */
   constructor(readonly degrees: number) {
     super(`rotation must be a multiple of 90 degrees, got ${degrees}`);
   }
@@ -139,6 +174,9 @@ export class FormSealedError extends PdfError {
 
 /** Thrown when attaching a file whose name already exists (queued or saved). */
 export class DuplicateAttachmentError extends PdfError {
+  /**
+   * @param attachmentName - The duplicate file name.
+   */
   constructor(readonly attachmentName: string) {
     super(`an attachment named '${attachmentName}' already exists`);
   }
@@ -146,6 +184,9 @@ export class DuplicateAttachmentError extends PdfError {
 
 /** Reserved for future get-by-name/remove APIs. */
 export class AttachmentNotFoundError extends PdfError {
+  /**
+   * @param attachmentName - The file name that was not found.
+   */
   constructor(readonly attachmentName: string) {
     super(`no attachment named '${attachmentName}'`);
   }

@@ -30,6 +30,8 @@ export interface FieldWidget {
 export interface FieldInfo {
   /** Fully-qualified field name (ancestor /T joined by "."). */
   name: string;
+  /** The field type: `"text" | "checkbox" | "radio" | "dropdown" |
+   * "listbox" | "signature" | "pushbutton" | "unknown"`. */
   type: FieldType;
   /** Current value as a string, or null if unset. */
   value: string | null;
@@ -39,6 +41,7 @@ export interface FieldInfo {
   states: string[];
   /** Option export values for dropdown/listbox; empty otherwise. */
   options: string[];
+  /** True if the field has the ReadOnly flag set (`/Ff` bit 1). */
   readOnly: boolean;
   /** True if the field has the Required flag set. */
   required: boolean;

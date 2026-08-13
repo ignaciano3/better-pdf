@@ -30,14 +30,21 @@ export interface AttachOptions {
 
 /** One embedded file returned by {@link PdfDocumentBase.getAttachments}. */
 export interface PdfAttachment {
+  /** File name (as embedded). */
   name: string;
+  /** Human-readable description, written as the filespec `/Desc`. */
   description?: string;
+  /** MIME type, written as the embedded stream's `/Subtype`. */
   mimeType?: string;
+  /** Creation date (`/Params /CreationDate`), if set. */
   creationDate?: Date;
+  /** Modification date (`/Params /ModDate`), if set. */
   modificationDate?: Date;
   /** Uncompressed size in bytes (equals bytes.length). */
   size: number;
+  /** Associated-file relationship (`/AFRelationship`), if any. */
   afRelationship?: AfRelationship;
+  /** The embedded file's raw bytes. */
   bytes: Uint8Array;
 }
 

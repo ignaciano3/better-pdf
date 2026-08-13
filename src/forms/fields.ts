@@ -16,11 +16,17 @@ import { PdfFont, kFontId } from "../generate/font.js";
  * `print` / `noView` are annotation `/F` flags applied to every widget.
  */
 export interface FieldFlagChanges {
+  /** Field `/Ff` ReadOnly flag (bit 1): displayed but not editable. */
   readOnly?: boolean;
+  /** Field `/Ff` Required flag (bit 2): viewers may block submit while empty. */
   required?: boolean;
+  /** Field `/Ff` NoExport flag (bit 3): excluded from form submission. */
   noExport?: boolean;
+  /** Annotation `/F` Hidden flag (bit 2) on every widget: hidden on screen and in print. */
   hidden?: boolean;
+  /** Annotation `/F` Print flag (bit 3) on every widget: included in printed output. */
   print?: boolean;
+  /** Annotation `/F` NoView flag (bit 6) on every widget: hidden on screen but may still print. */
   noView?: boolean;
   /**
    * Appearance-affecting text-field `/Ff` flags. Toggling any of these on a
@@ -29,8 +35,11 @@ export interface FieldFlagChanges {
    * `comb`.
    */
   multiline?: boolean;
+  /** Text-field `/Ff` Password flag (bit 14): value is masked, never rendered. */
   password?: boolean;
+  /** Text-field `/Ff` Comb flag (bit 25): fixed-pitch per-character cells. */
   comb?: boolean;
+  /** Cell count written to `/MaxLen` when enabling `comb`. */
   combMaxLen?: number;
 }
 

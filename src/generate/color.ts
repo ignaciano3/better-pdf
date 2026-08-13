@@ -1,7 +1,10 @@
 /** An RGB color with components in 0..1. Create with {@link rgb} or {@link grayscale}. */
 export interface Color {
+  /** Red component in 0..1. */
   readonly red: number;
+  /** Green component in 0..1. */
   readonly green: number;
+  /** Blue component in 0..1. */
   readonly blue: number;
 }
 

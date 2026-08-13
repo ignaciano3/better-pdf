@@ -12,18 +12,28 @@ const EMBEDDED_FONT_FIELD_ERROR = "embedded fonts are supported on plain and mul
 // ---------------------------------------------------------------------------
 
 export interface FieldBorder {
+  /** Border color. */
   color: Color;
+  /** Border width in points. Defaults to 1. */
   width?: number;
 }
 
 interface BaseFieldOptions {
+  /** Zero-based page index the field is placed on. */
   page: number;
+  /** X of the field's lower-left corner, in PDF points. */
   x: number;
+  /** Y of the field's lower-left corner, in PDF points. */
   y: number;
+  /** Mark the field required: viewers may refuse to submit the form while it is empty. */
   required?: boolean;
+  /** Display the field without allowing it to be edited. */
   readOnly?: boolean;
+  /** Tooltip / alternate descriptive name (`/TU`). */
   tooltip?: string;
+  /** Border style drawn around the field. */
   border?: FieldBorder;
+  /** Background fill color. */
   background?: Color;
   /** Color of the field's text/value. Defaults to black. */
   textColor?: Color;
@@ -33,13 +43,18 @@ interface BaseFieldOptions {
 export type FieldAlign = "left" | "center" | "right";
 
 export interface TextFieldOptions extends BaseFieldOptions {
+  /** Field width in PDF points. Must be > 0. */
   width: number;
+  /** Field height in PDF points. Must be > 0. */
   height: number;
+  /** Initial field value. */
   value?: string;
   /** Default/reset value (`/DV`), independent of `value`. Restored by a viewer's
    * "reset form". Must not be longer than `maxLength`. */
   defaultValue?: string;
+  /** Maximum number of characters the field accepts. Longer values throw. */
   maxLength?: number;
+  /** Render as a multi-line text area that wraps its value. */
   multiline?: boolean;
   /** Mask the field's display (the PDF Password flag): viewers render the value
    * as dots/asterisks instead of the characters. Defaults to `false`. */
@@ -67,41 +82,58 @@ export interface TextFieldOptions extends BaseFieldOptions {
 export type CheckStyle = "check" | "cross" | "circle" | "square" | "diamond" | "star";
 
 export interface CheckBoxOptions extends BaseFieldOptions {
+  /** Side length of the square checkbox, in PDF points. */
   size: number;
+  /** Initial checked state. */
   checked?: boolean;
   /** Default/reset state (`/DV`), independent of `checked`. Restored by a
    * viewer's "reset form". */
   defaultChecked?: boolean;
+  /** Export value written when checked. Defaults to `"Yes"`. */
   onValue?: string;
   /** The mark drawn when ticked. Defaults to `"check"`. */
   checkStyle?: CheckStyle;
 }
 
 export interface RadioOption {
+  /** Export value; selecting this option writes this value to the field. */
   value: string;
+  /** Zero-based page index the option's widget is placed on. */
   page: number;
+  /** X of the radio circle's center, in PDF points. */
   x: number;
+  /** Y of the radio circle's center, in PDF points. */
   y: number;
+  /** Diameter of the radio circle, in PDF points. */
   size: number;
 }
 
 export interface RadioGroupOptions {
+  /** Initially selected option export value. */
   selected?: string;
   /** Default/reset selection (`/DV`), independent of `selected`. Restored by a
    * viewer's "reset form". Must be one of the option values. */
   defaultSelected?: string;
+  /** Mark the group required: viewers may refuse to submit the form while it is empty. */
   required?: boolean;
+  /** Display the group without allowing it to be changed. */
   readOnly?: boolean;
+  /** Tooltip / alternate descriptive name (`/TU`). */
   tooltip?: string;
+  /** The group's options — one widget per option. */
   options: readonly RadioOption[];
   /** The mark drawn when a button is selected. Defaults to `"circle"`. */
   checkStyle?: CheckStyle;
 }
 
 export interface ChoiceOptions<O extends string> extends BaseFieldOptions {
+  /** Field width in PDF points. Must be > 0. */
   width: number;
+  /** Field height in PDF points. Must be > 0. */
   height: number;
+  /** Valid option export values. */
   options: readonly O[];
+  /** Initially selected option. */
   selected?: NoInfer<O>;
   /** Default/reset selection (`/DV`), independent of `selected`. Restored by a
    * viewer's "reset form". Must be one of `options`. */
@@ -124,13 +156,17 @@ export interface ChoiceOptions<O extends string> extends BaseFieldOptions {
   align?: FieldAlign;
   /** Font size in points for the field's value. Defaults to 12. */
   fontSize?: number;
-  /** Standard-14 font for the field's value. Defaults to Helvetica. Embedded
-   * (PdfFont) fonts are not supported for form fields. */
+  /** Standard-14 font for the field's value. Defaults to Helvetica. Choice
+   * fields (dropdowns and list boxes) accept standard-14 fonts only — embedded
+   * (`PdfFont`) fonts are not supported here (see
+   * {@link TextFieldOptions.font}). */
   font?: StandardFonts;
 }
 
 export interface SignatureFieldOptions extends BaseFieldOptions {
+  /** Field width in PDF points. Must be > 0. */
   width: number;
+  /** Field height in PDF points. Must be > 0. */
   height: number;
 }
 
