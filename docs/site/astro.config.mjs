@@ -125,6 +125,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Filling & flattening forms', slug: 'guides/filling-forms' },
 						{ label: 'Decrypting PDFs', slug: 'guides/decryption' },
+						{ label: 'File attachments', slug: 'guides/attachments' },
 						{ label: 'Signatures', slug: 'guides/signatures' },
 						{ label: 'Generating & drawing', slug: 'guides/generating' },
 						{ label: 'Creating form fields', slug: 'guides/creating-form-fields' },
@@ -139,6 +140,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Overview', slug: 'examples/overview' },
 						{ label: 'Fill & flatten a form', slug: 'examples/fill-and-flatten' },
+						{ label: 'Embed a file attachment', slug: 'examples/attach-files' },
 						{ label: 'Generate an invoice', slug: 'examples/invoice' },
 						{ label: 'Merge PDFs', slug: 'examples/merge-pdfs' },
 					],

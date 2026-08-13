@@ -18,6 +18,7 @@ whole family or a specific case.
 | `IncorrectPasswordError` | the password passed to `load(bytes, { password })` is wrong or missing | — |
 | `PageOutOfRangeError` | `getPage(i)` called with an index outside `[0, pageCount)` | — |
 | `InvalidImageError` | `embedJpg`/`embedPng` rejected the image bytes (unsupported format or CMYK JPEG) | — |
+| `DuplicateAttachmentError` | `attach()` with a name already queued | `.attachmentName` |
 
 ```ts
 import { FieldTypeError } from "@ignaciano3/better-pdf";

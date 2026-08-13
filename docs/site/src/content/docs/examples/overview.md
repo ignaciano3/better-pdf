@@ -16,6 +16,7 @@ Two kinds of example live here:
 | Recipe | What it shows |
 | --- | --- |
 | [Fill & flatten a form](/examples/fill-and-flatten/) | Load an AcroForm PDF, set fields, flatten to static |
+| [Embed a file attachment](/examples/attach-files/) | Attach XML data (`/EmbeddedFiles`); read it back — Factur-X pattern |
 | [Generate an invoice](/examples/invoice/) | Create a document from scratch — text, lines, layout |
 | [Merge PDFs](/examples/merge-pdfs/) | Combine documents; merged form fields stay fillable |
 
