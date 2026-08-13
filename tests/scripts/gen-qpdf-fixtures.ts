@@ -73,6 +73,22 @@ qpdf(["--encrypt", "asdfzxcv", "", "128", "--use-aes=y", "--", basePath, join(EN
 // A file with distinct non-empty user AND owner passwords, so a wrong password
 // authenticates against neither (empty-owner files open as owner for any string).
 qpdf(["--encrypt", "foo", "bar", "256", "--", basePath, join(ENC, "r6-both-passwords.pdf")], "r6-both-passwords.pdf");
+// Encrypted files whose trailer is a cross-reference *stream* (PDF 1.5+) rather
+// than a classic `trailer` dictionary — what Word/Acrobat and qpdf's
+// --object-streams=generate emit. The trailer entries a reader needs to
+// authenticate a password (/Encrypt, /ID) then live in the xref stream's dict.
+const XREFSTM = ["--object-streams=generate", "--compress-streams=y"];
+qpdf([WEAK, "--encrypt", "asdfzxcv", "", "128", "--use-aes=n", "--", ...XREFSTM, basePath, join(ENC, "r3-rc4-128-user-xrefstm.pdf")], "r3-rc4-128-user-xrefstm.pdf");
+qpdf([WEAK, "--encrypt", "asdfzxcv", "", "40", "--", ...XREFSTM, basePath, join(ENC, "r2-rc4-40-user-xrefstm.pdf")], "r2-rc4-40-user-xrefstm.pdf");
+qpdf(["--encrypt", "foo", "bar", "256", "--", ...XREFSTM, basePath, join(ENC, "r6-both-passwords-xrefstm.pdf")], "r6-both-passwords-xrefstm.pdf");
+// A password whose SASLprep (NFKC) form differs from the bytes the user typed:
+// "café" with a combining acute (NFD). qpdf keys the file off the raw UTF-8
+// bytes, so a reader that only ever normalizes can never authenticate it.
+// Escaped rather than literal so the combining mark survives any editor or
+// tool that helpfully normalizes source files.
+const NFD_PASSWORD = "cafe\u0301";
+qpdf(["--encrypt", NFD_PASSWORD, "owner", "256", "--", basePath, join(ENC, "r6-nfd-password.pdf")], "r6-nfd-password.pdf");
+qpdf(["--encrypt", NFD_PASSWORD, "owner", "256", "--", ...XREFSTM, basePath, join(ENC, "r6-nfd-password-xrefstm.pdf")], "r6-nfd-password-xrefstm.pdf");
 
 // --- Structure (QPDF's object-stream / xref-stream / linearization shapes) ---
 console.log("structure/");

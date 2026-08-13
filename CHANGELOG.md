@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-08-12
+
+### Fixed
+
+- **`PdfDocument.passwordType()` on cross-reference-stream files.** It returned
+  `null` — the same answer as a wrong password — for every password on files
+  whose trailer is an xref stream (PDF 1.5+, what Word, Acrobat and
+  `qpdf --object-streams=generate` emit), even though
+  `PdfDocument.load(bytes, { password })` decrypted those same files. Apps that
+  validate a password with `passwordType` before loading therefore rejected
+  correct passwords and re-prompted forever. The `/Encrypt` and `/ID` entries
+  the check needs are now read from the xref stream's dictionary as well as
+  from a classic `trailer`, so both file shapes classify identically. The
+  invariant — `passwordType(…) !== null` exactly when `load({ password })`
+  succeeds — is now asserted across the whole encryption fixture matrix.
+
+- **Encrypted cross-reference-stream files with a damaged xref were treated as
+  plaintext.** The encryption gate that stops the recovery loader from
+  "repairing" a still-encrypted document only looked for an `/Encrypt` trailer
+  reference *outside* every object span — correct for a classic `trailer`, blind
+  to xref-stream files, where that entry lives inside the xref stream object.
+  Such a file loaded with no password at all, yielding a document whose strings
+  and streams were still ciphertext (and `isEncrypted()` reported `false` for
+  it). The gate now also reads `/Type /XRef` dictionaries, and `load_pdf`
+  additionally re-checks the raw bytes when a parse yields a document with no
+  pages, which is what a reconstructed-but-still-encrypted file looks like.
+
+### Known limitations
+
+- A password whose SASLprep (NFKC) form differs from the bytes typed — an accent
+  written as a combining sequence, say — cannot open a file whose producer keyed
+  it off those raw bytes (qpdf writes such files). lopdf normalizes before
+  deriving the key and exposes no raw-bytes load path; `passwordType` and `load`
+  agree in rejecting these, so no caller is misled. Details and the upstream fix
+  in `docs/lopdf-saslprep-issue.md`.
+
 ## [1.14.2] - 2026-07-30
 
 ### Added

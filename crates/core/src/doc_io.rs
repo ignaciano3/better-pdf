@@ -52,6 +52,15 @@ pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
                 doc.save_to(&mut out).map_err(|e| e.to_string())?;
                 return Ok(out);
             }
+            // NOTE: a password whose SASLprep (ISO 32000-2 Algorithm 2.A) form
+            // differs from the bytes the user typed — e.g. an accent written as
+            // a combining sequence — cannot be authenticated here, because
+            // lopdf normalizes before deriving the key while writers such as
+            // qpdf key the file off the raw bytes. lopdf exposes raw-bytes
+            // *authentication* (`authenticate_raw_*_password`) but no raw-bytes
+            // *load* path, and `load_mem` on an encrypted file yields an empty
+            // husk (objects stay unread), so there is nothing to decrypt in
+            // place. See docs/lopdf-saslprep-issue.md.
             Err(format!(
                 "{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF"
             ))
@@ -92,9 +101,14 @@ pub fn is_encrypted(data: &[u8]) -> bool {
 /// lopdf's loader eagerly decrypts and strips `/Encrypt`, and its
 /// `authenticate_*_password` need a retained `/Encrypt`; so we authenticate
 /// against a minimal plaintext probe carrying just the `/Encrypt` dict and
-/// `/ID` (`repair::build_encrypt_probe`) rather than the live document.
-/// Limited to classic-`trailer` files — xref-stream encrypted files return
-/// `None`.
+/// `/ID` (`repair::build_encrypt_probe`) rather than the live document. The
+/// probe reads those entries from a classic `trailer` or from a
+/// cross-reference stream's dictionary, so both file shapes classify.
+///
+/// Invariant: `password_type(data, pw).is_some()` iff `decrypt_pdf(data, pw)`
+/// succeeds. Callers treat `None` as "wrong password", so answering `None` for
+/// a password that does open the file makes them reject valid input — that was
+/// the xref-stream bug this probe's trailer lookup now covers.
 pub fn password_type(data: &[u8], password: &str) -> Option<&'static str> {
     let probe = crate::repair::build_encrypt_probe(data)?;
     let mut doc = Document::load_mem(&probe).ok()?;
@@ -107,6 +121,10 @@ pub fn password_type(data: &[u8], password: &str) -> Option<&'static str> {
     if doc.authenticate_user_password(password).is_ok() {
         return Some("user");
     }
+    // Deliberately NOT falling back to lopdf's `authenticate_raw_*_password`
+    // here: it would classify passwords that `decrypt_pdf` cannot then open
+    // (no raw-bytes load path exists), breaking the invariant above. See
+    // docs/lopdf-saslprep-issue.md.
     None
 }
 
@@ -194,7 +212,17 @@ pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
     };
     // Check encryption first, before validating root, so encrypted documents
     // are rejected regardless of root validity.
-    if doc.trailer.has(b"Encrypt") || doc.was_encrypted() {
+    //
+    // The last clause covers a strict parse that "succeeded" on an encrypted
+    // file by reconstructing its damaged cross-reference: lopdf then rebuilds a
+    // trailer without the original `/Encrypt`, leaving a document with no
+    // readable pages (its objects are still ciphertext) that would otherwise be
+    // handed back as if it were plaintext. Consulting the raw bytes is gated on
+    // there being no pages, so well-formed documents never pay for the scan.
+    if doc.trailer.has(b"Encrypt")
+        || doc.was_encrypted()
+        || (doc.get_pages().is_empty() && crate::repair::has_encrypt_marker(data))
+    {
         return Err(format!(
             "{ENCRYPTED_PREFIX} this PDF is encrypted; load it with PdfDocument.load(bytes, {{ password }}) (use \"\" for owner-locked files)"
         ));
