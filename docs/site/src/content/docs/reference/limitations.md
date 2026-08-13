@@ -29,17 +29,15 @@ deliberately unsupported and not planned. The two are listed separately below.
     rejected), indexed-color PNGs require a `PLTE` chunk, and interlaced PNGs,
     unsupported color types, and unsupported row filters are rejected. JPEG is
     also accepted. Convert to a plain 8-bit PNG or JPEG if `setImage` throws.
-- **`getForm()` works on created documents (added in this release).** After
-  adding fields with the form builder
-  ([Creating form fields](/better-pdf/guides/creating-form-fields/)) you can call
-  `getForm()` in the **same session** to read, fill, and flatten them — no
-  save-and-reload round-trip. The first `getForm()` call *materializes* the
-  document (runs the create pass once and caches the bytes), after which the
-  document is **sealed**: adding more fields, pages, or drawings throws
-  `FormSealedError`. Do all content creation before calling `getForm()`.
-  **Still unsupported:** adding brand-new AcroForm fields to a document opened
-  with `PdfDocument.load()` (only reading/filling existing fields is supported
-  there).
+- **`createForm()` works on created and loaded documents.** After adding fields
+  with the form builder ([Creating form fields](/better-pdf/guides/creating-form-fields/))
+  you can call `getForm()` in the **same session** to read, fill, and flatten
+  them — no save-and-reload round-trip. On a **created** document the first
+  `getForm()` call *materializes* the document (runs the create pass once and
+  caches the bytes), after which it is **sealed**: adding more fields, pages, or
+  drawings throws `FormSealedError`. On a **loaded** document the fields are
+  injected into the existing PDF on the first `getForm()`/`save()`, so all
+  `createForm()` adds must precede the first `getForm()`.
 - **Appearance-affecting form-field flags can now be toggled on a loaded
   field** (added in 1.8.0). `multiline`, `comb`, and `password` are set via
   `field.setMultiline()`, `field.setComb(true, maxLen)` / `setComb(false)`, and
@@ -74,13 +72,11 @@ deliberately unsupported and not planned. The two are listed separately below.
   — selectable per field via the builder `font` option (Helvetica / Times /
   Courier families), with `fontSize`, `textColor`, and `align` also
   configurable (and `checkStyle` for the selected mark of checkboxes and
-  radios). **Embedded fonts (CJK / non-Latin) are supported on builder-created
-  plain and multiline text fields** via `addTextField({ font: doc.embedFont(bytes) })`;
-  the value is CID-encoded into a Type0 appearance and the glyphs are subset.
-  - **Caveat — build-time only.** Embedded-font field values must be set through
-    the builder (`value` / `defaultValue`); re-filling an embedded-font field
-    through the form API (`getForm().getTextField(...).setText(...)`) throws
-    `filling embedded-font fields through the form API is not yet supported`.
+  radios). **Embedded fonts (CJK / non-Latin) are supported on plain and
+  multiline text fields** — pass `font: doc.embedFont(bytes)` to
+  `addTextField({ font })` at build time or `field.setText(value, { font })` /
+  `setDefaultText(value, { font })` on a loaded field; the value is CID-encoded
+  into a Type0 appearance and the glyphs are subset.
   - **Caveat — comb and choice fields.** Comb text fields, dropdowns, and list
     boxes accept standard-14 fonts only; passing an embedded font throws
     `embedded fonts are supported on plain and multiline text fields only`.

@@ -23,7 +23,7 @@ generated from source with TypeDoc — run `bun run docs` in the repo (output in
 - `doc.embedJpg(bytes: Uint8Array): Promise<PdfImage>`
 - `doc.embedPng(bytes: Uint8Array): Promise<PdfImage>`
 - `doc.getForm(): PdfForm`
-- `doc.createForm(): FormBuilder` — created documents only
+- `doc.createForm(): FormBuilder` — add new AcroForm fields; works on created and loaded documents (loaded-doc fields are injected on the first `getForm()`/`save()`, so all adds must precede the first `getForm()`)
 - `doc.save(options?: SaveOptions): Promise<Uint8Array>` — `SaveOptions = { compress?: boolean; objectStreams?: boolean }`; `compress` defaults to `true`, `objectStreams` to `false` (full-document/created saves only)
 
 `save()` applies queued fills first, then queued flattens. With no queued

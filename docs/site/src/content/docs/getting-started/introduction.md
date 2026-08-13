@@ -28,14 +28,25 @@ covers two workflows:
 - Create new PDFs with `PdfDocument.create()` and standard page sizes.
 - Draw text, images, lines, rectangles, and ellipses on new and existing pages.
 - Create fillable AcroForm fields (text, checkbox, radio, dropdown, listbox,
-  signature) on generated documents with `doc.createForm()`.
+  signature) with `doc.createForm()` — on generated documents and on documents
+  opened with `PdfDocument.load()` (added fields must precede the first
+  `getForm()`).
+- Decrypt and modify encrypted PDFs (RC4 / AES-128 / AES-256) with
+  `PdfDocument.load(bytes, { password })`, and detect/classify passwords with
+  `PdfDocument.isEncrypted` / `PdfDocument.passwordType`.
+- Deflate-compress generated streams on save (on by default) and optionally pack
+  objects into PDF object streams for smaller output.
 
 ## Status
 
-Pre-1.0. The core AcroForm workflows — reading, filling, flattening, visual
-signatures, and typed form-type generation — are implemented and tested against
-the bundled PDF 1.3 fixture corpus. PDF generation (create, addPage, drawText,
-drawImage, drawRectangle, drawLine, drawEllipse) and form-field creation are
-included. The public API may still change before 1.0.
+Stable 1.x (currently 1.14.x). The public API is frozen as of 1.0.0 and the
+package follows Semantic Versioning — breaking changes only in major releases.
+The full feature set — AcroForm reading/filling/flattening/visual-signatures/
+typed-form generation, PDF generation and drawing, custom TTF/OTF font embedding
+with Unicode/CJK, metadata, outlines, page operations, rotation/resize, PNG
+transparency and palette, PDF page embedding, file attachments, stream
+compression/object streams, and encrypted-PDF decryption — is implemented and
+tested against the bundled PDF 1.3 fixture corpus (classic xref) plus
+xref-stream/object-stream and malformed-PDF corpora.
 
 Coming from pdf-lib? See the [migration guide](/better-pdf/migrating/from-pdf-lib/).

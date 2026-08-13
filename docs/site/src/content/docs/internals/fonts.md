@@ -107,10 +107,10 @@ characters" as "a PDF Type0/CIDFontType2 composite with a ToUnicode CMap, so
 text is selectable and searchable"
 ([Generating & drawing](/better-pdf/guides/generating/)).
 
-Current limitation: re-filling an embedded-font form field through the form
-API is not yet supported and throws; values filled through the form API
-render with standard-14 fonts — builder-created plain and multiline text
-fields can embed fonts at build time
+Embedded-font form fields are supported on **plain and multiline text fields**:
+set the font at build time with `addTextField({ font: doc.embedFont(bytes) })`,
+or on a loaded field with `getTextField(name).setText(value, { font })`. Comb
+text fields, dropdowns, and list boxes accept standard-14 fonts only
 ([Limitations](/better-pdf/reference/limitations/)).
 
 Next: [Compression](/better-pdf/internals/compression/).

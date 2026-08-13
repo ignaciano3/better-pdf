@@ -16,7 +16,7 @@ const doc = await PdfDocument.load(input);
 const form = doc.getForm();
 
 // 2. Inspect what's there (optional)
-console.log(form.getFieldNames());
+console.log(form.getFields());
 
 // 3. Fill fields
 form.getTextField("name").setText("GARCIA, IGNACIO");

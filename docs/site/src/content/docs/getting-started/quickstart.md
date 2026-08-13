@@ -37,11 +37,19 @@ await Bun.write("filled.pdf", output);
   verbatim and appends an update section. It always starts from the loaded bytes,
   so calling it twice yields the same result. With no queued operations it
   returns a byte-identical round trip.
+- **`save()` compresses by default.** The content, appearance, and font streams
+  it generates are deflate-compressed; pass `{ compress: false }` for plaintext
+  output. On incremental saves only the appended section is compressed, so
+  existing digital signatures on the original revision stay valid.
+- **Encrypted PDFs need a password.** `PdfDocument.load(bytes, { password })`
+  decrypts RC4 / AES-128 / AES-256 files; use `""` for owner-locked files. See
+  [Decrypting PDFs](/better-pdf/guides/decryption/).
 - **Use a field's *real* export values.** Never assume `Yes`/`On` — read
   `field.states` / `field.options`.
 - **Visual signatures are appearances only.** They do not create
   cryptographic/PAdES signatures.
 
 Next: [filling & flattening](/better-pdf/guides/filling-forms/),
+[decrypting PDFs](/better-pdf/guides/decryption/),
 [generating documents](/better-pdf/guides/generating/), or the
 [API reference](/better-pdf/reference/api/).

@@ -124,6 +124,7 @@ export default defineConfig({
 					label: 'Guides',
 					items: [
 						{ label: 'Filling & flattening forms', slug: 'guides/filling-forms' },
+						{ label: 'Decrypting PDFs', slug: 'guides/decryption' },
 						{ label: 'Signatures', slug: 'guides/signatures' },
 						{ label: 'Generating & drawing', slug: 'guides/generating' },
 						{ label: 'Creating form fields', slug: 'guides/creating-form-fields' },

@@ -14,6 +14,8 @@ whole family or a specific case.
 | `MaxLengthExceededError` | `setText()` value longer than the field's `/MaxLen` | `.field`, `.maxLength`, `.actualLength` |
 | `MissingOnStateError` | checking a checkbox with no declared on-state | `.field` |
 | `PdfCoreError` | an operation the core rejected at `save()` (XFA forms, unsupported images, malformed PDFs); the core's message is preserved | — |
+| `EncryptedPdfError` | loading an encrypted PDF without a `password` (`load(bytes)` does not decrypt) | — |
+| `IncorrectPasswordError` | the password passed to `load(bytes, { password })` is wrong or missing | — |
 | `PageOutOfRangeError` | `getPage(i)` called with an index outside `[0, pageCount)` | — |
 | `InvalidImageError` | `embedJpg`/`embedPng` rejected the image bytes (unsupported format or CMYK JPEG) | — |
 

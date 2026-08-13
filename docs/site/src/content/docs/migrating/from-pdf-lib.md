@@ -87,8 +87,8 @@ identical; the differences are noted below.
   fonts.
 - **Form creation uses a builder.** pdf-lib mutates `form` in place via
   `form.createTextField(...)`; better-pdf accumulates fields through a chainable
-  `doc.createForm()` builder (see below). `getForm()` itself is not available on
-  a created document until it is saved and reloaded.
+  `doc.createForm()` builder (see below). `getForm()` works on created documents
+  in the same session once the fields are declared.
 - **RGB and grayscale only.** CMYK color is not supported.
 - **Ellipse center semantics and option names.** `drawEllipse({ x, y, radiusX, radiusY, … })` uses
   `(x, y)` as the center and `radiusX`/`radiusY` as the x and y radii. pdf-lib used
@@ -111,7 +111,7 @@ identical; the differences are noted below.
 
 pdf-lib creates AcroForm fields by mutating the form returned from
 `pdfDoc.getForm()`. better-pdf uses a chainable builder obtained from
-`doc.createForm()` on a **created** document (`PdfDocument.create()`); each
+`doc.createForm()` (on created or loaded documents); each
 `add*` call also refines the builder's type so `getFieldNames()` is statically
 typed to the declared names.
 
@@ -128,8 +128,10 @@ typed to the declared names.
 
 ### Differences from pdf-lib
 
-- **Created documents only.** `doc.createForm()` throws if the document was
-  opened with `PdfDocument.load()`; pdf-lib lets you add fields to any document.
+- **Works on created and loaded documents.** `doc.createForm()` adds fields to
+  documents created with `PdfDocument.create()` and to documents opened with
+  `PdfDocument.load()` (injected on the first `getForm()`/`save()`, so all adds
+  must precede the first `getForm()`).
 - **Chainable, not in-place.** Every `add*` returns the builder, so fields are
   declared in one fluent chain rather than mutating a shared `form` object.
 - **Position is per-call.** Geometry (`page`, `x`, `y`, plus `width`/`height` or

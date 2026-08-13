@@ -22,6 +22,7 @@ cryptographic/PAdES signatures.
 - **PNG**, for 8-bit non-interlaced grayscale, RGB, grayscale+alpha, or RGBA
   images.
 
-PNG alpha is currently dropped rather than preserved as a PDF soft mask.
+PNG alpha is preserved as a PDF soft mask (`/SMask`), so transparent signature
+images composite correctly over the page.
 
 Invalid bytes throw `InvalidImageError` at `save()` time.

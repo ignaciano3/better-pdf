@@ -6,7 +6,9 @@ description: Declare fillable AcroForm fields on a generated document with a typ
 import CoordinateNote from '../../../components/CoordinateNote.astro';
 
 On a document created with `PdfDocument.create()`, call `doc.createForm()` to get
-a chainable `FormBuilder` and declare AcroForm fields. There are six field
+a chainable `FormBuilder` and declare AcroForm fields. It also works on documents
+opened with `PdfDocument.load()` — the added fields are injected into the
+existing PDF on the first `getForm()` or `save()`. There are six field
 types — `addTextField`, `addCheckBox`, `addRadioGroup`, `addDropdown`,
 `addListBox`, and `addSignatureField` — each placed by `page` index plus a
 position/size in PDF points. The fields are serialized into the document on
@@ -64,10 +66,12 @@ const output = await doc.save();
 await Bun.write("form.pdf", output);
 ```
 
-:::caution[Created documents only]
-`createForm()` throws on documents opened with `PdfDocument.load()`. The field
-names are accumulated into the builder's type, so `getFieldNames()` is statically
-typed.
+:::caution[Before the first `getForm()`]
+On a **loaded** document (`PdfDocument.load()`), the added fields are injected
+when the form is first built. All `createForm()` field-adds must therefore happen
+*before* the first `getForm()` call — after that, calling `createForm()` again
+throws. The field names are accumulated into the builder's type, so
+`getFieldNames()` is statically typed.
 :::
 
 The result is a standard AcroForm: reload it with `PdfDocument.load(output)` and
@@ -119,10 +123,12 @@ Some options are specific to a field type:
   `listBox.selectMultiple(values)` (see
   [Filling forms](/better-pdf/guides/filling-forms/)). `addDropdown` rejects
   `multiSelect`, since combo boxes are never multi-select.
-- **Font** — `font` selects the field value's typeface from the standard-14
-  fonts (`StandardFonts` enum: Helvetica / Times / Courier × regular / bold /
-  italic / bold-italic). Defaults to Helvetica. Applies to text, dropdown, and
-  list-box fields. Embedded (`PdfFont`) fonts are not supported for form fields.
+- **Font** — `font` selects the field value's typeface. Pass a `StandardFonts`
+  name (Helvetica / Times / Courier × regular / bold / italic / bold-italic;
+  defaults to Helvetica) or an embedded font from `doc.embedFont(bytes)`
+  (Unicode / CJK). Embedded fonts are supported on **plain and multiline text
+  fields only**; comb text fields, dropdowns, and list boxes accept standard-14
+  fonts only (passing an embedded font throws).
 
 Every value-bearing field also accepts a **default value** (`/DV`) — what a
 viewer's "reset form" restores, independent of the field's initial value:
@@ -132,9 +138,11 @@ can be set on existing fields with `setDefaultText` / `setDefaultChecked` /
 `setDefaultSelected` (see [Filling forms](/better-pdf/guides/filling-forms/)).
 
 :::note[Field text fonts]
-Field values render in one of the standard-14 fonts (`font`, default Helvetica).
-Size (`fontSize`), color (`textColor`), and alignment (`align`) are also
-configurable. Embedded/CJK fonts are not supported for form-field values.
+Field values render in one of the standard-14 fonts (`font`, default Helvetica)
+by default. Size (`fontSize`), color (`textColor`), and alignment (`align`) are
+also configurable. For Unicode/CJK values, pass an embedded font from
+`doc.embedFont(bytes)` as `font` — supported on plain and multiline text fields.
+Comb text fields and choice fields (dropdown, list box) remain standard-14 only.
 :::
 
 ## Field names

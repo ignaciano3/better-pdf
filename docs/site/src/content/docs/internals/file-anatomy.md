@@ -160,7 +160,7 @@ Encryption sits at load time, ahead of any of this structure: it's opt-in via
 `PdfDocument.load(bytes, { password })`, which decrypts RC4, AES-128, or
 AES-256-protected files; calling bare `load(bytes)` on an encrypted file
 throws `EncryptedPdfError` rather than returning garbage objects (see
-[Filling & flattening forms](/better-pdf/guides/filling-forms/)).
+[Decrypting PDFs](/better-pdf/guides/decryption/)).
 
 When the structure genuinely doesn't parse — a missing object, a malformed
 dictionary, anything the format doesn't allow — that surfaces as a typed
