@@ -5,7 +5,7 @@ description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdo
 
 # better-pdf
 
-A maintained, fast alternative to pdf-lib for **filling and flattening AcroForm fields in existing PDFs**, plus full document generation. Rust→WASM core + a fully-typed TS API; runs in Node/Bun/Deno and the browser. Zero runtime npm deps. Stable since 1.0.0 (semver frozen public API; current 1.14.x).
+A maintained, fast alternative to pdf-lib for **filling and flattening AcroForm fields in existing PDFs**, plus full document generation. Rust→WASM core + a fully-typed TS API; runs in Node/Bun/Deno and the browser. Zero runtime npm deps. Stable since 1.0.0 (semver frozen public API; current 1.15.x).
 
 ## Quick start
 
@@ -223,7 +223,7 @@ page.drawText("日本語テキスト", { x: (595 - w) / 2, y: 700, size: 18, fon
 | `doc.embedFont(bytes, { subset? })` → `PdfFont` | Embed TTF/OTF; `font.widthOfTextAtSize(text, size)` |
 | `doc.getFont(StandardFonts.X)` → `PdfFont` | Standard-14 font handle |
 | `page.drawText(text, opts)` | See options below |
-| `page.drawImage(image, opts)` / `page.drawPage(embedded, opts)` | `{ x, y, width?, height?, opacity?, rotate?, xSkew?, ySkew? }` (+ `flipX`/`flipY` on images — merged, ships in the next release) |
+| `page.drawImage(image, opts)` / `page.drawPage(embedded, opts)` | `{ x, y, width?, height?, opacity?, rotate?, xSkew?, ySkew? }` (+ `flipX`/`flipY` on images) |
 | `page.drawLine({ start, end, stroke?, strokeWidth?, opacity?, dash?, dashPhase? })` | Line |
 | `page.drawRectangle({ x, y, width, height, fill?, stroke?, strokeWidth?, opacity?, dash?, dashPhase? })` | Rectangle (x,y = lower-left) |
 | `page.drawEllipse({ x, y, radiusX, radiusY, fill?, stroke?, strokeWidth?, opacity?, dash?, dashPhase? })` | Ellipse (x,y = center) |
