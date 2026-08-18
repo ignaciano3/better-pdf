@@ -1,11 +1,11 @@
 ---
 name: better-pdf
-description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK), draw rotated or translucent text with drawText({rotate, opacity}), add document outlines/bookmarks with doc.setOutline(), draw images (including transparent PNGs and palette/indexed PNGs with alpha preserved as a soft mask) and vector graphics, draw SVG path-data strings with page.drawSvgPath() or polygons with page.drawPolygon(), add clickable link annotations (external URLs and internal page jumps) with page.drawLink(), read/write PDF document metadata (title/author/keywords/dates; non-ASCII/Unicode text supported via UTF-16BE), merge multiple PDFs, extract/copy/reorder pages, split PDFs into single-page files, add/insert/remove/move pages in existing PDFs, rotate or resize individual pages, embed pages from other PDFs as Form XObjects (watermarks, letterhead, N-up). Use when filling or flattening PDF forms, reading AcroForm fields, embedding a visual signature image, creating PDF documents, drawing Unicode text, drawing rotated or translucent text, adding PDF bookmarks or a table-of-contents outline, embedding transparent PNG images, drawing vector paths or polygons, adding hyperlinks or internal navigation links to a PDF, reading or setting PDF metadata, merging PDFs, extracting or reordering pages, inserting or removing pages in a loaded PDF, rotating or resizing pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
+description: Fill and flatten PDF AcroForm fields (text, checkbox, radio, dropdown, list box, visual signature) in existing PDFs with the @ignaciano3/better-pdf npm package, generate TypeScript types from a PDF form for compile-time-safe filling, create brand-new AcroForm fields on created or loaded PDFs with doc.createForm(), reset fields to their defaults, toggle field flags (readOnly/required/hidden/print/multiline/comb/password), read encrypted PDFs with load(bytes, {password}) plus isEncrypted()/passwordType() probes, create new PDFs from scratch, draw text with custom TTF/OTF fonts (full Unicode including CJK, word wrap via maxWidth, rotate/opacity), fill form fields with embedded Unicode fonts, add document outlines/bookmarks, draw images (transparent PNGs, rotate/skew/flip/opacity) and vector graphics (lines, rectangles, ellipses, SVG paths including arcs, polygons, dashed strokes), add clickable link annotations, embed file attachments (ZUGFeRD/Factur-X /AF structure), read/write PDF metadata, merge/assemble/extract/split pages, add/insert/remove/move/rotate/resize pages, embed pages from other PDFs as Form XObjects, and compress output with save({compress, objectStreams}). Use when filling or flattening PDF forms, reading AcroForm fields, creating form fields, embedding a visual signature image, opening password-protected PDFs, creating PDF documents, drawing Unicode/rotated/translucent/wrapped text, adding bookmarks, embedding images or attachments, drawing vector paths, adding hyperlinks, reading or setting metadata, merging PDFs, extracting/reordering/inserting/removing/rotating pages, stamping a page from another PDF, or when the user mentions better-pdf, pdf-lib, or AcroFields.
 ---
 
 # better-pdf
 
-A maintained, fast alternative to pdf-lib for **filling and flattening AcroForm fields in existing PDFs**. Rust→WASM core + a fully-typed TS API; runs in Node/Bun/Deno and the browser. Zero runtime npm deps.
+A maintained, fast alternative to pdf-lib for **filling and flattening AcroForm fields in existing PDFs**, plus full document generation. Rust→WASM core + a fully-typed TS API; runs in Node/Bun/Deno and the browser. Zero runtime npm deps. Stable since 1.0.0 (semver frozen public API; current 1.14.x).
 
 ## Quick start
 
@@ -28,11 +28,12 @@ const out = await doc.save();                      // Promise<Uint8Array>
 
 ## Critical rules (agents get these wrong)
 
-1. **Use the field's REAL export values — never assume `"Yes"`/`"On"`.** Corpus values are domain-specific (`F`/`M`, `SI`/`NO`, `Titular`/`Familiar`). Read them from `field.states` (checkbox/radio) or `field.options` (dropdown). `checkBox.check()` uses the field's actual on-state automatically; `uncheck()` sets `Off`.
-2. **Existing PDFs only.** No creation from scratch / arbitrary drawing. Load → fill/flatten → save.
+1. **Use the field's REAL export values — never assume `"Yes"`/`"On"`.** Corpus values are domain-specific (`F`/`M`, `SI`/`NO`, `Titular`/`Familiar`). Read them from `field.states` (checkbox/radio) or `field.options` (dropdown/list box). `checkBox.check()` uses the field's actual on-state automatically; `uncheck()` sets `Off`.
+2. **Both modes exist:** `PdfDocument.load(bytes)` (edit an existing PDF, incremental save) and `PdfDocument.create()` (build one from scratch, full save). Most generation APIs — drawing, form-field creation, outlines, attachments, metadata, page ops — work in **both** modes; the per-API notes below flag the exceptions.
 3. **Signatures are visual only** — an embedded image/appearance, NOT cryptographic/PAdES signing. `getSignature(name).setImage(jpegOrPngBytes)`.
-4. **`save()` is an incremental (append-only) update** — output begins with the original bytes verbatim. With nothing queued it returns a byte-identical round-trip. `save()` always starts from the loaded bytes; `FieldInfo.value` reflects queued mutations immediately.
-5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save. Errors subclass `PdfError`: `UnknownFieldError`, `FieldTypeError`, `InvalidOptionError`, `MaxLengthExceededError`, `MissingOnStateError`, `PdfCoreError`; core rejections at save time (XFA forms, CMYK JPEGs, malformed PDFs) throw `PdfCoreError`.
+4. **`save()` on a loaded doc is an incremental (append-only) update** — output begins with the original bytes verbatim, so signatures on the original revision stay valid. With nothing queued it returns a byte-identical round-trip. `save()` always starts from the loaded bytes; `FieldInfo.value` reflects queued mutations immediately.
+5. **Wrong-type access throws** (e.g. `getDropdown()` on a text field), and invalid options/states throw before save. Errors subclass `PdfError`: `UnknownFieldError`, `FieldTypeError`, `InvalidOptionError`, `MaxLengthExceededError`, `MissingOnStateError`, `MultiSelectError`, `MissingGlyphError`, `InvalidImageError`, `InvalidRotationError`, `PageOutOfRangeError`, `FormSealedError`, `EncryptedPdfError`, `IncorrectPasswordError`, `DuplicateAttachmentError`, `AttachmentNotFoundError`, `PdfCoreError` (core rejections at save time: XFA forms, CMYK JPEGs, malformed PDFs).
+6. **Missing glyphs throw** (since 1.11.0). `drawText` and embedded-font form fill raise `MissingGlyphError` when the font lacks a character. Opt out for drawing only: `drawText(text, { font, onMissingGlyph: "skip" })`.
 
 ## Typed filling (recommended workflow)
 
@@ -49,94 +50,198 @@ import { myFormFields } from "./form-types.js";          // generated `…Fields
 const form = doc.getForm<typeof myFormFields>();
 form.getTextField("beneficiario.apellidos_nombres").setText("GARCIA");
 form.getDropdown("beneficiario.estado_civil").select("Casado"); // only valid options compile
+form.reset();                                                   // typed too
 ```
 
-The pure generator is also importable: `import { generateFormTypes } from "@ignaciano3/better-pdf/typegen"` (WASM-free, tree-shakeable).
+- The generated module carries every readable field property (`type`, `value`, `defaultValue`, `states`, `options`, `readOnly`, `required`, `multiSelect`, `password`, `multiline`, `comb`, `editable`, `align`, `tooltip`, `fontName`, `fontSize`, widget geometry, plus a deduplicated `pages` tuple).
+- Use `--password ''` for owner-locked files.
+- The pure generator is also importable: `import { generateFormTypes } from "@ignaciano3/better-pdf/typegen"` (WASM-free, tree-shakeable).
 
-## Flattening
+## Reading fields
+
+`form.getFields(): FieldInfo[]`, `form.getField(name): FieldInfo | undefined`.
 
 ```ts
-form.flattenField("beneficiario.apellidos_nombres"); // one field → page graphics
-form.flatten();                                       // all fields
-await doc.save();
+FieldInfo = {
+  name, type,            // fully-qualified name; text|checkbox|radio|dropdown|listbox|signature|pushbutton|unknown
+  value, defaultValue,   // string | null  (/V and /DV)
+  states, options,       // string[] — checkbox/radio on-states; dropdown/listbox options
+  readOnly, required, exported,   // /Ff ReadOnly, Required, NoExport (exported === !NoExport)
+  maxLength,             // text /MaxLen or null
+  multiSelect, password, multiline, comb, editable,  // flag reads
+  align,                 // "left" | "center" | "right" (from widget /Q)
+  tooltip,               // /TU or null
+  fontName, fontSize,    // effective /DA font + size; fontSize 0 means auto-size; null when N/A
+  widgets: { page, rect: [x0,y0,x1,y1], hidden, print, noView }[],  // 0-based page, PDF points
+}
 ```
 
-Flattened fields are stamped onto the page and removed from the AcroForm (no longer editable).
+Hierarchical (dotted) names and orphaned widget fields (widgets on a page never linked into `/AcroForm/Fields`) are resolved and fillable.
+
+## Writing fields
+
+```ts
+form.getTextField(n).setText(v, { font? })      // throws past maxLength; font = embedded PdfFont
+form.getTextField(n).setDefaultText(v, { font? })
+form.getTextField(n).setMultiline(true)         // regenerates the appearance
+form.getTextField(n).setComb(true, 9) / .setComb(false)
+form.getTextField(n).setPassword(true)          // empty appearance; /V preserved
+form.getCheckBox(n).check() / .uncheck() / .setDefaultChecked(b)
+form.getRadioGroup(n).select(v) / .setDefaultSelected(v)
+form.getDropdown(n).select(v) / .setDefaultSelected(v)
+form.getListBox(n).select(v) / .selectMultiple([...]) / .setDefaultSelected(v)
+form.getSignature(n).setImage(jpegOrPngBytes)
+
+// flags on any field (PdfField base class)
+f.setReadOnly(b) / f.setRequired(b) / f.setExported(b)      // /Ff bits
+f.hide() / f.show() / f.setPrintable(b) / f.setNoView(b)    // widget /F bits
+
+form.resetField(name) / form.reset()   // restore /DV, or clear; reset() skips signature + pushbutton
+form.flattenField(name) / form.flatten()
+```
+
+- `selectMultiple` throws `MultiSelectError` on a single-select list box.
+- Multiline text fields fill with wrapped, top-aligned appearances (hard `\n` preserved, per-line quadding honored). No mid-word breaking — an over-wide word overflows onto its own line.
+- Flattened fields are stamped onto the page and removed from the AcroForm (no longer editable).
+
+## Embedded-font form fill (CJK / Unicode)
+
+```ts
+const font = await doc.embedFont(new Uint8Array(await Bun.file("NotoSansJP.ttf").arrayBuffer()));
+form.getTextField("full_name").setText("山田太郎", { font });
+```
+
+- Plain and multiline **text fields only**, loaded or builder-created. Comb, dropdown, and list box reject an embedded font (`FieldTypeError`); those stay standard-14.
+- Values are written to `/V`/`/DV` as UTF-16BE and round-trip.
+- A `setText({ font })` call **cannot** be combined with `insertPage`/`removePage`/`movePage` in the same `save()` — save separately before or after the page-structure change.
+- Passing a standard-14 handle as `{ font }` throws; omit `font` for standard-14 rendering.
+
+## Creating form fields
+
+`doc.createForm()` returns a chainable `FormBuilder`. Works on **created and loaded** documents.
+
+```ts
+import { PdfDocument, PageSizes, rgb, StandardFonts } from "@ignaciano3/better-pdf";
+
+const doc = await PdfDocument.create();
+doc.addPage(PageSizes.A4);
+
+const form = doc.createForm()
+  .addTextField("applicant.name", {
+    page: 0, x: 56, y: 740, width: 240, height: 22,
+    value: "GARCIA", defaultValue: "", maxLength: 64,
+    align: "left", fontSize: 12, font: StandardFonts.Helvetica, textColor: rgb(0, 0, 0),
+    border: { color: rgb(0.1, 0.1, 0.4), width: 1 }, background: rgb(0.97, 0.97, 1),
+    required: true, tooltip: "Full legal name",
+  })
+  .addTextField("applicant.notes", { page: 0, x: 56, y: 660, width: 240, height: 60, multiline: true })
+  .addTextField("applicant.ssn",   { page: 0, x: 56, y: 630, width: 180, height: 22, comb: true, maxLength: 9 })
+  .addCheckBox("applicant.agree",  { page: 0, x: 56, y: 600, size: 14, checked: true, onValue: "SI", checkStyle: "cross" })
+  .addRadioGroup("applicant.kind", {
+    selected: "primary", checkStyle: "circle",
+    options: [
+      { value: "primary",   page: 0, x: 56,  y: 570, size: 14 },
+      { value: "dependent", page: 0, x: 120, y: 570, size: 14 },
+    ],
+  })
+  .addDropdown("applicant.status", { page: 0, x: 56, y: 530, width: 160, height: 22,
+    options: ["single", "married"], selected: "married", editable: true })
+  .addListBox("applicant.plan",    { page: 0, x: 56, y: 470, width: 160, height: 48,
+    options: ["basic", "plus", "premium"], multiSelect: true })
+  .addSignatureField("applicant.signature", { page: 0, x: 56, y: 410, width: 200, height: 48 });
+
+console.log(form.getFieldNames());   // typed array of declared names
+const out = await doc.save();
+```
+
+- Six field types: `addTextField`, `addCheckBox`, `addRadioGroup`, `addDropdown`, `addListBox`, `addSignatureField`.
+- Shared options: `page`, `x`, `y`, `required`, `readOnly`, `tooltip`, `border` (`{ color, width? }`), `background`, `textColor`. Choice/text also take `align`, `fontSize`, `font`.
+- `checkStyle`: `"check" | "cross" | "circle" | "square" | "diamond" | "star"` (checkbox default `check`, radio default `circle`).
+- `comb` requires `maxLength` and is incompatible with `multiline`. `password: true` masks display only (not encryption). `editable` is dropdown-only; `multiSelect` is list-box-only (`addDropdown` rejects it).
+- Text fields accept an embedded `PdfFont` via `font`; choice fields are standard-14 only.
+- Generated widgets set the `/F` Print flag, so created fields appear in printed output.
+- **On a loaded doc:** declare every field *before* the first `getForm()`/`save()` — fields are injected then, and a later `createForm()` throws. Colliding names are rejected. Embedded-font fill of a field created this way on a loaded doc is not yet supported.
+- **On a created doc:** the first `getForm()` materializes and **seals** the document — adding more fields, pages, or drawings afterward throws `FormSealedError`.
+
+## Encrypted PDFs
+
+```ts
+if (await PdfDocument.isEncrypted(bytes)) {
+  const kind = await PdfDocument.passwordType(bytes, pw);  // "owner" | "user" | null
+  const doc = await PdfDocument.load(bytes, { password: pw });
+}
+```
+
+- RC4 / AES-128 / AES-256 decryption. Use `{ password: "" }` for owner-locked / empty-user-password files.
+- Opt-in: bare `load(bytes)` on an encrypted file throws `EncryptedPdfError`; a wrong password throws `IncorrectPasswordError`.
+- `passwordType(…) !== null` exactly when `load({ password })` succeeds (both classic-`trailer` and xref-stream files, since 1.14.3).
+- **Saving an edited encrypted PDF produces decrypted output.** Producing encrypted output is unsupported.
+
+## Save options (compression)
+
+```ts
+await doc.save();                        // deflate-compresses generated streams (default)
+await doc.save({ compress: false });     // plaintext streams (debugging / byte assertions)
+await doc.save({ objectStreams: true }); // + object streams & xref streams (full-document saves only)
+await PdfDocument.merge([a, b], { objectStreams: true });   // ManipulateOptions
+```
+
+- Already-filtered streams (images, font programs) are never double-compressed.
+- `objectStreams` (default `false`) applies only to full-document paths (`create()`, `merge`, `assemble`, `copyPages`, `splitPages`); incremental saves ignore it. It raises output to PDF 1.5+ and is **not** PDF/A-1 conformant.
+- Consumers that snapshot raw saved bytes should pass `{ compress: false }`.
 
 ## Embedded fonts (Unicode / CJK)
 
-Embed any TTF or OTF font to render Unicode text. The embedded font is a Type0/CIDFontType2
-composite PDF font with a ToUnicode CMap — text is selectable and searchable.
+Embed any TTF or OTF font to render Unicode text as a Type0/CIDFontType2 composite font with a ToUnicode CMap — text stays selectable and searchable.
 
 ```ts
-import { PdfDocument, PageSizes } from "@ignaciano3/better-pdf";
-
-const doc = await PdfDocument.create();
-const page = doc.addPage(PageSizes.A4);
-
-const fontBytes = new Uint8Array(await Bun.file("NotoSansCJK-Regular.ttf").arrayBuffer());
-// subset: true (default) — keeps only glyphs used in the document
-const font = await doc.embedFont(fontBytes, { subset: true });
-
-const text = "日本語テキスト — Héllo Wörld";
-const w = font.widthOfTextAtSize(text, 18);
-page.drawText(text, { x: (595 - w) / 2, y: 700, size: 18, font });
-
-await doc.save();
+const font = await doc.embedFont(fontBytes, { subset: true });   // subset defaults to true
+const w = font.widthOfTextAtSize("日本語テキスト", 18);
+page.drawText("日本語テキスト", { x: (595 - w) / 2, y: 700, size: 18, font });
 ```
 
-- `embedFont` works on both created and loaded documents.
-- `widthOfTextAtSize` works on embedded fonts.
-- Characters with no glyph in the font are silently skipped.
-- OpenType-CFF (`.otf` with CFF outlines) may fail to subset — use `{ subset: false }` for those.
-- Standard-14 fonts (Helvetica, etc.) remain the default when no `font` is passed to `drawText`.
+- Works on created and loaded documents; shared between `drawText` and form fill in the same `save()`, and subsetting picks up glyphs used by fill values.
+- OpenType-CFF (`.otf` with CFF outlines) may fail to subset — use `{ subset: false }`.
+- Standard-14 fonts (`doc.getFont(StandardFonts.HelveticaBold)`) remain the default when no `font` is passed.
 
 ## API reference
 
 | Call | Purpose |
 |------|---------|
-| `PdfDocument.load(bytes)` → `Promise<PdfDocument>` | Load an existing PDF |
-| `PdfDocument.merge(docs)` → `Promise<Uint8Array>` | Merge multiple PDFs into one (all pages, in order) |
-| `PdfDocument.assemble(docs, selections)` → `Promise<Uint8Array>` | Build a new PDF from an explicit ordered page selection across sources |
-| `doc.copyPages(indices)` → `Promise<Uint8Array>` | Extract the given pages into a new PDF (load mode only) |
-| `doc.splitPages()` → `Promise<Uint8Array[]>` | One single-page PDF per page (load mode only) |
-| `doc.save()` → `Promise<Uint8Array>` | Apply queued fills+flattens (incremental) |
-| `doc.setTitle(s)` / `setAuthor(s)` / `setSubject(s)` | Set Info-dict string fields |
-| `doc.setKeywords(arr)` | Set /Keywords from a `string[]` |
-| `doc.setCreator(s)` / `setProducer(s)` | Set /Creator and /Producer |
-| `doc.setCreationDate(d)` / `setModificationDate(d)` | Set dates from JS `Date` |
-| `await doc.getMetadata()` → `DocumentMetadata` | Read the Info dictionary |
-| `doc.addPage(size?)` → `PdfPage` | Append a blank page — works on loaded and created docs; immediately drawable |
-| `doc.insertPage(index, size?)` | Insert a blank page at 0-based index in a loaded doc; reflected after save + reload |
-| `doc.removePage(index)` | Remove page at 0-based index from a loaded doc; reflected after save + reload |
-| `doc.movePage(from, to)` | Move a page to a new 0-based index in a loaded doc; reflected after save + reload |
-| `page.setRotation(degrees)` | Rotate page (multiple of 90; normalised) — loaded or created |
-| `page.setSize(width, height)` | Resize page (sugar for setMediaBox(0,0,w,h)) — loaded or created |
-| `page.setMediaBox(x0, y0, x1, y1)` | Set PDF /MediaBox directly — loaded or created |
-| `doc.embedPdfPage(src, pageIndex)` → `Promise<EmbeddedPdfPage>` | Import a page from another PDF as a Form XObject (loaded or created doc) |
-| `page.drawPage(embedded, {x, y, width?, height?})` | Stamp the Form XObject; width/height default to intrinsic source size |
-| `page.drawSvgPath(d, { fill?, stroke?, strokeWidth?, opacity? })` | Draw an SVG path-data string; supports M/L/H/V/C/S/Q/T/Z (arcs A/a not supported); coordinates are PDF user space (y-up) |
-| `page.drawPolygon(points, { fill?, stroke?, strokeWidth?, opacity?, closed? })` | Draw a polygon from `{x,y}[]`; `closed` defaults to `true` |
-| `page.drawText(text, { …, rotate?, opacity?, maxWidth? })` | `rotate`: degrees counter-clockwise about anchor (free angle); `opacity`: 0–1; `maxWidth` (number, optional): word-wrap text to this width in points. `\n` are kept as hard breaks. Works with standard-14 and embedded fonts. — on loaded and created PDFs |
-| `doc.setOutline(items)` | Build the PDF bookmarks/outline tree; `items: { title, page, children? }[]`; `page` is 0-based — on loaded and created PDFs |
-| `page.drawLink({ x, y, width, height, url })` | Add a clickable external-URI link annotation (invisible border by default) |
-| `page.drawLink({ x, y, width, height, goToPage })` | Add a clickable internal page-jump annotation; `goToPage` is 0-based |
-| `doc.embedFont(bytes, { subset? })` → `Promise<PdfFont>` | Embed TTF/OTF; returns a `PdfFont` for `drawText` |
+| `PdfDocument.load(bytes, { password? })` | Load an existing PDF (decrypting if a password is given) |
+| `PdfDocument.create()` | New empty document |
+| `PdfDocument.isEncrypted(bytes)` / `.passwordType(bytes, pw)` | Probe encryption without loading |
+| `PdfDocument.merge(docs, opts?)` | Merge multiple PDFs (all pages, in order) |
+| `PdfDocument.assemble(docs, selections, opts?)` | New PDF from an explicit ordered `{docIndex, pageIndex}[]` selection |
+| `doc.copyPages(indices, opts?)` / `doc.splitPages(opts?)` | Extract given pages / one single-page PDF per page (load mode only) |
+| `doc.save(opts?)` → `Promise<Uint8Array>` | Apply all queued changes; `SaveOptions = { compress?, objectStreams? }` |
+| `doc.getPageCount()` / `doc.getPages()` / `doc.getPage(i)` | Page access (0-based; out of range → `PageOutOfRangeError`) |
+| `doc.addPage(size?)` / `insertPage(i, size?)` / `removePage(i)` / `movePage(from, to)` | Page structure — loaded and created |
+| `page.setRotation(deg)` / `setSize(w, h)` / `setMediaBox(x0,y0,x1,y1)` | Rotate (multiple of 90) / resize |
+| `doc.embedJpg(bytes)` / `doc.embedPng(bytes)` → `PdfImage` | Embed an image; `image.width/height`, `image.scale(f)` |
+| `doc.embedPdfPage(src, pageIndex)` → `EmbeddedPdfPage` | Import a page from another PDF as a Form XObject |
+| `doc.embedFont(bytes, { subset? })` → `PdfFont` | Embed TTF/OTF; `font.widthOfTextAtSize(text, size)` |
+| `doc.getFont(StandardFonts.X)` → `PdfFont` | Standard-14 font handle |
+| `page.drawText(text, opts)` | See options below |
+| `page.drawImage(image, opts)` / `page.drawPage(embedded, opts)` | `{ x, y, width?, height?, opacity?, rotate?, xSkew?, ySkew? }` (+ `flipX`/`flipY` on images, unreleased) |
+| `page.drawLine({ start, end, stroke?, strokeWidth?, opacity?, dash?, dashPhase? })` | Line |
+| `page.drawRectangle({ x, y, width, height, fill?, stroke?, strokeWidth?, opacity?, dash?, dashPhase? })` | Rectangle (x,y = lower-left) |
+| `page.drawEllipse({ x, y, radiusX, radiusY, fill?, stroke?, strokeWidth?, opacity?, dash?, dashPhase? })` | Ellipse (x,y = center) |
+| `page.drawSvgPath(d, opts)` / `page.drawPolygon(points, opts)` | Vector paths; same fill/stroke/dash options (`closed?` on polygon) |
+| `page.drawLink({ x, y, width, height, url \| goToPage })` | External URI or internal page-jump annotation |
+| `doc.setOutline(items)` | Bookmarks tree: `{ title, page, children? }[]`, `page` 0-based |
+| `doc.setTitle/setAuthor/setSubject/setKeywords/setCreator/setProducer/setCreationDate/setModificationDate` | Info dictionary writes |
+| `await doc.getMetadata()` → `DocumentMetadata` | `{ title?, author?, subject?, keywords?: string[], creator?, producer?, creationDate?: Date, modificationDate?: Date }` |
+| `doc.attach(bytes, name, opts?)` / `await doc.getAttachments()` | Embedded files (`/EmbeddedFiles`) |
+| `doc.createForm()` → `FormBuilder` | Declare new AcroForm fields (created or loaded doc) |
 | `doc.getForm()` / `doc.getForm<typeof schema>()` | Untyped / type-narrowed form view |
-| `form.getFields()` / `form.getField(name)` | `FieldInfo[]` / one `FieldInfo` |
-| `form.getTextField(name).setText(v)` | Set text |
-| `form.getCheckBox(name).check()` / `.uncheck()` | Toggle using real on-state |
-| `form.getRadioGroup(name).select(v)` | Select by real export value |
-| `form.getDropdown(name).select(v)` | Select by real option value |
-| `form.getListBox(name).select(v)` | Select list-box option |
-| `form.getListBox(name).selectMultiple(values)` | Select multiple options (multi-select list boxes only; throws `MultiSelectError` otherwise) |
-| `form.getSignature(name).setImage(bytes)` | Embed visual signature (JPEG/PNG) |
-| `form.flattenField(name)` / `form.flatten()` | Flatten one / all fields |
 | `generateFormTypes(fields, { typeName })` | Emit a typed `…Fields` module (string) |
 
-`FieldInfo = { name, type, value, states, options, readOnly, required, exported, maxLength, multiSelect, widgets }`, where `exported` is false only when the `NoExport` flag is set, `maxLength` is a text field's `/MaxLen` (or null), `multiSelect` is true only for multi-select list boxes (the PDF Multiselect choice flag), and `widgets: { page, rect: [x0,y0,x1,y1] }[]` gives each widget's 0-based page index and `/Rect` in PDF points (origin bottom-left). `setText` throws if longer than `maxLength`. `type` ∈ `text | checkbox | radio | dropdown | listbox | signature | pushbutton | unknown`.
+`drawText` options: `{ x, y, size, font?, color?, lineHeight?, rotate?, opacity?, maxWidth?, onMissingGlyph? }` — `rotate` in degrees counter-clockwise about the anchor, `opacity` 0–1, `maxWidth` word-wraps to that width in points (`\n`, `\r\n`, `\r` are hard breaks), `onMissingGlyph: "throw" | "skip"` (default `throw`).
 
-## Rotated & translucent text
+All coordinates are PDF user space: **origin bottom-left, y-up**, units in points.
+
+## Rotated & translucent text (watermark)
 
 ```ts
 import { PdfDocument, StandardFonts, rgb } from "@ignaciano3/better-pdf";
@@ -144,215 +249,119 @@ import { PdfDocument, StandardFonts, rgb } from "@ignaciano3/better-pdf";
 const doc = await PdfDocument.load(bytes);
 const font = doc.getFont(StandardFonts.HelveticaBold);
 
-for (let i = 0; i < doc.getPageCount(); i++) {
-  doc.getPage(i).drawText("CONFIDENTIAL", {
-    x: 150, y: 300, size: 60, font,
-    color: rgb(0.8, 0, 0),
-    rotate: 45,    // degrees counter-clockwise
-    opacity: 0.15, // faint watermark
+for (const page of doc.getPages()) {
+  page.drawText("CONFIDENTIAL", {
+    x: 150, y: 300, size: 60, font, color: rgb(0.8, 0, 0),
+    rotate: 45, opacity: 0.15,
   });
 }
-
 await Bun.write("watermark.pdf", await doc.save());
 ```
 
 ## Document outlines / bookmarks
 
 ```ts
-import { PdfDocument, PageSizes } from "@ignaciano3/better-pdf";
-
-const doc = await PdfDocument.create();
-for (let i = 0; i < 6; i++) doc.addPage(PageSizes.A4);
-
 doc.setOutline([
   { title: "Introduction", page: 0 },
-  {
-    title: "Chapter 1", page: 1,
-    children: [
+  { title: "Chapter 1", page: 1, children: [
       { title: "1.1 Background", page: 1 },
       { title: "1.2 Methods",    page: 2 },
-    ],
-  },
+  ]},
   { title: "Conclusion", page: 5 },
 ]);
-
-await Bun.write("report.pdf", await doc.save());
 ```
 
-`page` is 0-based (matches `doc.getPage(i)`). Children nest to arbitrary depth.
-Works on loaded and created documents.
+`page` is 0-based. Children nest to arbitrary depth. Loaded and created documents.
 
 ## Page operations (merge, extract, split, assemble)
 
-Combine, rearrange, or split PDFs. All methods return a new `Uint8Array`; source
-documents are not mutated.
-
 ```ts
-import { PdfDocument } from "@ignaciano3/better-pdf";
-
-// Merge — combine all pages from multiple PDFs in order
-const merged = await PdfDocument.merge([bytesA, bytesB, bytesC]);
-
-// Extract / copy pages — load mode only
-const doc = await PdfDocument.load(bytes);
-const extracted = await doc.copyPages([0, 2, 4]);   // 0-based page indices
-
-// Split — one single-page PDF per page
-const pages = await doc.splitPages();   // Promise<Uint8Array[]>
-
-// Assemble — full cross-doc reorder/selection control
-const result = await PdfDocument.assemble(
-  [cover, body, annex],
-  [
-    { docIndex: 0, pageIndex: 0 },
-    { docIndex: 1, pageIndex: 2 },
-    { docIndex: 2, pageIndex: 0 },
-  ],
-);
+const merged    = await PdfDocument.merge([bytesA, bytesB, bytesC]);
+const doc       = await PdfDocument.load(bytes);
+const extracted = await doc.copyPages([0, 2, 4]);
+const pages     = await doc.splitPages();          // Uint8Array[]
+const result    = await PdfDocument.assemble([cover, body, annex], [
+  { docIndex: 0, pageIndex: 0 },
+  { docIndex: 1, pageIndex: 2 },
+  { docIndex: 2, pageIndex: 0 },
+]);
 ```
 
-**Rules:**
-- `copyPages` and `splitPages` require a loaded document (`PdfDocument.load`); they throw on created docs.
-- Form fields on merged/assembled pages stay **interactive** (0.15.0): a working `/AcroForm` is rebuilt with the kept fields, merged `/DR` fonts, and `/NeedAppearances true`. Names that collide across sources are renamed with a per-source prefix (`d0_`, `d1_`, …). `/XFA` data is dropped; a page selected twice shares its field objects.
-- In-place page rotation/resize is **supported**: `page.setRotation(degrees)`, `page.setSize(w, h)`, `page.setMediaBox(x0, y0, x1, y1)` — works on loaded and created pages.
-- **Page insertion/removal/move on loaded docs are supported** (added in 0.13.0): `doc.addPage(size?)` appends a blank drawable page; `doc.insertPage(index, size?)`, `doc.removePage(index)`, `doc.movePage(from, to)` are reflected after save + reload. Nested page trees are not supported (rare).
-- **Transparent PNGs are supported**: `embedPng` preserves the alpha channel of RGBA, gray+alpha, and palette/indexed-color (color type 3 with `tRNS`) PNGs as a soft mask (`/SMask`). No API change — just pass the PNG bytes.
-- **Non-ASCII metadata is supported**: `setTitle`/`setAuthor`/etc. encode non-Latin text as UTF-16BE for correct round-trip fidelity (added in 0.13.0).
+- All return new bytes; sources are never mutated. `copyPages`/`splitPages` require a loaded document (they throw on created docs).
+- Form fields on merged/assembled pages stay **interactive**: a working `/AcroForm` is rebuilt with merged `/DR` fonts and `/NeedAppearances true`. Colliding names are prefixed per source (`d0_`, `d1_`, …). `/XFA` data is dropped; a page selected twice shares its field objects.
+- `insertPage`/`removePage`/`movePage` on loaded docs are reflected after save + reload. **Nested page trees are rejected** — use `merge`/`assemble` for those.
 
-## Embed pages from other PDFs
-
-Stamp a page from another PDF as a Form XObject — watermarks, letterhead,
-N-up layouts, or overlays.
+## Embed pages from other PDFs (watermark, letterhead, N-up)
 
 ```ts
-import { PdfDocument } from "@ignaciano3/better-pdf";
-
-const docBytes       = new Uint8Array(await Bun.file("report.pdf").arrayBuffer());
-const letterheadBytes = new Uint8Array(await Bun.file("letterhead.pdf").arrayBuffer());
-
-const doc = await PdfDocument.load(docBytes);
-const stamp = await doc.embedPdfPage(letterheadBytes, 0);  // page 0 of letterhead
-
-for (let i = 0; i < doc.getPageCount(); i++) {
-  doc.getPage(i).drawPage(stamp, { x: 0, y: 0 });   // full intrinsic size
-}
-
-const output = await doc.save();
-await Bun.write("report-letterhead.pdf", output);
+const doc   = await PdfDocument.load(docBytes);
+const stamp = await doc.embedPdfPage(letterheadBytes, 0);
+for (const page of doc.getPages()) page.drawPage(stamp, { x: 0, y: 0 });
 ```
 
-- `embedPdfPage(src, pageIndex)` — works on loaded and created documents.
-- `drawPage(embedded, { x, y, width?, height? })` — `width`/`height` default to
-  the source page's intrinsic MediaBox dimensions; pass explicit values to scale.
-- Interactive form fields and annotations on the embedded page are **not carried
-  over** — static visual appearance only.
+`width`/`height` default to the source page's intrinsic MediaBox size. Interactive fields and annotations on the embedded page are **not** carried over — static appearance only.
 
 ## Vector paths
 
-Draw SVG path-data strings or polygons onto any page. Both work on loaded and
-created documents. Coordinates are **PDF user space** (origin bottom-left, y-up).
-
 ```ts
-import { PdfDocument, PageSizes, rgb } from "@ignaciano3/better-pdf";
-
-const doc = await PdfDocument.create();
-const page = doc.addPage(PageSizes.A4);
-
-// SVG path — simple triangle
 page.drawSvgPath("M 150 250 L 80 120 L 220 120 Z", {
-  fill: rgb(0.2, 0.5, 0.9),
-  stroke: rgb(0.1, 0.3, 0.7),
-  strokeWidth: 1.5,
-  opacity: 0.9,
+  fill: rgb(0.2, 0.5, 0.9), stroke: rgb(0.1, 0.3, 0.7), strokeWidth: 1.5,
+  opacity: 0.9, dash: [4, 2], dashPhase: 0,
 });
-
-// Polygon from point array
-page.drawPolygon(
-  [{ x: 300, y: 250 }, { x: 250, y: 150 }, { x: 350, y: 150 }],
-  { fill: rgb(0.9, 0.6, 0.1), strokeWidth: 1 },
-);
-
-const output = await doc.save();
+page.drawPolygon([{ x: 300, y: 250 }, { x: 250, y: 150 }, { x: 350, y: 150 }],
+  { fill: rgb(0.9, 0.6, 0.1), strokeWidth: 1, closed: true });
 ```
 
-- Supported SVG commands: `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `S`/`s`,
-  `Q`/`q`, `T`/`t`, `Z`/`z` (absolute and relative variants).
-- **SVG arc commands (`A`/`a`) are not yet supported** — they throw at call time.
-- SVG artwork authored y-down will appear flipped — negate y or transform before passing.
+- Supported SVG commands: `M L H V C S Q T Z` **and arcs `A`/`a`** (converted to cubic béziers, since 0.19.0), absolute and relative.
+- SVG artwork authored y-down appears flipped — negate y or transform before passing.
+
+## Images
+
+```ts
+const img = await doc.embedPng(pngBytes);           // or embedJpg
+page.drawImage(img, { x: 50, y: 400, ...img.scale(0.5), opacity: 0.8, rotate: 15 });
+```
+
+- Transparent PNGs (RGBA, gray+alpha, palette/indexed with `tRNS`) keep their alpha as a `/SMask`. Interlaced and 16-bit-per-channel PNGs are unsupported; CMYK JPEG is rejected (`PdfCoreError`).
+- `rotate` / `xSkew` / `ySkew` are applied via the CTM about `(x, y)`; `opacity` via ExtGState, composing with the soft mask.
 
 ## Link annotations
 
-Add clickable link annotations to any page — external URIs or internal page
-jumps. Works on both loaded and created documents. The annotation border is
-suppressed by default (invisible clickable region).
-
 ```ts
-import { PdfDocument } from "@ignaciano3/better-pdf";
-
-const doc = await PdfDocument.load(bytes);
-const page = doc.getPage(0);
-
-// External URI link over a text region
 page.drawLink({ x: 50, y: 746, width: 140, height: 18, url: "https://example.com" });
-
-// Internal jump — table-of-contents entry pointing to page 2 (0-based)
-page.drawLink({ x: 50, y: 700, width: 200, height: 18, goToPage: 2 });
-
-const output = await doc.save();
+page.drawLink({ x: 50, y: 700, width: 200, height: 18, goToPage: 2 });   // 0-based
 ```
 
-- Exactly one of `url` or `goToPage` must be provided (throws if both or neither).
-- `goToPage` is 0-based (matches `doc.getPage(i)`).
-- Named destinations and cross-document jumps (`GoToR`) are not supported.
+Exactly one of `url` or `goToPage` (throws otherwise). Border is invisible by default. Named destinations and cross-document `GoToR` jumps are unsupported.
 
-## Rotate & resize pages
+## File attachments
 
 ```ts
-import { PdfDocument } from "@ignaciano3/better-pdf";
-
-// Rotate a loaded page
-const doc = await PdfDocument.load(bytes);
-doc.getPage(0).setRotation(90);   // clockwise 90° — must be multiple of 90
-const output = await doc.save();
-
-// Resize a created page
-const doc2 = await PdfDocument.create();
-const page = doc2.addPage([595, 842]);   // A4
-page.setSize(612, 792);                  // switch to US Letter
-// or equivalently: page.setMediaBox(0, 0, 612, 792);
-const output2 = await doc2.save();
+doc.attach(xmlBytes, "factur-x.xml", {
+  mimeType: "text/xml",
+  description: "Factur-X invoice data",
+  afRelationship: "Alternative",   // Source|Data|Alternative|Supplement|EncryptedPayload|FormData|Schema|Unspecified
+  creationDate: new Date(),
+});
+const list = await doc.getAttachments();  // { name, description?, mimeType?, size, bytes, ... }[]
 ```
 
-- `setRotation` normalises to 0/90/180/270; non-multiples throw `InvalidRotationError`.
-- All three methods work on both `doc.getPage(i)` (loaded) and `doc.addPage(...)` (created).
+Queued and written to `/EmbeddedFiles` at `save()`, created or loaded docs. `afRelationship` also sets the filespec `/AFRelationship` and appends to the catalog `/AF` array (ZUGFeRD/Factur-X structure — PDF/A-3 XMP conformance metadata is **not** written). Duplicate names throw `DuplicateAttachmentError`.
 
 ## Document metadata
 
-Read and write the PDF Info dictionary on both created and loaded documents.
-
 ```ts
-// Write (created or loaded doc — works on both)
-doc.setTitle("Report");
-doc.setAuthor("Alice");
-doc.setSubject("Q2 financials");
-doc.setKeywords(["finance", "Q2"]);   // string[]
-doc.setCreator("Acme App");
-doc.setProducer("better-pdf");
+doc.setTitle("Report"); doc.setAuthor("Alice"); doc.setKeywords(["finance", "Q2"]);
 doc.setCreationDate(new Date("2026-01-01T00:00:00Z"));
-doc.setModificationDate(new Date());
-
-// Read back
-const meta = await doc.getMetadata();
-// meta: { title?, author?, subject?, keywords?: string[], creator?, producer?,
-//         creationDate?: Date, modDate?: Date }
-console.log(meta.title, meta.keywords, meta.creationDate);
+const meta = await doc.getMetadata();   // meta.modificationDate (renamed from modDate in 0.20.0)
 ```
 
-- On a **loaded** PDF the setters emit an incremental update; Info-dict keys you do not touch are preserved.
-- Dates round-trip: `setCreationDate(d)` / `setModificationDate(d)` accept `Date`; `getMetadata()` returns `Date`.
-- Only the PDF Info dictionary is written — XMP metadata streams are not modified.
-- API: `doc.setTitle | setAuthor | setSubject | setKeywords | setCreator | setProducer | setCreationDate | setModificationDate` + `await doc.getMetadata()` → `DocumentMetadata`.
+Non-ASCII text is encoded UTF-16BE and round-trips. On a loaded PDF the setters emit an incremental update and preserve untouched Info keys. Only the Info dictionary is written — XMP streams are not modified.
 
-## Browser
+## Browser & bundlers
 
-Import from `better-pdf/browser` (initializes a web-target WASM build); same API.
+Import from `@ignaciano3/better-pdf/browser` — same API — and call `initializeWasm(wasmUrl)` before any PDF operation, passing the URL of the `@ignaciano3/better-pdf/wasm` export subpath (`?url` in Vite, `new URL(…, import.meta.url)` in webpack, `public/` copy in Next.js). Node, Bun, and Deno self-initialize. Runtime starters live in `examples/runtimes/`.
+
+## Not supported
+
+XFA forms (rejected on fill/flatten; static AcroForm reads still work) · cryptographic/PAdES signing · producing encrypted output · CMYK color · XMP metadata · nested page trees in insert/remove/move · interlaced or 16-bit PNGs · embedded fonts on comb/dropdown/list-box fields · toggling `multiline`/`comb`/`password` is supported on loaded **text** fields only.
