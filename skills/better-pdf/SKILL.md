@@ -223,7 +223,7 @@ page.drawText("日本語テキスト", { x: (595 - w) / 2, y: 700, size: 18, fon
 | `doc.embedFont(bytes, { subset? })` → `PdfFont` | Embed TTF/OTF; `font.widthOfTextAtSize(text, size)` |
 | `doc.getFont(StandardFonts.X)` → `PdfFont` | Standard-14 font handle |
 | `page.drawText(text, opts)` | See options below |
-| `page.drawImage(image, opts)` / `page.drawPage(embedded, opts)` | `{ x, y, width?, height?, opacity?, rotate?, xSkew?, ySkew? }` (+ `flipX`/`flipY` on images, unreleased) |
+| `page.drawImage(image, opts)` / `page.drawPage(embedded, opts)` | `{ x, y, width?, height?, opacity?, rotate?, xSkew?, ySkew? }` (+ `flipX`/`flipY` on images — merged, ships in the next release) |
 | `page.drawLine({ start, end, stroke?, strokeWidth?, opacity?, dash?, dashPhase? })` | Line |
 | `page.drawRectangle({ x, y, width, height, fill?, stroke?, strokeWidth?, opacity?, dash?, dashPhase? })` | Rectangle (x,y = lower-left) |
 | `page.drawEllipse({ x, y, radiusX, radiusY, fill?, stroke?, strokeWidth?, opacity?, dash?, dashPhase? })` | Ellipse (x,y = center) |
@@ -324,6 +324,7 @@ page.drawImage(img, { x: 50, y: 400, ...img.scale(0.5), opacity: 0.8, rotate: 15
 
 - Transparent PNGs (RGBA, gray+alpha, palette/indexed with `tRNS`) keep their alpha as a `/SMask`. Interlaced and 16-bit-per-channel PNGs are unsupported; CMYK JPEG is rejected (`PdfCoreError`).
 - `rotate` / `xSkew` / `ySkew` are applied via the CTM about `(x, y)`; `opacity` via ExtGState, composing with the soft mask.
+- `flipX` / `flipY` mirror the image inside its placement box — `(x, y)` stays the bottom-left corner and the drawn rectangle is unchanged — and compose with `rotate`, mirroring along the image's own axes. (`drawPage` has no flip.)
 
 ## Link annotations
 
