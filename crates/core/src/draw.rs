@@ -66,6 +66,10 @@ pub(crate) enum DrawOp {
         x_skew: f32,
         #[serde(rename = "ySkew", default)]
         y_skew: f32,
+        #[serde(rename = "flipX", default)]
+        flip_x: bool,
+        #[serde(rename = "flipY", default)]
+        flip_y: bool,
     },
     Line {
         page: usize,
@@ -419,8 +423,12 @@ pub(crate) fn emit_text_block_cid(
 /// Append the CTM (`cm`) operators that place a unit XObject at `(x, y)` scaled
 /// by `(sx, sy)`, optionally rotated by `rotate` degrees (counter-clockwise) and
 /// skewed by `x_skew`/`y_skew` degrees. Matches pdf-lib's order:
-/// translate → rotate → scale → skew. When there is no rotation or skew this
-/// collapses to the single combined `sx 0 0 sy x y cm` form.
+/// translate → rotate → flip → scale → skew. When there is no rotation, flip or
+/// skew this collapses to the single combined `sx 0 0 sy x y cm` form.
+///
+/// `flip_x`/`flip_y` mirror the XObject inside its own placement box; each
+/// carries the box extent (in points) along that axis, so the mirrored content
+/// covers exactly the same rectangle as the unmirrored content would.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_placement(
     out: &mut Vec<u8>,
@@ -431,8 +439,10 @@ pub(crate) fn emit_placement(
     rotate: f32,
     x_skew: f32,
     y_skew: f32,
+    flip_x: Option<f32>,
+    flip_y: Option<f32>,
 ) {
-    if rotate == 0.0 && x_skew == 0.0 && y_skew == 0.0 {
+    if rotate == 0.0 && x_skew == 0.0 && y_skew == 0.0 && flip_x.is_none() && flip_y.is_none() {
         writeln!(
             out,
             "{} 0 0 {} {} {} cm",
@@ -456,6 +466,18 @@ pub(crate) fn emit_placement(
             fmt_num(r.sin()),
             fmt_num(-r.sin()),
             fmt_num(r.cos())
+        )
+        .unwrap();
+    }
+    // mirror inside the placement box (before the scale, so the box is unchanged)
+    if flip_x.is_some() || flip_y.is_some() {
+        writeln!(
+            out,
+            "{} 0 0 {} {} {} cm",
+            if flip_x.is_some() { "-1" } else { "1" },
+            if flip_y.is_some() { "-1" } else { "1" },
+            fmt_num(flip_x.unwrap_or(0.0)),
+            fmt_num(flip_y.unwrap_or(0.0))
         )
         .unwrap();
     }
@@ -487,12 +509,25 @@ pub(crate) fn emit_image_op(
     rotate: f32,
     x_skew: f32,
     y_skew: f32,
+    flip_x: bool,
+    flip_y: bool,
 ) {
     out.extend_from_slice(b"q\n");
     if let Some(k) = gs_key {
         writeln!(out, "/{k} gs").unwrap();
     }
-    emit_placement(out, x, y, width, height, rotate, x_skew, y_skew);
+    emit_placement(
+        out,
+        x,
+        y,
+        width,
+        height,
+        rotate,
+        x_skew,
+        y_skew,
+        if flip_x { Some(width) } else { None },
+        if flip_y { Some(height) } else { None },
+    );
     writeln!(out, "/{xobj_key} Do").unwrap();
     out.extend_from_slice(b"Q\n");
 }
@@ -1510,6 +1545,8 @@ fn emit_page_ops(
                     rotate,
                     x_skew,
                     y_skew,
+                    flip_x,
+                    flip_y,
                     page: _,
                 } => {
                     let gs_key =
@@ -1533,6 +1570,8 @@ fn emit_page_ops(
                         *rotate,
                         *x_skew,
                         *y_skew,
+                        *flip_x,
+                        *flip_y,
                     );
                     xobjects_on_page.push((key, xid));
                 }
@@ -1574,6 +1613,8 @@ fn emit_page_ops(
                         *rotate,
                         *x_skew,
                         *y_skew,
+                        None,
+                        None,
                     );
                     writeln!(stream_content, "/{key} Do").unwrap();
                     stream_content.extend_from_slice(b"Q\n");

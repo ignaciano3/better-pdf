@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`flipX` / `flipY` on `page.drawImage()`.** Mirror an embedded image
+  horizontally, vertically, or both without pre-processing the pixels. The flip
+  happens inside the placement box, so `(x, y)` remains the bottom-left corner
+  and the drawn rectangle is unchanged; it composes with `rotate` and the skew
+  options, mirroring along the image's own axes.
+
 ## [1.14.3] - 2026-08-12
 
 ### Fixed

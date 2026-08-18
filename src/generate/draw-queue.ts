@@ -34,6 +34,8 @@ export type ImageOp = {
   rotate?: number;
   xSkew?: number;
   ySkew?: number;
+  flipX?: boolean;
+  flipY?: boolean;
 };
 
 export type PageOp = {
@@ -221,7 +223,7 @@ export class DrawQueue {
   pushImage(
     page: number,
     bytes: Uint8Array,
-    opts: { x: number; y: number; width: number; height: number; opacity?: number; rotate?: number; xSkew?: number; ySkew?: number },
+    opts: { x: number; y: number; width: number; height: number; opacity?: number; rotate?: number; xSkew?: number; ySkew?: number; flipX?: boolean; flipY?: boolean },
   ): void {
     this.assertOpen();
     this.drawOps.push({
@@ -233,6 +235,8 @@ export class DrawQueue {
         ...(opts.rotate !== undefined ? { rotate: opts.rotate } : {}),
         ...(opts.xSkew !== undefined ? { xSkew: opts.xSkew } : {}),
         ...(opts.ySkew !== undefined ? { ySkew: opts.ySkew } : {}),
+        ...(opts.flipX ? { flipX: true } : {}),
+        ...(opts.flipY ? { flipY: true } : {}),
       },
     });
   }
