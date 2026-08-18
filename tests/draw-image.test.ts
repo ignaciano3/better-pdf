@@ -153,6 +153,72 @@ describe("PdfImage", () => {
     expect(str).toContain("100 0 0 80 50 50 cm");
   });
 
+  it("drawImage flipX emits a horizontal mirror inside the same box", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 50, y: 50, width: 100, height: 80, flipX: true });
+    const out = await doc.save();
+    const str = Array.from(out).map((b) => String.fromCharCode(b)).join("");
+    expect(str).toContain("1 0 0 1 50 50 cm");
+    expect(str).toContain("-1 0 0 1 100 0 cm");
+    expect(str).toContain("100 0 0 80 0 0 cm");
+  });
+
+  it("drawImage flipY emits a vertical mirror inside the same box", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 50, y: 50, width: 100, height: 80, flipY: true });
+    const out = await doc.save();
+    const str = Array.from(out).map((b) => String.fromCharCode(b)).join("");
+    expect(str).toContain("1 0 0 -1 0 80 cm");
+  });
+
+  it("drawImage flipX+flipY mirrors both axes", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 0, y: 0, width: 10, height: 20, flipX: true, flipY: true });
+    const out = await doc.save();
+    const str = Array.from(out).map((b) => String.fromCharCode(b)).join("");
+    expect(str).toContain("-1 0 0 -1 10 20 cm");
+  });
+
+  it("drawImage flip combines with rotate", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 5, y: 5, width: 10, height: 20, rotate: 90, flipX: true });
+    const out = await doc.save();
+    const str = Array.from(out).map((b) => String.fromCharCode(b)).join("");
+    expect(str).toContain("0 1 -1 0 0 0 cm");
+    expect(str).toContain("-1 0 0 1 10 0 cm");
+  });
+
+  it("drawImage flip false keeps the collapsed single cm", async () => {
+    const doc = await PdfDocument.create();
+    doc.addPage([595, 842]);
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 50, y: 50, width: 100, height: 80, flipX: false, flipY: false });
+    const out = await doc.save();
+    const str = Array.from(out).map((b) => String.fromCharCode(b)).join("");
+    expect(str).toContain("100 0 0 80 50 50 cm");
+  });
+
+  it("drawImage flipX on a loaded page round-trips", async () => {
+    const { readFile } = await import("fs/promises");
+    const src = await readFile(FICHA);
+    const doc = await PdfDocument.load(new Uint8Array(src));
+    const img = await doc.embedPng(TINY_PNG);
+    doc.getPage(0).drawImage(img, { x: 50, y: 50, width: 100, height: 80, flipX: true });
+    const out = await doc.save();
+    const str = Array.from(out).map((b) => String.fromCharCode(b)).join("");
+    expect(str).toContain("-1 0 0 1 100 0 cm");
+    const doc2 = await PdfDocument.load(out);
+    expect(doc2.getPageCount()).toBe(doc.getPageCount());
+  });
+
   it("drawImage rejects non-finite rotate", async () => {
     const doc = await PdfDocument.create();
     doc.addPage([595, 842]);

@@ -655,7 +655,7 @@ soon as they are made.
 ### `PdfPage`
 
 - `page.drawText(text, options)` — `options`: `{ x, y, size, font?, color?, lineHeight?, rotate?, opacity? }` (`rotate` is degrees counter-clockwise; `opacity` 0–1)
-- `page.drawImage(image, options)` — `options`: `{ x, y, width?, height? }`
+- `page.drawImage(image, options)` — `options`: `{ x, y, width?, height?, opacity?, rotate?, xSkew?, ySkew?, flipX?, flipY? }` (`flipX`/`flipY` mirror the image inside the same placement box)
 - `page.drawLine(options)` — `options`: `{ start: {x,y}, end: {x,y}, stroke?, strokeWidth?, opacity? }`
 - `page.drawRectangle(options)` — `options`: `{ x, y, width, height, fill?, stroke?, strokeWidth?, opacity? }`
 - `page.drawEllipse(options)` — `options`: `{ x, y, radiusX, radiusY, fill?, stroke?, strokeWidth?, opacity? }` (`x`,`y` = center; `radiusX`,`radiusY` = radii)

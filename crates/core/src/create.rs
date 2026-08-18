@@ -75,6 +75,10 @@ enum CreateOp {
         x_skew: f32,
         #[serde(rename = "ySkew", default)]
         y_skew: f32,
+        #[serde(rename = "flipX", default)]
+        flip_x: bool,
+        #[serde(rename = "flipY", default)]
+        flip_y: bool,
     },
     Line {
         page: usize,
@@ -1405,6 +1409,8 @@ fn build_pages(
                     rotate,
                     x_skew,
                     y_skew,
+                    flip_x,
+                    flip_y,
                 } if *page == page_index => {
                     let gs_key = if let Some(o) = opacity {
                         let key = format!("BPG{gs_counter}");
@@ -1433,6 +1439,8 @@ fn build_pages(
                         *rotate,
                         *x_skew,
                         *y_skew,
+                        *flip_x,
+                        *flip_y,
                     );
                 }
                 CreateOp::Page {
@@ -1479,6 +1487,8 @@ fn build_pages(
                         *rotate,
                         *x_skew,
                         *y_skew,
+                        None,
+                        None,
                     );
                     writeln!(content, "/{key} Do").unwrap();
                     content.extend_from_slice(b"Q\n");

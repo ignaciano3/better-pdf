@@ -175,6 +175,13 @@ export interface DrawImageOptions {
   xSkew?: number;
   /** Vertical skew in degrees. Default 0. */
   ySkew?: number;
+  /**
+   * Mirror the image horizontally inside its placement box. The drawn
+   * rectangle is unchanged: `(x, y)` stays the bottom-left corner. Default false.
+   */
+  flipX?: boolean;
+  /** Mirror the image vertically inside its placement box. Default false. */
+  flipY?: boolean;
 }
 
 /** Options for {@link PdfPage.drawPage}. Coordinates use the PDF convention: origin bottom-left. */
@@ -349,6 +356,8 @@ export class PdfPage {
       ...(options.rotate !== undefined ? { rotate: options.rotate } : {}),
       ...(options.xSkew !== undefined ? { xSkew: options.xSkew } : {}),
       ...(options.ySkew !== undefined ? { ySkew: options.ySkew } : {}),
+      ...(options.flipX ? { flipX: true } : {}),
+      ...(options.flipY ? { flipY: true } : {}),
     });
   }
 

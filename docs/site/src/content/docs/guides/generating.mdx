@@ -115,6 +115,15 @@ an angle:
 page.drawImage(logo, { x: 40, y: 700, width: 120, height: 80, rotate: 15 });
 ```
 
+To mirror an image, pass `flipX` (horizontal) and/or `flipY` (vertical) to
+`drawImage`. The flip happens inside the placement box, so `(x, y)` stays the
+bottom-left corner and the drawn rectangle is unchanged — and it composes with
+`rotate`, mirroring along the image's own axes:
+
+```ts
+page.drawImage(logo, { x: 40, y: 700, width: 120, height: 80, flipX: true });
+```
+
 :::note[PNG transparency]
 The alpha channel of RGBA and gray+alpha PNGs is preserved automatically. When
 you call `embedPng` with a transparent PNG, better-pdf extracts the alpha data
