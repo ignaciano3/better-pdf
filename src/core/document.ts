@@ -1,5 +1,5 @@
 import { PdfForm, kFormQueue, kFlattenQueue } from "../forms/form.js";
-import type { FieldFlagChanges } from "../forms/fields.js";
+import type { WireFillOp } from "../forms/fields.js";
 import {
   toPdfError,
   PageOutOfRangeError,
@@ -10,7 +10,7 @@ import {
   DuplicateAttachmentError,
 } from "./errors.js";
 import { toAttachPayload, decodeAttachments } from "./attachments.js";
-import type { AttachOptions, PdfAttachment, QueuedAttachment, AfRelationship } from "./attachments.js";
+import type { AttachOptions, PdfAttachment, QueuedAttachment, WireAttachOp } from "./attachments.js";
 import type { FormSchema, TypedPdfForm } from "../forms/schema.js";
 import { PdfPage } from "../generate/page.js";
 import { DrawQueue } from "../generate/draw-queue.js";
@@ -63,52 +63,18 @@ type PageStructureOp =
   | { op: "movePage"; from: number; to: number };
 
 /**
- * Serialized fill op on the applyAll wire, as produced by
- * {@link FillQueue.toPayload}: image bytes ride the blob channel as
- * offset/length pairs. Mirrors the Rust `FillOp` struct (crates/core/src/fill.rs).
- * @internal
- */
-interface PlanFillOp {
-  name: string;
-  value?: string;
-  values?: string[];
-  defaultValue?: string;
-  reset?: true;
-  imageOffset?: number;
-  imageLength?: number;
-  fontId?: number;
-  flags?: FieldFlagChanges;
-}
-
-/**
- * Attach op on the applyAll wire, as produced by {@link toAttachPayload}.
- * Mirrors the ops half of the Rust attach_files contract.
- * @internal
- */
-interface PlanAttachOp {
-  name: string;
-  description?: string;
-  mimeType?: string;
-  creationDate?: string;
-  modificationDate?: string;
-  afRelationship?: AfRelationship;
-  offset: number;
-  length: number;
-}
-
-/**
  * Typed shape of the single-pass plan consumed by the core's `apply_all`
  * (crates/core/src/apply.rs). Every queued mutation is merged into one of
  * these sections before a single JSON serialization at the WASM boundary.
  * @internal
  */
 interface SavePlan {
-  fill?: PlanFillOp[];
+  fill?: WireFillOp[];
   flatten?: string[];
   draw?: { ops: DrawOp[]; fonts: FontDesc[] };
   metadata?: Record<string, string>;
   outline?: OutlineItem[];
-  attach?: PlanAttachOp[];
+  attach?: WireAttachOp[];
 }
 
 /**
@@ -297,8 +263,8 @@ export class PdfDocumentBase {
       try {
         let bytes = this.buildCreatedBytes(compress, objectStreams);
         if (this.attachQueue.length > 0) {
-          const { opsJson, blob } = toAttachPayload(this.attachQueue);
-          bytes = this.wasm.attachFiles(bytes, opsJson, blob, compress);
+          const { ops, blob } = toAttachPayload(this.attachQueue);
+          bytes = this.wasm.attachFiles(bytes, JSON.stringify(ops), blob, compress);
         }
         return bytes;
       } catch (e) {
@@ -326,8 +292,8 @@ export class PdfDocumentBase {
     let attachBlob: Uint8Array = empty;
 
     if (form && form[kFormQueue].length > 0) {
-      const { opsJson, images } = form[kFormQueue].toPayload();
-      plan.fill = JSON.parse(opsJson) as PlanFillOp[];
+      const { ops, images } = form[kFormQueue].toPayload();
+      plan.fill = ops;
       fillImages = images;
     }
     if (form && form[kFlattenQueue].size > 0) {
@@ -341,13 +307,10 @@ export class PdfDocumentBase {
     const fillNeedsFonts = plan.fill?.some((op) => op.fontId !== undefined) ?? false;
     if (!this.sealed && (this.drawQueue.length > 0 || fillNeedsFonts)) {
       const resolve = this.buildPageIndexResolver();
-      const { opsJson, images, fonts: f, fontsJson } = this.drawQueue.toDrawPayload(resolve);
-      plan.draw = {
-        ops: JSON.parse(opsJson) as DrawOp[],
-        fonts: JSON.parse(fontsJson) as FontDesc[],
-      };
+      const { ops, images, fonts: fontBlob, fontTable } = this.drawQueue.toDrawPayload(resolve);
+      plan.draw = { ops, fonts: fontTable };
       drawImages = images;
-      fonts = f;
+      fonts = fontBlob;
     }
     if (this.meta.dirty) {
       plan.metadata = this.meta.wire;
@@ -356,8 +319,8 @@ export class PdfDocumentBase {
       plan.outline = this.outlineItems;
     }
     if (this.attachQueue.length > 0) {
-      const { opsJson, blob } = toAttachPayload(this.attachQueue);
-      plan.attach = JSON.parse(opsJson) as PlanAttachOp[];
+      const { ops, blob } = toAttachPayload(this.attachQueue);
+      plan.attach = ops;
       attachBlob = blob;
     }
 
@@ -384,22 +347,26 @@ export class PdfDocumentBase {
    * into the single-pass `applyAll`.
    */
   private async saveChained(form: PdfForm | undefined, compress: boolean): Promise<Uint8Array> {
-    if (form && form[kFormQueue].length > 0) {
-      const { opsJson } = form[kFormQueue].toPayload();
-      const fillOps = JSON.parse(opsJson) as PlanFillOp[];
-      if (fillOps.some((op) => op.fontId !== undefined)) {
-        throw new PdfError(
-          "setText with an embedded font cannot be combined with page-structure operations " +
-            "(insertPage/removePage/movePage) in the same save; save once before the page changes " +
-            "or once after",
-        );
-      }
+    // Built once up front: the embedded-font guard runs before any WASM call,
+    // then the same structured payload feeds fillFields below.
+    const pendingFill =
+      form && form[kFormQueue].length > 0 ? form[kFormQueue].toPayload() : undefined;
+    if (pendingFill?.ops.some((op) => op.fontId !== undefined)) {
+      throw new PdfError(
+        "setText with an embedded font cannot be combined with page-structure operations " +
+          "(insertPage/removePage/movePage) in the same save; save once before the page changes " +
+          "or once after",
+      );
     }
     let bytes = this.bytes;
     try {
-      if (form && form[kFormQueue].length > 0) {
-        const { opsJson, images } = form[kFormQueue].toPayload();
-        bytes = this.wasm.fillFields(bytes, opsJson, images, compress);
+      if (pendingFill) {
+        bytes = this.wasm.fillFields(
+          bytes,
+          JSON.stringify(pendingFill.ops),
+          pendingFill.images,
+          compress,
+        );
       }
       if (form && form[kFlattenQueue].size > 0) {
         bytes = this.wasm.flattenFields(bytes, JSON.stringify([...form[kFlattenQueue]]), compress);
@@ -409,8 +376,15 @@ export class PdfDocumentBase {
       }
       if (!this.sealed && this.drawQueue.length > 0) {
         const resolve = this.buildPageIndexResolver();
-        const { opsJson, images, fonts, fontsJson } = this.drawQueue.toDrawPayload(resolve);
-        bytes = this.wasm.applyDrawOps(bytes, opsJson, images, fonts, fontsJson, compress);
+        const { ops, images, fonts, fontTable } = this.drawQueue.toDrawPayload(resolve);
+        bytes = this.wasm.applyDrawOps(
+          bytes,
+          JSON.stringify(ops),
+          images,
+          fonts,
+          JSON.stringify(fontTable),
+          compress,
+        );
       }
       if (this.meta.dirty) {
         bytes = this.wasm.setMetadata(bytes, JSON.stringify(this.meta.wire), compress);
@@ -419,8 +393,8 @@ export class PdfDocumentBase {
         bytes = this.wasm.setOutline(bytes, JSON.stringify(this.outlineItems), compress);
       }
       if (this.attachQueue.length > 0) {
-        const { opsJson, blob } = toAttachPayload(this.attachQueue);
-        bytes = this.wasm.attachFiles(bytes, opsJson, blob, compress);
+        const { ops, blob } = toAttachPayload(this.attachQueue);
+        bytes = this.wasm.attachFiles(bytes, JSON.stringify(ops), blob, compress);
       }
     } catch (e) {
       throw toPdfError(e);
@@ -443,12 +417,12 @@ export class PdfDocumentBase {
     if (this.outlineItems !== undefined) {
       this.drawQueue.pushOutline(this.outlineItems);
     }
-    const { opsJson, images, fonts, fontsJson } = this.drawQueue.toCreatePayload();
+    const { ops, images, fonts, fontTable } = this.drawQueue.toCreatePayload();
     return this.wasm.createDocument(
-      opsJson,
+      JSON.stringify(ops),
       images,
       fonts,
-      fontsJson,
+      JSON.stringify(fontTable),
       JSON.stringify(this.fieldDefs),
       compress,
       objectStreams,
@@ -835,14 +809,14 @@ export class PdfDocumentBase {
    */
   private injectPendingFields(compress = true): void {
     if (this.mode !== "load" || this.fieldDefs.length === 0) return;
-    const { fonts, fontsJson } = this.drawQueue.toCreatePayload();
+    const { fonts, fontTable } = this.drawQueue.toCreatePayload();
     let bytes: Uint8Array;
     try {
       bytes = this.wasm.injectFields(
         this.bytes,
         JSON.stringify(this.fieldDefs),
         fonts,
-        fontsJson,
+        JSON.stringify(fontTable),
         compress,
       );
     } catch (e) {

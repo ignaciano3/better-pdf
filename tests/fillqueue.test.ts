@@ -6,8 +6,8 @@ test("FillQueue packs images into one blob with offsets", () => {
   q.push({ name: "a", value: "x" });
   q.push({ name: "b", image: new Uint8Array([1, 2, 3]) });
   q.push({ name: "c", image: new Uint8Array([4, 5]) });
-  const { opsJson, images } = q.toPayload();
-  expect(JSON.parse(opsJson)).toEqual([
+  const { ops, images } = q.toPayload();
+  expect(ops).toEqual([
     { name: "a", value: "x" },
     { name: "b", imageOffset: 0, imageLength: 3 },
     { name: "c", imageOffset: 3, imageLength: 2 },

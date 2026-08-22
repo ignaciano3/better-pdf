@@ -69,18 +69,33 @@ interface ReadEntry {
   length: number;
 }
 
-/** @internal Build the attach ops JSON + concatenated blob for the queue. */
+/**
+ * @internal Attach op on the attach_files/applyAll wire; `offset`/`length`
+ * index into the concatenated blob. The caller serializes `ops` to JSON once.
+ */
+export interface WireAttachOp {
+  name: string;
+  description?: string;
+  mimeType?: string;
+  creationDate?: string;
+  modificationDate?: string;
+  afRelationship?: AfRelationship;
+  offset: number;
+  length: number;
+}
+
+/** @internal Build the attach ops + concatenated blob for the queue. */
 export function toAttachPayload(queue: QueuedAttachment[]): {
-  opsJson: string;
+  ops: WireAttachOp[];
   blob: Uint8Array;
 } {
   let total = 0;
   for (const q of queue) total += q.bytes.length;
   const blob = new Uint8Array(total);
   let offset = 0;
-  const ops = queue.map((q) => {
+  const ops: WireAttachOp[] = queue.map((q) => {
     blob.set(q.bytes, offset);
-    const op = {
+    const op: WireAttachOp = {
       name: q.name,
       description: q.options.description,
       mimeType: q.options.mimeType,
@@ -93,7 +108,7 @@ export function toAttachPayload(queue: QueuedAttachment[]): {
     offset += q.bytes.length;
     return op;
   });
-  return { opsJson: JSON.stringify(ops), blob };
+  return { ops, blob };
 }
 
 /**

@@ -18,6 +18,6 @@ describe("DrawQueue.seal", () => {
     q.pushAddPage(100, 200);
     q.seal();
     const payload = q.toCreatePayload();
-    expect(payload.opsJson).toContain("addPage");
+    expect(payload.ops.some((op) => op.op === "addPage")).toBe(true);
   });
 });

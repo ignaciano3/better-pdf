@@ -52,6 +52,24 @@ export type FillOp =
   | { name: string; image: Uint8Array }
   | { name: string; flags: FieldFlagChanges };
 
+/**
+ * Serialized fill op on the WASM wire, as produced by {@link FillQueue.toPayload}:
+ * image bytes ride the concatenated blob channel as offset/length pairs.
+ * Mirrors the flat Rust `FillOp` struct (crates/core/src/fill.rs).
+ * @internal
+ */
+export interface WireFillOp {
+  name: string;
+  value?: string;
+  values?: string[];
+  defaultValue?: string;
+  reset?: true;
+  imageOffset?: number;
+  imageLength?: number;
+  fontId?: number;
+  flags?: FieldFlagChanges;
+}
+
 /** Shared, ordered list of pending mutations for a document. */
 export class FillQueue {
   private readonly ops: FillOp[] = [];
@@ -60,21 +78,22 @@ export class FillQueue {
   }
   /**
    * Serialize for the WASM boundary: image bytes are concatenated into one
-   * binary blob; the JSON ops reference them by offset + length.
+   * binary blob; the ops reference them by offset + length. Ops are returned
+   * structured; callers stringify once at the boundary they feed.
    */
-  toPayload(): { opsJson: string; images: Uint8Array } {
+  toPayload(): { ops: WireFillOp[]; images: Uint8Array } {
     let total = 0;
     for (const op of this.ops) if ("image" in op) total += op.image.length;
     const images = new Uint8Array(total);
     let offset = 0;
-    const wire = this.ops.map((op) => {
+    const ops: WireFillOp[] = this.ops.map((op) => {
       if (!("image" in op)) return op;
       images.set(op.image, offset);
-      const entry = { name: op.name, imageOffset: offset, imageLength: op.image.length };
+      const entry: WireFillOp = { name: op.name, imageOffset: offset, imageLength: op.image.length };
       offset += op.image.length;
       return entry;
     });
-    return { opsJson: JSON.stringify(wire), images };
+    return { ops, images };
   }
   get length(): number {
     return this.ops.length;

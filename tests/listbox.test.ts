@@ -33,7 +33,7 @@ test("PdfListBox.select queues a valid option", () => {
   const queue = new FillQueue();
   new PdfListBox(listboxInfo(), queue).select("EN");
   expect(queue.length).toBe(1);
-  expect(JSON.parse(queue.toPayload().opsJson)).toEqual([
+  expect(queue.toPayload().ops).toEqual([
     { name: "preferencias.idioma", value: "EN" },
   ]);
 });
@@ -54,7 +54,7 @@ test("PdfListBox.selectMultiple queues a values op on a multi-select list box", 
   const queue = new FillQueue();
   new PdfListBox(listboxInfo(true), queue).selectMultiple(["ES", "PT"]);
   expect(queue.length).toBe(1);
-  expect(JSON.parse(queue.toPayload().opsJson)).toEqual([
+  expect(queue.toPayload().ops).toEqual([
     { name: "preferencias.idioma", values: ["ES", "PT"] },
   ]);
 });
@@ -73,7 +73,7 @@ test("PdfListBox.selectMultiple deduplicates values preserving first-seen order"
   const queue = new FillQueue();
   new PdfListBox(listboxInfo(true), queue).selectMultiple(["ES", "ES", "PT"]);
   expect(queue.length).toBe(1);
-  expect(JSON.parse(queue.toPayload().opsJson)).toEqual([
+  expect(queue.toPayload().ops).toEqual([
     { name: "preferencias.idioma", values: ["ES", "PT"] },
   ]);
 });

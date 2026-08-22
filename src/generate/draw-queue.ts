@@ -150,6 +150,15 @@ export interface FontDesc {
   subset: boolean;
 }
 
+/** @internal Metadata create-op: a flat key/value map under the metadata tag. */
+export type MetadataWireOp = { op: "metadata" } & Record<string, string>;
+
+/**
+ * Flat op accepted by the core's `create_document` (crates/core/src/create.rs):
+ * metadata/outline/page-creation ops plus any content {@link DrawOp}.
+ */
+export type CreateWireOp = MetadataWireOp | OutlineOp | AddPageOp | DrawOp;
+
 type ImageEntry = {
   kind: "image";
   bytes: Uint8Array;
@@ -345,10 +354,10 @@ export class DrawQueue {
     return { ops, images };
   }
 
-  private buildFonts(): { fonts: Uint8Array; fontsJson: string } {
+  private buildFonts(): { fonts: Uint8Array; fontTable: FontDesc[] } {
     const chunks: Uint8Array[] = [];
     let offset = 0;
-    const table: FontDesc[] = this.fonts.map((f) => {
+    const fontTable: FontDesc[] = this.fonts.map((f) => {
       const entry = { offset, length: f.bytes.length, subset: f.subset };
       chunks.push(f.bytes);
       offset += f.bytes.length;
@@ -360,22 +369,24 @@ export class DrawQueue {
       fonts.set(c, pos);
       pos += c.length;
     }
-    return { fonts, fontsJson: JSON.stringify(table) };
+    return { fonts, fontTable };
   }
 
-  toDrawPayload(resolve: (page: number) => number): { opsJson: string; images: Uint8Array; fonts: Uint8Array; fontsJson: string } {
+  /** Draw payload for the WASM boundary; callers stringify `ops`/`fontTable` once each. */
+  toDrawPayload(resolve: (page: number) => number): { ops: DrawOp[]; images: Uint8Array; fonts: Uint8Array; fontTable: FontDesc[] } {
     const { ops, images } = this.buildDrawOps(resolve);
-    const { fonts, fontsJson } = this.buildFonts();
-    return { opsJson: JSON.stringify(ops), images, fonts, fontsJson };
+    const { fonts, fontTable } = this.buildFonts();
+    return { ops, images, fonts, fontTable };
   }
 
-  toCreatePayload(): { opsJson: string; images: Uint8Array; fonts: Uint8Array; fontsJson: string } {
+  toCreatePayload(): { ops: CreateWireOp[]; images: Uint8Array; fonts: Uint8Array; fontTable: FontDesc[] } {
     const { ops, images } = this.buildDrawOps((p) => p);
-    const { fonts, fontsJson } = this.buildFonts();
-    const metaOps = this.metadataOp ? [{ op: "metadata", ...this.metadataOp }] : [];
-    const outlineOps = this.outlineOp ? [{ op: "outline", items: this.outlineOp }] : [];
+    const { fonts, fontTable } = this.buildFonts();
+    const metaOps: MetadataWireOp[] = this.metadataOp ? [{ op: "metadata", ...this.metadataOp }] : [];
+    const outlineOps: OutlineOp[] = this.outlineOp ? [{ op: "outline", items: this.outlineOp }] : [];
     // Op order is part of the wire contract with crates/core/src/create.rs:
     // outline and metadata must precede the addPage ops and content ops.
-    return { opsJson: JSON.stringify([...outlineOps, ...metaOps, ...this.pageOps, ...ops]), images, fonts, fontsJson };
+    const createOps: CreateWireOp[] = [...outlineOps, ...metaOps, ...this.pageOps, ...ops];
+    return { ops: createOps, images, fonts, fontTable };
   }
 }
