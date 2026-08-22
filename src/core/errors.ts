@@ -197,10 +197,37 @@ export function toInvalidImageError(e: unknown): InvalidImageError {
   return new InvalidImageError(message);
 }
 
+/**
+ * Envelope the Rust core wraps around errors that map to a dedicated class:
+ * `better-pdf-error:<code>:<detail>`. Codes mirror `error_code` in
+ * crates/core/src/lib.rs. Detail contents per code:
+ * - `password` / `encrypted` — human-readable context (may be empty)
+ * - `missing-glyphs` — the full core message, surfaced verbatim
+ * - `duplicate-attachment` — the attachment name alone
+ */
+const CODED_ERROR_RE = /^better-pdf-error:([a-z0-9-]+):([\s\S]*)$/;
+
 /** @internal Wrap a core failure so every error this library throws is a PdfError. */
 export function toPdfError(e: unknown): PdfError {
   if (e instanceof PdfError) return e;
   const message = e instanceof Error ? e.message : String(e);
+
+  // Structured protocol first: classification can never be broken by reworded
+  // prose, and structured details (e.g. the attachment name) need no regexing.
+  const coded = CODED_ERROR_RE.exec(message);
+  if (coded) {
+    const [, code, detail] = coded;
+    if (code === "password") return new IncorrectPasswordError(detail || undefined);
+    if (code === "encrypted") return new EncryptedPdfError(detail || undefined);
+    if (code === "missing-glyphs") return new MissingGlyphError(detail ?? "");
+    if (code === "duplicate-attachment") return new DuplicateAttachmentError(detail ?? "");
+    // Unknown code from a newer core: fall through and surface it verbatim
+    // as a PdfCoreError rather than guessing.
+  }
+
+  // Legacy prefix/prose fallbacks from before the envelope existed; a safety
+  // net for any site not yet migrated. Remove once the envelope has shipped
+  // for at least one release with no fallback hits.
   if (message.includes("PASSWORD:")) return new IncorrectPasswordError();
   if (message.includes("ENCRYPTED:")) return new EncryptedPdfError();
   if (message.startsWith("missing glyphs")) return new MissingGlyphError(message);

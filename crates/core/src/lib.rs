@@ -21,6 +21,32 @@ mod pages;
 mod pagetree;
 mod repair;
 
+/// Stable codes for errors the TS boundary maps to a dedicated class
+/// (`toPdfError` in src/core/errors.ts). Kebab-case; part of the wire protocol.
+pub mod error_code {
+    pub const PASSWORD: &str = "password";
+    pub const ENCRYPTED: &str = "encrypted";
+    pub const MISSING_GLYPHS: &str = "missing-glyphs";
+    pub const DUPLICATE_ATTACHMENT: &str = "duplicate-attachment";
+}
+
+/// Prefix marking a coded core error, wrapped as
+/// `better-pdf-error:<code>:<detail>`. Anything without this envelope surfaces
+/// as a generic `PdfCoreError` on the TS side.
+pub const CODED_ERROR_PREFIX: &str = "better-pdf-error:";
+
+/// Wrap `detail` in the coded-error envelope for `code`.
+pub fn coded_error(code: &str, detail: impl std::fmt::Display) -> String {
+    format!("{CODED_ERROR_PREFIX}{code}:{detail}")
+}
+
+/// True when `err` is a coded error carrying `code`.
+pub fn err_has_code(err: &str, code: &str) -> bool {
+    err.strip_prefix(CODED_ERROR_PREFIX)
+        .and_then(|rest| rest.split_once(':'))
+        .is_some_and(|(c, _)| c == code)
+}
+
 /// Read the AcroForm fields of a PDF, returned as a JSON array string.
 #[wasm_bindgen]
 pub fn read_fields(data: &[u8]) -> Result<String, JsError> {
@@ -229,8 +255,8 @@ pub fn set_outline(data: &[u8], json: &str, compress: bool) -> Result<Vec<u8>, J
 
 /// Decrypt an encrypted PDF with `password` (empty string for the common
 /// owner-locked case) and return plaintext bytes. Unencrypted input is returned
-/// unchanged. Errors start with `PASSWORD:` (bad/missing password) or
-/// `ENCRYPTED:` (unsupported scheme).
+/// unchanged. Errors carry coded envelopes: `password` (bad/missing password)
+/// or `encrypted` (unsupported scheme) — see [`error_code`].
 #[wasm_bindgen]
 pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, JsError> {
     doc_io::decrypt_pdf(data, password).map_err(|e| JsError::new(&e))

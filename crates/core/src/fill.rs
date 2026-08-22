@@ -2664,7 +2664,10 @@ mod tests {
         );
         let plan = fill_plan(r#"{"name":"n","value":"日本語","fontId":0}"#, NOTO.len()); // Latin subset font
         let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
-        assert!(err.starts_with("missing glyphs"), "got: {err}");
+        assert!(
+            crate::err_has_code(&err, crate::error_code::MISSING_GLYPHS),
+            "got: {err}"
+        );
         assert!(err.contains("field 'n'"), "got: {err}");
     }
 
@@ -2688,7 +2691,10 @@ mod tests {
             NOTO.len(),
         ); // Latin subset font
         let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
-        assert!(err.starts_with("missing glyphs"), "got: {err}");
+        assert!(
+            crate::err_has_code(&err, crate::error_code::MISSING_GLYPHS),
+            "got: {err}"
+        );
         assert!(err.contains("field 'n'"), "got: {err}");
     }
 

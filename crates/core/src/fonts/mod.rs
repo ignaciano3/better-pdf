@@ -171,7 +171,8 @@ pub enum MissingGlyphPolicy {
 }
 
 /// Map chars to GIDs per line ('\n'-split). `context` is e.g. "drawText on page 0"
-/// or "field 'name'". Error format (STABLE, TS matches the prefix):
+/// or "field 'name'". Errors carry code [`crate::error_code::MISSING_GLYPHS`];
+/// the detail format is STABLE (TS surfaces it verbatim):
 ///   missing glyphs in font for {context}: "㐀" (U+3400), "丂" (U+4E02)
 ///
 /// Excluded from the missing-glyph check: `\n` (line split) and any other
@@ -215,10 +216,11 @@ pub fn gids_per_line(
         } else {
             String::new()
         };
-        return Err(format!(
+        let detail = format!(
             "missing glyphs in font for {context}: {}{tail}",
             shown.join(", ")
-        ));
+        );
+        return Err(crate::coded_error(crate::error_code::MISSING_GLYPHS, detail));
     }
     Ok(lines)
 }
@@ -285,7 +287,11 @@ mod tests {
         let built = BuiltFont { gid_for };
         let err = gids_per_line(&built, "A㐀", MissingGlyphPolicy::Error, "drawText on page 0")
             .unwrap_err();
-        assert!(err.starts_with("missing glyphs"), "got: {err}");
+        assert!(
+            crate::err_has_code(&err, crate::error_code::MISSING_GLYPHS),
+            "got: {err}"
+        );
+        assert!(err.contains("missing glyphs in font"), "got: {err}");
         assert!(err.contains("U+3400"), "got: {err}");
         assert!(err.contains("drawText on page 0"), "got: {err}");
     }

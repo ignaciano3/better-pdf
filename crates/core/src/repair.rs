@@ -31,9 +31,9 @@ pub(crate) fn repair_load(data: &[u8]) -> Result<Document, String> {
     // case, where the entry lives *inside* an object span (the xref stream's
     // own dictionary) and the span check alone would miss it.
     if find_encrypt_ref(data, &span_index(&objs)) || xref_stream_declares_encrypt(data) {
-        return Err(format!(
-            "{} this PDF is encrypted; load it with PdfDocument.load(bytes, {{ password }}) (use \"\" for owner-locked files)",
-            crate::doc_io::ENCRYPTED_PREFIX
+        return Err(crate::coded_error(
+            crate::error_code::ENCRYPTED,
+            "this PDF is encrypted; load it with PdfDocument.load(bytes, { password }) (use \"\" for owner-locked files)",
         ));
     }
     let rebuilt = rebuild(data, &objs)?;
@@ -877,7 +877,7 @@ startxref\n0\n%%EOF\n";
         assert!(has_encrypt_marker(XREF_STREAM_ENCRYPTED));
         let err = repair_load(XREF_STREAM_ENCRYPTED)
             .expect_err("an encrypted xref-stream file must not be repaired");
-        assert!(err.starts_with(crate::doc_io::ENCRYPTED_PREFIX), "got: {err}");
+        assert!(crate::err_has_code(&err, crate::error_code::ENCRYPTED), "got: {err}");
     }
 
     #[test]
@@ -957,7 +957,7 @@ startxref\n0\n%%EOF\n";
         let err = crate::doc_io::load_pdf(&corrupted)
             .expect_err("encrypted PDF with broken xref must not be silently repaired");
         assert!(
-            err.starts_with(crate::doc_io::ENCRYPTED_PREFIX),
+            crate::err_has_code(&err, crate::error_code::ENCRYPTED),
             "got: {err}"
         );
     }

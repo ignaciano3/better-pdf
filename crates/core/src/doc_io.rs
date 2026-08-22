@@ -1,17 +1,11 @@
 use lopdf::{Document, Object};
 
-/// Stable, machine-detectable prefix the TS boundary maps to `EncryptedPdfError`.
-pub const ENCRYPTED_PREFIX: &str = "ENCRYPTED:";
-
-/// Stable, machine-detectable prefix the TS boundary maps to `IncorrectPasswordError`.
-pub const PASSWORD_PREFIX: &str = "PASSWORD:";
-
 /// Decrypt `data` using `password` (empty string handles the common owner-locked
 /// case). Unencrypted input is returned verbatim (byte-identical). Encrypted
 /// input is decrypted in place, the `/Encrypt` trailer entry removed, and the
 /// document re-serialized to plaintext bytes. A wrong/missing password yields an
-/// error starting with [`PASSWORD_PREFIX`]; an unsupported or unreadable scheme
-/// yields one starting with [`ENCRYPTED_PREFIX`].
+/// error carrying code `password`; an unsupported or unreadable scheme yields
+/// one carrying code `encrypted` (see [`crate::error_code`]).
 ///
 /// In lopdf 0.41, `load_mem_with_options` auto-decrypts during loading when the
 /// password authenticates, so we use `was_encrypted()` to distinguish the
@@ -61,15 +55,16 @@ pub fn decrypt_pdf(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
             // *load* path, and `load_mem` on an encrypted file yields an empty
             // husk (objects stay unread), so there is nothing to decrypt in
             // place. See docs/lopdf-saslprep-issue.md.
-            Err(format!(
-                "{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF"
+            Err(crate::coded_error(
+                crate::error_code::PASSWORD,
+                "incorrect or missing password for this encrypted PDF",
             ))
         }
         // Defensive / forward-compatible: lopdf 0.41 surfaces wrong passwords as
         // the load-time `InvalidPassword` above, but retain this arm in case a
         // future version raises a `Decryption` error during loading instead.
         Err(lopdf::Error::Decryption(de)) => Err(classify_decryption_error(de)),
-        Err(e) => Err(format!("{ENCRYPTED_PREFIX} {e}")),
+        Err(e) => Err(crate::coded_error(crate::error_code::ENCRYPTED, e)),
     }
 }
 
@@ -128,16 +123,22 @@ pub fn password_type(data: &[u8], password: &str) -> Option<&'static str> {
     None
 }
 
-/// Map a lopdf decryption error to one of our stable prefixes.
+/// Map a lopdf decryption error to a coded error envelope.
 fn classify_decryption_error(de: lopdf::encryption::DecryptionError) -> String {
     use lopdf::encryption::DecryptionError::{
         IncorrectPassword, MissingOwnerPassword, MissingUserPassword, Padding,
     };
     match de {
         IncorrectPassword | Padding | MissingUserPassword | MissingOwnerPassword => {
-            format!("{PASSWORD_PREFIX} incorrect or missing password for this encrypted PDF")
+            crate::coded_error(
+                crate::error_code::PASSWORD,
+                "incorrect or missing password for this encrypted PDF",
+            )
         }
-        other => format!("{ENCRYPTED_PREFIX} unsupported or unreadable encryption: {other}"),
+        other => crate::coded_error(
+            crate::error_code::ENCRYPTED,
+            format!("unsupported or unreadable encryption: {other}"),
+        ),
     }
 }
 
@@ -199,11 +200,11 @@ pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
         // repair cost; well-formed files never reach it.
         Err(primary) => crate::repair::repair_load(data).map_err(|repair_err| {
             // repair_load rejects originally-encrypted PDFs (broken xref, but
-            // still ciphertext) with an ENCRYPTED_PREFIX error before it ever
+            // still ciphertext) with a coded `encrypted` error before it ever
             // gets to rebuild a "plaintext" trailer. That must propagate as-is
             // rather than being swallowed by the primary parse error below, or
             // callers would silently accept a still-encrypted document.
-            if repair_err.starts_with(ENCRYPTED_PREFIX) {
+            if crate::err_has_code(&repair_err, crate::error_code::ENCRYPTED) {
                 repair_err
             } else {
                 primary.to_string()
@@ -223,8 +224,9 @@ pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
         || doc.was_encrypted()
         || (doc.get_pages().is_empty() && crate::repair::has_encrypt_marker(data))
     {
-        return Err(format!(
-            "{ENCRYPTED_PREFIX} this PDF is encrypted; load it with PdfDocument.load(bytes, {{ password }}) (use \"\" for owner-locked files)"
+        return Err(crate::coded_error(
+            crate::error_code::ENCRYPTED,
+            "this PDF is encrypted; load it with PdfDocument.load(bytes, { password }) (use \"\" for owner-locked files)",
         ));
     }
     // A parse can "succeed" with a /Root pointing at a non-catalog object
@@ -236,7 +238,7 @@ pub fn load_pdf(data: &[u8]) -> Result<Document, String> {
             // Same rationale as the primary-parse-failure arm above: a
             // still-encrypted document with an invalid /Root must be reported
             // as encrypted, not masked behind the generic repair-failed message.
-            if repair_err.starts_with(ENCRYPTED_PREFIX) {
+            if crate::err_has_code(&repair_err, crate::error_code::ENCRYPTED) {
                 repair_err
             } else {
                 "invalid /Root reference and repair failed".to_string()
@@ -426,8 +428,8 @@ mod tests {
         let bytes = encrypted_pdf_bytes();
         let err = load_pdf(&bytes).expect_err("encrypted PDF must be rejected");
         assert!(
-            err.starts_with(ENCRYPTED_PREFIX),
-            "error must start with ENCRYPTED prefix, got: {err}"
+            crate::err_has_code(&err, crate::error_code::ENCRYPTED),
+            "error must carry the encrypted code, got: {err}"
         );
     }
 
@@ -444,7 +446,7 @@ mod tests {
         // still reject via was_encrypted(), or a later incremental save would
         // append plaintext onto the encrypted base and silently corrupt output.
         let err = load_pdf(FICHA_RC4).expect_err("auto-decrypted encrypted PDF must be rejected");
-        assert!(err.starts_with(ENCRYPTED_PREFIX), "got: {err}");
+        assert!(crate::err_has_code(&err, crate::error_code::ENCRYPTED), "got: {err}");
     }
 
     #[test]
@@ -581,15 +583,15 @@ mod tests {
     }
 
     #[test]
-    fn wrong_password_yields_password_prefix() {
+    fn wrong_password_yields_password_code() {
         let err = decrypt_pdf(FICHA_RC4_PW, "wrong").unwrap_err();
-        assert!(err.starts_with(PASSWORD_PREFIX), "got: {err}");
+        assert!(crate::err_has_code(&err, crate::error_code::PASSWORD), "got: {err}");
     }
 
     #[test]
-    fn empty_password_on_password_protected_yields_password_prefix() {
+    fn empty_password_on_password_protected_yields_password_code() {
         let err = decrypt_pdf(FICHA_RC4_PW, "").unwrap_err();
-        assert!(err.starts_with(PASSWORD_PREFIX), "got: {err}");
+        assert!(crate::err_has_code(&err, crate::error_code::PASSWORD), "got: {err}");
     }
 
     // Wrong-password tests must use *password-protected* (non-empty user
@@ -598,15 +600,15 @@ mod tests {
     // silently ignored and the file opened. These fixtures have user password
     // "secret", so an empty/wrong guess is genuinely rejected.
     #[test]
-    fn wrong_password_on_aes128_yields_password_prefix() {
+    fn wrong_password_on_aes128_yields_password_code() {
         let err = decrypt_pdf(FICHA_AES128_PW, "wrong").unwrap_err();
-        assert!(err.starts_with(PASSWORD_PREFIX), "got: {err}");
+        assert!(crate::err_has_code(&err, crate::error_code::PASSWORD), "got: {err}");
     }
 
     #[test]
-    fn wrong_password_on_aes256_yields_password_prefix() {
+    fn wrong_password_on_aes256_yields_password_code() {
         let err = decrypt_pdf(FICHA_AES256_PW, "wrong").unwrap_err();
-        assert!(err.starts_with(PASSWORD_PREFIX), "got: {err}");
+        assert!(crate::err_has_code(&err, crate::error_code::PASSWORD), "got: {err}");
     }
 
     // Sanity: the correct password decrypts the password-protected AES fixtures.

@@ -141,7 +141,11 @@ pub(crate) fn attach_resolve(
     let mut seen = std::collections::HashSet::new();
     for op in ops {
         if !seen.insert(op.name.as_str()) {
-            return Err(format!("duplicate attachment name '{}'", op.name));
+            // Envelope detail is the bare name; TS reconstructs the message.
+            return Err(crate::coded_error(
+                crate::error_code::DUPLICATE_ATTACHMENT,
+                op.name.clone(),
+            ));
         }
     }
     let root_id = doc
@@ -165,9 +169,10 @@ pub(crate) fn attach_resolve(
     // filespec metadata, Task 3). Compare queued names against the tree keys.
     for op in ops {
         if existing.iter().any(|(n, _)| n == &op.name) {
-            return Err(format!(
-                "duplicate attachment name '{}' already exists in the document",
-                op.name
+            // Envelope detail is the bare name; TS reconstructs the message.
+            return Err(crate::coded_error(
+                crate::error_code::DUPLICATE_ATTACHMENT,
+                op.name.clone(),
             ));
         }
     }
@@ -634,8 +639,8 @@ mod tests {
         ]"#;
         let err = attach_files_json(&base, ops, &blob, false).unwrap_err();
         assert!(
-            err.starts_with("duplicate attachment"),
-            "error must start with the stable prefix: {err}"
+            crate::err_has_code(&err, crate::error_code::DUPLICATE_ATTACHMENT),
+            "error must carry the duplicate-attachment code: {err}"
         );
         assert!(err.contains("same.txt"));
     }
@@ -741,9 +746,12 @@ mod tests {
         let base = doc_with_kids_tree();
         let ops = r#"[{"name":"alpha.txt","offset":0,"length":3}]"#;
         let err = attach_files_json(&base, ops, b"NEW", false).unwrap_err();
-        assert!(err.starts_with("duplicate attachment"), "{err}");
-        assert!(err.contains("alpha.txt"));
-        assert!(err.contains("already exists"));
+        assert!(
+            crate::err_has_code(&err, crate::error_code::DUPLICATE_ATTACHMENT),
+            "{err}"
+        );
+        // Envelope detail is the bare name.
+        assert!(err.ends_with(":alpha.txt"), "{err}");
     }
 
     #[test]
