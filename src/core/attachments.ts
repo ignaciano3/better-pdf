@@ -1,4 +1,5 @@
 import { fromPdfDate, toPdfDate } from "../generate/metadata.js";
+import { PdfError } from "./errors.js";
 
 /** /AFRelationship values (PDF 2.0 / PDF/A-3 associated files). */
 export type AfRelationship =
@@ -95,14 +96,34 @@ export function toAttachPayload(queue: QueuedAttachment[]): {
   return { opsJson: JSON.stringify(ops), blob };
 }
 
-/** @internal Decode the packed `[u32 LE json_len][json][bytes]` buffer. */
+/**
+ * @internal Decode the packed `[u32 LE json_len][json][bytes]` buffer.
+ * The producer is the core's `read_attachments`; a structurally invalid
+ * buffer (wrong length, truncated JSON or byte section) is a bug or corruption,
+ * so it surfaces as a `PdfError` rather than a bare RangeError/SyntaxError.
+ */
 export function decodeAttachments(packed: Uint8Array): PdfAttachment[] {
+  if (packed.length < 4) {
+    throw new PdfError("malformed attachment data: missing length header");
+  }
   const view = new DataView(packed.buffer, packed.byteOffset, packed.byteLength);
   const jsonLen = view.getUint32(0, true);
-  const entries = JSON.parse(
-    new TextDecoder().decode(packed.subarray(4, 4 + jsonLen)),
-  ) as ReadEntry[];
   const blobStart = 4 + jsonLen;
+  if (blobStart > packed.length) {
+    throw new PdfError("malformed attachment data: declared JSON length exceeds buffer");
+  }
+  let entries: ReadEntry[];
+  try {
+    entries = JSON.parse(new TextDecoder().decode(packed.subarray(4, blobStart))) as ReadEntry[];
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new PdfError(`malformed attachment data: invalid entry JSON (${detail})`);
+  }
+  for (const e of entries) {
+    if (blobStart + e.offset + e.length > packed.length) {
+      throw new PdfError(`malformed attachment data: bytes of '${e.name}' exceed buffer`);
+    }
+  }
   return entries.map((e) => ({
     name: e.name,
     description: e.description,

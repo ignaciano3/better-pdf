@@ -126,6 +126,30 @@ export type PathOp = {
   dashPhase?: number;
 };
 
+/**
+ * Flat draw operation consumed by the Rust core's `apply_draw_ops` /
+ * `create_document`. This is the wire shape after image bytes have been packed
+ * into the blob channel (`imageOffset` / `imageLength`).
+ */
+export type DrawOp =
+  | TextOp
+  | ImageOp
+  | PageOp
+  | LineOp
+  | RectangleOp
+  | EllipseOp
+  | SetRotationOp
+  | SetMediaBoxOp
+  | LinkOp
+  | PathOp;
+
+/** One entry of the fonts table indexing into the concatenated fonts blob. */
+export interface FontDesc {
+  offset: number;
+  length: number;
+  subset: boolean;
+}
+
 type ImageEntry = {
   kind: "image";
   bytes: Uint8Array;
@@ -140,9 +164,12 @@ type PageEntry = {
 
 type FontEntry = { bytes: Uint8Array; subset: boolean };
 
+/** @internal Queued entry: a flat op, or an image/page op wrapped with its bytes until payload time. */
+type QueuedDrawOp = Exclude<DrawOp, ImageOp | PageOp> | ImageEntry | PageEntry;
+
 /** @internal */
 export class DrawQueue {
-  private readonly drawOps: Array<TextOp | ImageEntry | PageEntry | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp | PathOp> = [];
+  private readonly drawOps: QueuedDrawOp[] = [];
   private readonly pageOps: AddPageOp[] = [];
   private readonly fonts: FontEntry[] = [];
   private metadataOp: Record<string, string> | undefined = undefined;
@@ -295,10 +322,10 @@ export class DrawQueue {
     this.drawOps.push(op);
   }
 
-  private buildDrawOps(resolve: (page: number) => number): { ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp | PathOp)[]; images: Uint8Array } {
+  private buildDrawOps(resolve: (page: number) => number): { ops: DrawOp[]; images: Uint8Array } {
     const chunks: Uint8Array[] = [];
     let offset = 0;
-    const ops: (TextOp | ImageOp | PageOp | LineOp | RectangleOp | EllipseOp | SetRotationOp | SetMediaBoxOp | LinkOp | PathOp)[] = [];
+    const ops: DrawOp[] = [];
     for (const entry of this.drawOps) {
       if ("kind" in entry) {
         const len = entry.bytes.length;
@@ -321,7 +348,7 @@ export class DrawQueue {
   private buildFonts(): { fonts: Uint8Array; fontsJson: string } {
     const chunks: Uint8Array[] = [];
     let offset = 0;
-    const table = this.fonts.map((f) => {
+    const table: FontDesc[] = this.fonts.map((f) => {
       const entry = { offset, length: f.bytes.length, subset: f.subset };
       chunks.push(f.bytes);
       offset += f.bytes.length;
@@ -347,6 +374,8 @@ export class DrawQueue {
     const { fonts, fontsJson } = this.buildFonts();
     const metaOps = this.metadataOp ? [{ op: "metadata", ...this.metadataOp }] : [];
     const outlineOps = this.outlineOp ? [{ op: "outline", items: this.outlineOp }] : [];
+    // Op order is part of the wire contract with crates/core/src/create.rs:
+    // outline and metadata must precede the addPage ops and content ops.
     return { opsJson: JSON.stringify([...outlineOps, ...metaOps, ...this.pageOps, ...ops]), images, fonts, fontsJson };
   }
 }

@@ -1,4 +1,5 @@
 import { PdfForm, kFormQueue, kFlattenQueue } from "../forms/form.js";
+import type { FieldFlagChanges } from "../forms/fields.js";
 import {
   toPdfError,
   PageOutOfRangeError,
@@ -9,10 +10,11 @@ import {
   DuplicateAttachmentError,
 } from "./errors.js";
 import { toAttachPayload, decodeAttachments } from "./attachments.js";
-import type { AttachOptions, PdfAttachment, QueuedAttachment } from "./attachments.js";
+import type { AttachOptions, PdfAttachment, QueuedAttachment, AfRelationship } from "./attachments.js";
 import type { FormSchema, TypedPdfForm } from "../forms/schema.js";
 import { PdfPage } from "../generate/page.js";
 import { DrawQueue } from "../generate/draw-queue.js";
+import type { DrawOp, FontDesc } from "../generate/draw-queue.js";
 import { type PageSize, PageSizes } from "../generate/page-sizes.js";
 import { PdfImage } from "../generate/image.js";
 import { EmbeddedPdfPage } from "../generate/embedded-page.js";
@@ -59,6 +61,55 @@ type PageStructureOp =
   | { op: "insertBlank"; index: number; width: number; height: number }
   | { op: "removePage"; index: number }
   | { op: "movePage"; from: number; to: number };
+
+/**
+ * Serialized fill op on the applyAll wire, as produced by
+ * {@link FillQueue.toPayload}: image bytes ride the blob channel as
+ * offset/length pairs. Mirrors the Rust `FillOp` struct (crates/core/src/fill.rs).
+ * @internal
+ */
+interface PlanFillOp {
+  name: string;
+  value?: string;
+  values?: string[];
+  defaultValue?: string;
+  reset?: true;
+  imageOffset?: number;
+  imageLength?: number;
+  fontId?: number;
+  flags?: FieldFlagChanges;
+}
+
+/**
+ * Attach op on the applyAll wire, as produced by {@link toAttachPayload}.
+ * Mirrors the ops half of the Rust attach_files contract.
+ * @internal
+ */
+interface PlanAttachOp {
+  name: string;
+  description?: string;
+  mimeType?: string;
+  creationDate?: string;
+  modificationDate?: string;
+  afRelationship?: AfRelationship;
+  offset: number;
+  length: number;
+}
+
+/**
+ * Typed shape of the single-pass plan consumed by the core's `apply_all`
+ * (crates/core/src/apply.rs). Every queued mutation is merged into one of
+ * these sections before a single JSON serialization at the WASM boundary.
+ * @internal
+ */
+interface SavePlan {
+  fill?: PlanFillOp[];
+  flatten?: string[];
+  draw?: { ops: DrawOp[]; fonts: FontDesc[] };
+  metadata?: Record<string, string>;
+  outline?: OutlineItem[];
+  attach?: PlanAttachOp[];
+}
 
 /**
  * Map each page's stable slot id to its final zero-based index after applying
@@ -268,7 +319,7 @@ export class PdfDocumentBase {
 
     // Fast path: apply every queued operation in one parse → mutate → save pass.
     const empty = new Uint8Array(0);
-    const plan: Record<string, unknown> = {};
+    const plan: SavePlan = {};
     let fillImages: Uint8Array = empty;
     let drawImages: Uint8Array = empty;
     let fonts: Uint8Array = empty;
@@ -276,35 +327,37 @@ export class PdfDocumentBase {
 
     if (form && form[kFormQueue].length > 0) {
       const { opsJson, images } = form[kFormQueue].toPayload();
-      plan["fill"] = JSON.parse(opsJson);
+      plan.fill = JSON.parse(opsJson) as PlanFillOp[];
       fillImages = images;
     }
-    if (form && form[kFlattenQueue].length > 0) {
-      plan["flatten"] = form[kFlattenQueue];
+    if (form && form[kFlattenQueue].size > 0) {
+      // Set preserves insertion order, so the wire JSON is unchanged vs an array.
+      plan.flatten = [...form[kFlattenQueue]];
     }
     // A fill op that carries a fontId indexes into the document's fonts
     // descriptor list at apply time, so the draw section (even with no draw
     // ops) must still be present with the full fonts blob whenever any queued
     // fill op has fontId !== undefined.
-    const fillNeedsFonts =
-      Array.isArray(plan["fill"]) &&
-      (plan["fill"] as Array<{ fontId?: number }>).some((op) => op.fontId !== undefined);
+    const fillNeedsFonts = plan.fill?.some((op) => op.fontId !== undefined) ?? false;
     if (!this.sealed && (this.drawQueue.length > 0 || fillNeedsFonts)) {
       const resolve = this.buildPageIndexResolver();
       const { opsJson, images, fonts: f, fontsJson } = this.drawQueue.toDrawPayload(resolve);
-      plan["draw"] = { ops: JSON.parse(opsJson), fonts: JSON.parse(fontsJson) };
+      plan.draw = {
+        ops: JSON.parse(opsJson) as DrawOp[],
+        fonts: JSON.parse(fontsJson) as FontDesc[],
+      };
       drawImages = images;
       fonts = f;
     }
     if (this.meta.dirty) {
-      plan["metadata"] = this.meta.wire;
+      plan.metadata = this.meta.wire;
     }
     if (this.outlineItems !== undefined) {
-      plan["outline"] = this.outlineItems;
+      plan.outline = this.outlineItems;
     }
     if (this.attachQueue.length > 0) {
       const { opsJson, blob } = toAttachPayload(this.attachQueue);
-      plan["attach"] = JSON.parse(opsJson);
+      plan.attach = JSON.parse(opsJson) as PlanAttachOp[];
       attachBlob = blob;
     }
 
@@ -333,7 +386,7 @@ export class PdfDocumentBase {
   private async saveChained(form: PdfForm | undefined, compress: boolean): Promise<Uint8Array> {
     if (form && form[kFormQueue].length > 0) {
       const { opsJson } = form[kFormQueue].toPayload();
-      const fillOps = JSON.parse(opsJson) as Array<{ fontId?: number }>;
+      const fillOps = JSON.parse(opsJson) as PlanFillOp[];
       if (fillOps.some((op) => op.fontId !== undefined)) {
         throw new PdfError(
           "setText with an embedded font cannot be combined with page-structure operations " +
@@ -348,8 +401,8 @@ export class PdfDocumentBase {
         const { opsJson, images } = form[kFormQueue].toPayload();
         bytes = this.wasm.fillFields(bytes, opsJson, images, compress);
       }
-      if (form && form[kFlattenQueue].length > 0) {
-        bytes = this.wasm.flattenFields(bytes, JSON.stringify(form[kFlattenQueue]), compress);
+      if (form && form[kFlattenQueue].size > 0) {
+        bytes = this.wasm.flattenFields(bytes, JSON.stringify([...form[kFlattenQueue]]), compress);
       }
       if (this.structureOps.length > 0) {
         bytes = this.wasm.insertPages(bytes, JSON.stringify(this.structureOps), compress);

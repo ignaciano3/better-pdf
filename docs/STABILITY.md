@@ -42,7 +42,7 @@ This gives users a clear migration window and at least one release version to up
 The following are deliberately out of scope and will not be added in any version:
 
 - **XFA forms** — Adobe's XML-based form format, deprecated by Adobe and removed from the ISO PDF standard. AcroForms are the supported form model.
-- **Encryption / decryption** — encrypted PDFs are detected on load and rejected with a typed `EncryptedPdfError`. Decrypt the file with an external tool (e.g. `qpdf --decrypt`) before passing it to this library.
+- **Creating encrypted PDFs / re-encrypting** — reading and editing encrypted PDFs is supported via `PdfDocument.load(bytes, { password })` (RC4 / AES-128 / AES-256; use `""` for owner-locked files), and saving an edited encrypted PDF produces decrypted output. This library never encrypts its output; encrypt or re-encrypt with an external tool (e.g. `qpdf --encrypt`).
 - **Lenient recovery of malformed / off-spec PDFs** — the parser is strict by design. Files that violate the PDF specification are rejected rather than silently misread.
 
 See also the [README Non-Goals section](../README.md#non-goals) and [V1 Readiness notes](V1-READINESS.md).

@@ -105,8 +105,12 @@ export class PdfForm {
   private readonly fields: FieldInfo[];
   /** @internal — shared with PdfDocument so save() can flush pending ops. */
   readonly [kFormQueue] = new FillQueue();
-  /** @internal — fully-qualified names queued for flattening on save. */
-  readonly [kFlattenQueue]: string[] = [];
+  /**
+   * @internal — fully-qualified names queued for flattening on save. A Set
+   * gives O(1) dedupe; insertion order (which the save pipeline preserves)
+   * matches the old array.
+   */
+  readonly [kFlattenQueue] = new Set<string>();
 
   /** @internal */
   constructor(bytes: Uint8Array, readFields: ReadFields) {
@@ -300,7 +304,7 @@ export class PdfForm {
    */
   flattenField(name: string): void {
     if (!this.getField(name)) throw new UnknownFieldError(name);
-    if (!this[kFlattenQueue].includes(name)) this[kFlattenQueue].push(name);
+    this[kFlattenQueue].add(name);
   }
 
   /**
@@ -319,7 +323,7 @@ export class PdfForm {
    */
   flatten(): void {
     for (const f of this.fields) {
-      if (!this[kFlattenQueue].includes(f.name)) this[kFlattenQueue].push(f.name);
+      this[kFlattenQueue].add(f.name);
     }
   }
 
