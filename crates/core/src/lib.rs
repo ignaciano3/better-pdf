@@ -205,6 +205,15 @@ pub fn manipulate_pages(
         .map_err(|e| JsError::new(&e))
 }
 
+/// Split a PDF into one single-page PDF per page, in document order. The
+/// source is parsed once (unlike N `manipulate_pages` calls). Returns the
+/// packed buffer `[u32 LE json_len][json [{offset,length}; n]][outputs]`,
+/// where entries index into the trailing byte section.
+#[wasm_bindgen]
+pub fn split_pages(data: &[u8], compress: bool, object_streams: bool) -> Result<Vec<u8>, JsError> {
+    pageops::split_pages_packed(data, compress, object_streams).map_err(|e| JsError::new(&e))
+}
+
 /// Width in points of `text` in standard-14 `font` at `size`.
 /// Incrementally append/insert/remove/move blank pages on a loaded PDF.
 #[wasm_bindgen]

@@ -53,6 +53,8 @@ export interface RawBindings {
     compress: boolean,
     objectStreams: boolean,
   ): Uint8Array;
+  /** Packed `[u32 LE json_len][json][outputs]` — see lib.rs split_pages. */
+  split_pages(data: Uint8Array, compress: boolean, objectStreams: boolean): Uint8Array;
   set_outline(data: Uint8Array, json: string, compress: boolean): Uint8Array;
   insert_pages(data: Uint8Array, opsJson: string, compress: boolean): Uint8Array;
   inject_fields(
@@ -118,6 +120,8 @@ export function makeBindings(raw: RawBindings, guard: () => void = () => {}): Co
       (guard(), raw.set_metadata(data, metaJson, compress)),
     manipulatePages: (docsBlob, docsJson, planJson, compress = true, objectStreams = false) =>
       (guard(), raw.manipulate_pages(docsBlob, docsJson, planJson, compress, objectStreams)),
+    splitPages: (data, compress = true, objectStreams = false) =>
+      (guard(), raw.split_pages(data, compress, objectStreams)),
     setOutline: (data, json, compress = true) => (guard(), raw.set_outline(data, json, compress)),
     insertPages: (data, opsJson, compress = true) =>
       (guard(), raw.insert_pages(data, opsJson, compress)),

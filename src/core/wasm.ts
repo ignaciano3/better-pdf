@@ -33,4 +33,5 @@ export const {
   injectFields,
   attachFiles,
   readAttachments,
+  splitPages,
 } = makeBindings(raw);

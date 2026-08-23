@@ -58,6 +58,7 @@ fn resolve_inherited(doc: &Document, page_id: ObjectId) -> Vec<(Vec<u8>, Object)
 }
 
 /// AcroForm data captured from one source doc, in merged-id space.
+#[derive(Clone)]
 struct SourceForm {
     dr: Option<Object>,
     da: Option<Object>,
@@ -245,72 +246,85 @@ fn rebuild_acroform(
     }
 }
 
-/// Assemble a new PDF from an ordered page selection across the source PDFs
-/// packed into `docs_blob`.
-///
-/// * `docs_blob` — the concatenated bytes of every source PDF.
-/// * `docs_json` — JSON array of `{"offset","length"}` slicing `docs_blob` into docs.
-/// * `plan_json` — JSON array of `{"doc","page"}` (both 0-based) giving the
-///   ordered output pages. Duplicates are allowed and yield distinct pages.
-pub fn manipulate_pages_json(
-    docs_blob: &[u8],
-    docs_json: &str,
-    plan_json: &str,
+/// One parsed source document, ready for plan assembly: objects already moved
+/// out of the loader's `Document` (ids renumbered into merged space), page ids
+/// recorded, AcroForm data captured.
+struct PreparedSource {
+    objects: std::collections::BTreeMap<ObjectId, Object>,
+    max_id: u32,
+    pages: Vec<ObjectId>,
+    form: SourceForm,
+}
+
+/// Parse one source PDF and shift its ids into a disjoint range starting at
+/// `next`; returns the prepared source and the next free id. Shared by
+/// [`manipulate_pages_json`] and [`split_pages_packed`].
+fn prepare_source(bytes: &[u8], next: u32) -> Result<(PreparedSource, u32), String> {
+    let mut doc = crate::doc_io::load_pdf(bytes)?;
+
+    // Resolve inherited attrs onto each page BEFORE renumber/move, while the
+    // /Parent chain is still intact. Only set keys the page itself lacks.
+    let pre_ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    for &pid in &pre_ids {
+        let inh = resolve_inherited(&doc, pid);
+        if let Ok(pd) = doc.get_dictionary_mut(pid) {
+            for (k, v) in inh {
+                if !pd.has(&k) {
+                    pd.set(k, v);
+                }
+            }
+        }
+    }
+
+    // Shift this doc's object ids (and every internal reference) into a
+    // disjoint range starting at `next`.
+    doc.renumber_objects_with(next);
+    let next_after = doc.max_id + 1;
+
+    let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
+
+    // Capture AcroForm data while ids are renumbered but objects still live.
+    let form = capture_source_form(&doc);
+
+    Ok((
+        PreparedSource {
+            objects: std::mem::take(&mut doc.objects),
+            max_id: doc.max_id,
+            pages,
+            form,
+        },
+        next_after,
+    ))
+}
+
+/// Build a brand-new PDF from `plan` (ordered `{doc, page}` selections) against
+/// the prepared sources. Consumes the prepared objects (they are moved into the
+/// output document, so callers wanting multiple outputs must clone per call —
+/// see [`split_pages_packed`]).
+fn assemble_from_prepared(
+    sources: &mut [PreparedSource],
+    plan: &[Sel],
     compress: bool,
     object_streams: bool,
 ) -> Result<Vec<u8>, String> {
-    let descs: Vec<DocDesc> =
-        serde_json::from_str(docs_json).map_err(|e| format!("invalid docs: {e}"))?;
-    let plan: Vec<Sel> =
-        serde_json::from_str(plan_json).map_err(|e| format!("invalid plan: {e}"))?;
     if plan.is_empty() {
         return Err("no pages selected".to_string());
     }
 
     let mut merged = Document::with_version("1.7");
     let mut next: u32 = 1;
-    let mut per_doc_pages: Vec<Vec<ObjectId>> = Vec::new();
-    let mut sources: Vec<SourceForm> = Vec::new();
+    let mut per_doc_pages: Vec<Vec<ObjectId>> = Vec::with_capacity(sources.len());
+    let mut moved_forms: Vec<SourceForm> = Vec::with_capacity(sources.len());
 
-    for d in &descs {
-        let end = d
-            .offset
-            .checked_add(d.length)
-            .ok_or("doc range out of bounds")?;
-        if end > docs_blob.len() {
-            return Err("doc range out of bounds".to_string());
-        }
-        let mut doc = crate::doc_io::load_pdf(&docs_blob[d.offset..end])?;
-
-        // Resolve inherited attrs onto each page BEFORE renumber/move, while the
-        // /Parent chain is still intact. Only set keys the page itself lacks.
-        let pre_ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
-        for &pid in &pre_ids {
-            let inh = resolve_inherited(&doc, pid);
-            if let Ok(pd) = doc.get_dictionary_mut(pid) {
-                for (k, v) in inh {
-                    if !pd.has(&k) {
-                        pd.set(k, v);
-                    }
-                }
-            }
-        }
-
-        // Shift this doc's object ids (and every internal reference) into a
-        // disjoint range starting at `next`, then advance `next`.
-        doc.renumber_objects_with(next);
-        next = doc.max_id + 1;
-
-        // Record page ids AFTER renumber (these are now in merged-id space).
-        let page_ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
-        per_doc_pages.push(page_ids);
-
-        // Capture AcroForm data while ids are renumbered but objects still live
-        // in `doc`. (Pushed in the same order as descs so source index aligns.)
-        sources.push(capture_source_form(&doc));
-
+    for s in sources.iter_mut() {
         // Bulk-move every object into the merged doc.
-        merged.objects.extend(std::mem::take(&mut doc.objects));
+        merged.objects.extend(std::mem::take(&mut s.objects));
+        next = s.max_id + 1;
+        per_doc_pages.push(std::mem::take(&mut s.pages));
+        moved_forms.push(std::mem::replace(
+            &mut s.form,
+            SourceForm { dr: None, da: None, top_fields: Vec::new() },
+        ));
     }
 
     // CRITICAL: set max_id from the loop's final `next` BEFORE any
@@ -322,7 +336,7 @@ pub fn manipulate_pages_json(
     let mut kids: Vec<Object> = Vec::with_capacity(plan.len());
     let mut used: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
     let mut kept_pages: Vec<ObjectId> = Vec::with_capacity(plan.len());
-    for s in &plan {
+    for s in plan {
         let pages = per_doc_pages
             .get(s.doc)
             .ok_or_else(|| format!("doc index {} out of range", s.doc))?;
@@ -364,7 +378,7 @@ pub fn manipulate_pages_json(
     });
     merged.trailer.set("Root", Object::Reference(catalog_id));
 
-    rebuild_acroform(&mut merged, catalog_id, &kept_pages, &sources);
+    rebuild_acroform(&mut merged, catalog_id, &kept_pages, &moved_forms);
 
     // Drop the old per-source catalogs/pages-trees and any unselected pages.
     // Everything reachable from the new Root (Pages tree + selected pages +
@@ -372,6 +386,103 @@ pub fn manipulate_pages_json(
     merged.prune_objects();
 
     crate::compress::serialize_document(&mut merged, compress, object_streams)
+}
+
+/// Assemble a new PDF from an ordered page selection across the source PDFs
+/// packed into `docs_blob`.
+///
+/// * `docs_blob` — the concatenated bytes of every source PDF.
+/// * `docs_json` — JSON array of `{"offset","length"}` slicing `docs_blob` into docs.
+/// * `plan_json` — JSON array of `{"doc","page"}` (both 0-based) giving the
+///   ordered output pages. Duplicates are allowed and yield distinct pages.
+pub fn manipulate_pages_json(
+    docs_blob: &[u8],
+    docs_json: &str,
+    plan_json: &str,
+    compress: bool,
+    object_streams: bool,
+) -> Result<Vec<u8>, String> {
+    let descs: Vec<DocDesc> =
+        serde_json::from_str(docs_json).map_err(|e| format!("invalid docs: {e}"))?;
+    let plan: Vec<Sel> =
+        serde_json::from_str(plan_json).map_err(|e| format!("invalid plan: {e}"))?;
+
+    let mut sources: Vec<PreparedSource> = Vec::with_capacity(descs.len());
+    let mut next: u32 = 1;
+    for d in &descs {
+        let end = d
+            .offset
+            .checked_add(d.length)
+            .ok_or("doc range out of bounds")?;
+        if end > docs_blob.len() {
+            return Err("doc range out of bounds".to_string());
+        }
+        let (prepared, next_after) = prepare_source(&docs_blob[d.offset..end], next)?;
+        sources.push(prepared);
+        next = next_after;
+    }
+
+    assemble_from_prepared(&mut sources, &plan, compress, object_streams)
+}
+
+/// Split a single PDF into one single-page PDF per page, in document order.
+///
+/// The source is parsed exactly once; each output reuses that prepared object
+/// set (cloned per output), so splitting N pages costs one full parse instead
+/// of N.
+///
+/// Wire format (same framing as `read_attachments`):
+/// `[u32 LE json_len][json [{"offset","length"}; n]][concatenated outputs]`,
+/// where each entry's offset indexes into the trailing byte section.
+pub fn split_pages_packed(
+    data: &[u8],
+    compress: bool,
+    object_streams: bool,
+) -> Result<Vec<u8>, String> {
+    let (prepared, _) = prepare_source(data, 1)?;
+    let page_count = prepared.pages.len();
+
+    let mut outs: Vec<Vec<u8>> = Vec::with_capacity(page_count);
+    for page in 0..page_count {
+        // Clone so every output assembles from identical state (assembly
+        // consumes the prepared objects it is given).
+        let single = PreparedSource {
+            objects: prepared.objects.clone(),
+            max_id: prepared.max_id,
+            pages: prepared.pages.clone(),
+            form: prepared.form.clone(),
+        };
+        outs.push(assemble_from_prepared(
+            &mut [single],
+            &[Sel { doc: 0, page }],
+            compress,
+            object_streams,
+        )?);
+    }
+
+    pack_documents(outs)
+}
+
+/// Pack whole-PDF outputs into `[u32 LE json_len][json table][bytes]`.
+fn pack_documents(outs: Vec<Vec<u8>>) -> Result<Vec<u8>, String> {
+    let mut offset = 0usize;
+    let mut entries = String::from("[");
+    for (i, o) in outs.iter().enumerate() {
+        if i > 0 {
+            entries.push(',');
+        }
+        entries.push_str(&format!(r#"{{"offset":{},"length":{}}}"#, offset, o.len()));
+        offset += o.len();
+    }
+    entries.push(']');
+
+    let mut packed = Vec::with_capacity(4 + entries.len() + offset);
+    packed.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+    packed.extend_from_slice(entries.as_bytes());
+    for o in outs {
+        packed.extend_from_slice(&o);
+    }
+    Ok(packed)
 }
 
 #[cfg(test)]
@@ -613,6 +724,56 @@ mod tests {
         );
         assert_eq!(top_field_of(&d, w), a, "widget resolves to its top field");
         assert_eq!(top_field_of(&d, a), a, "a top field resolves to itself");
+    }
+
+    fn unpack_docs(packed: &[u8]) -> Vec<Vec<u8>> {
+        let len = u32::from_le_bytes(packed[0..4].try_into().unwrap()) as usize;
+        let json = std::str::from_utf8(&packed[4..4 + len]).unwrap();
+        let entries: Vec<serde_json::Value> = serde_json::from_str(json).unwrap();
+        let base = 4 + len;
+        entries
+            .iter()
+            .map(|e| {
+                let off = e["offset"].as_u64().unwrap() as usize;
+                let l = e["length"].as_u64().unwrap() as usize;
+                packed[base + off..base + off + l].to_vec()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn split_produces_one_single_page_pdf_per_page() {
+        let n = page_count(FICHA);
+        let outs = unpack_docs(&split_pages_packed(FICHA, true, false).unwrap());
+        assert_eq!(outs.len(), n);
+        for out in &outs {
+            assert_eq!(page_count(out), 1);
+        }
+    }
+
+    #[test]
+    fn split_outputs_are_byte_identical_to_per_page_manipulate() {
+        // The equivalence contract: batched split must emit exactly what the
+        // generic assembler emits for each single-page selection.
+        let outs = unpack_docs(&split_pages_packed(FICHA, true, false).unwrap());
+        let (blob, docs) = pack(&[FICHA]);
+        for (p, out) in outs.iter().enumerate() {
+            let plan = format!(r#"[
+                {{"doc":0,"page":{p}}}
+            ]"#);
+            let expected = manipulate_pages_json(&blob, &docs, &plan, true, false).unwrap();
+            assert_eq!(out, &expected, "split output {p} must be byte-identical");
+        }
+    }
+
+    #[test]
+    fn split_honors_object_streams_flag() {
+        let outs = unpack_docs(&split_pages_packed(FICHA, true, true).unwrap());
+        assert!(
+            outs[0].windows(6).any(|w| w == b"ObjStm"),
+            "expected an /ObjStm in object-stream split output"
+        );
+        assert_eq!(Document::load_mem(&outs[0]).unwrap().get_pages().len(), 1);
     }
 
     #[test]

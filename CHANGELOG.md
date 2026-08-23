@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`splitPages()` parses the source once instead of once per page.** Splitting
+  an N-page document previously ran N full parse→assemble passes over the whole
+  file; it now runs a single batched pass in the core and repacks the outputs,
+  making it roughly 4x faster on a 12-page AcroForm (the gap grows with page
+  count). Output bytes are unchanged — verified hash-identical against the
+  previous implementation for every page, with and without `objectStreams`.
+
 - **`generateFormTypes` emits schema, not data.** The generated metadata
   objects now contain exactly what the typed-form layer narrows on — `type`,
   `readOnly`, `states`, `options`, `multiSelect` — instead of every readable

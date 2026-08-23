@@ -55,6 +55,44 @@ function callBytes(fn: () => Uint8Array, mapErr: (e: unknown) => Error = toPdfEr
   }
 }
 
+/** @internal Wire table entry of the packed multi-document output (split_pages). */
+interface PackedDocEntry {
+  offset: number;
+  length: number;
+}
+
+/**
+ * Decode the packed `[u32 LE json_len][json table][bytes]` buffer of whole-PDF
+ * outputs produced by the core's `split_pages`. Same framing as
+ * {@link decodeAttachments}; a structurally invalid buffer is a bug or
+ * corruption, so it surfaces as a `PdfError`.
+ * @internal
+ */
+function decodePackedDocuments(packed: Uint8Array): Uint8Array[] {
+  if (packed.length < 4) {
+    throw new PdfError("malformed split output: missing length header");
+  }
+  const view = new DataView(packed.buffer, packed.byteOffset, packed.byteLength);
+  const jsonLen = view.getUint32(0, true);
+  const blobStart = 4 + jsonLen;
+  if (blobStart > packed.length) {
+    throw new PdfError("malformed split output: declared JSON length exceeds buffer");
+  }
+  let entries: PackedDocEntry[];
+  try {
+    entries = JSON.parse(new TextDecoder().decode(packed.subarray(4, blobStart))) as PackedDocEntry[];
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new PdfError(`malformed split output: invalid table JSON (${detail})`);
+  }
+  return entries.map((entry) => {
+    if (blobStart + entry.offset + entry.length > packed.length) {
+      throw new PdfError("malformed split output: document bytes exceed buffer");
+    }
+    return packed.slice(blobStart + entry.offset, blobStart + entry.offset + entry.length);
+  });
+}
+
 /** @internal */
 type PageStructureOp =
   | { op: "appendBlank"; width: number; height: number }
@@ -165,6 +203,7 @@ export interface CoreWasm {
     compress?: boolean,
     objectStreams?: boolean,
   ): Uint8Array;
+  splitPages(data: Uint8Array, compress?: boolean, objectStreams?: boolean): Uint8Array;
   setOutline(data: Uint8Array, json: string, compress?: boolean): Uint8Array;
   insertPages(data: Uint8Array, opsJson: string, compress?: boolean): Uint8Array;
   injectFields(
@@ -909,20 +948,13 @@ export class PdfDocumentBase {
         "splitPages is only available on documents opened with PdfDocument.load()",
       );
     }
-    const objectStreams = options.objectStreams ?? false;
-    const count = this.getPageCount();
-    const results: Uint8Array[] = [];
-    for (let i = 0; i < count; i++) {
-      results.push(
-        await PdfDocumentBase.runAssemble(
-          [this.bytes],
-          [{ docIndex: 0, pageIndex: i }],
-          this.wasm,
-          objectStreams,
-        ),
-      );
-    }
-    return results;
+    // Single WASM pass: the core parses the source once and emits every
+    // single-page PDF in order. (The per-page loop previously re-parsed the
+    // whole document N times.)
+    const packed = callBytes(() =>
+      this.wasm.splitPages(this.bytes, true, options.objectStreams ?? false),
+    );
+    return decodePackedDocuments(packed);
   }
 
   /**
