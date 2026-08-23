@@ -10,10 +10,12 @@ import type {
 
 /**
  * The compile-time shape of one declared field's metadata, generic over the
- * field `type`, its radio `states`, and its choice `options`. {@link FieldMeta}
- * is the widened form; the {@link FormBuilder} threads concrete instantiations
- * through its `addX` methods. Keeping this in one place stops the builder's
- * accumulated schema from drifting from `FieldMeta`.
+ * field `type`, its radio `states`, and its choice `options`. This is schema,
+ * not data: it carries what the typed accessors narrow on (names by `type`,
+ * choice values by `states`/`options`) and deliberately no field *values*, so
+ * generating types from a filled form never bakes answers into source control.
+ * {@link FieldMeta} is the widened form; the {@link FormBuilder} threads
+ * concrete instantiations through its `addX` methods.
  */
 export type DeclaredField<
   T extends FieldType,
@@ -22,7 +24,6 @@ export type DeclaredField<
 > = {
   type: T;
   readOnly: boolean;
-  value: string | null;
   states: St;
   options: Opt;
   multiSelect: boolean;

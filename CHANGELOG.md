@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`generateFormTypes` emits schema, not data.** The generated metadata
+  objects now contain exactly what the typed-form layer narrows on — `type`,
+  `readOnly`, `states`, `options`, `multiSelect` — instead of every readable
+  field property. Field values (`value` / `defaultValue`) and read-side flags
+  (`required`, `exported`, `maxLength`, `password`, `multiline`, `comb`,
+  `editable`, `align`, `tooltip`, `fontName`, `fontSize`, widget `pages`) are no
+  longer baked into generated files: generating types from a filled form can no
+  longer leak answers into source control, and regeneration diffs only when the
+  schema actually changes. Read that data at runtime via `form.getFields()`.
+  Hand-written schemas and previously generated modules keep compiling (extra
+  properties were never consumed); the compile-time narrowing behavior of
+  `doc.getForm<typeof …>()` is unchanged.
+
 ## [1.15.0] - 2026-08-18
 
 ### Added

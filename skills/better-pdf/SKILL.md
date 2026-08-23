@@ -53,7 +53,7 @@ form.getDropdown("beneficiario.estado_civil").select("Casado"); // only valid op
 form.reset();                                                   // typed too
 ```
 
-- The generated module carries every readable field property (`type`, `value`, `defaultValue`, `states`, `options`, `readOnly`, `required`, `multiSelect`, `password`, `multiline`, `comb`, `editable`, `align`, `tooltip`, `fontName`, `fontSize`, widget geometry, plus a deduplicated `pages` tuple).
+- The generated module carries schema only (`type`, `readOnly`, `states`, `options`, `multiSelect`) — no field values, so generating from a filled form never bakes answers into source. Runtime data reads go through `form.getFields(): FieldInfo[]`.
 - Use `--password ''` for owner-locked files.
 - The pure generator is also importable: `import { generateFormTypes } from "@ignaciano3/better-pdf/typegen"` (WASM-free, tree-shakeable).
 

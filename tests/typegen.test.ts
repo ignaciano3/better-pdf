@@ -95,10 +95,6 @@ test("generates field name and typed metadata declarations", () => {
     'export type AnexoFormFieldName = "beneficiario.apellidos_nombres" | "beneficiario.estado_civil" | "beneficiario.tipo_beneficiario";',
   );
   expect(source).toContain('export type AnexoFormTextFieldName = AnexoFormFieldNameByType<"text">;');
-  expect(source).toContain("required: false,");
-  expect(source).toContain("exported: true,");
-  expect(source).toContain("maxLength: 40,");
-  expect(source).toContain("maxLength: null,");
   expect(source).toContain("multiSelect: false,");
   expect(source).toContain('options: ["Soltero", "Casado"] as const');
   expect(source).toContain('states: ["Titular", "Familiar"] as const');
@@ -107,59 +103,49 @@ test("generates field name and typed metadata declarations", () => {
   );
 });
 
-test("emits the read-side field flags and appearance metadata", () => {
+test("emits exactly the FormSchema keys and no field data", () => {
+  // The metadata object exists only so TypeScript can narrow names, accessors,
+  // and choice values. Field *data* is deliberately omitted so generating from
+  // a filled form never bakes answers (potentially PII) into source control,
+  // and regeneration never churns on data unrelated to the schema.
   const source = generateFormTypes(fields, { typeName: "AnexoForm" });
 
-  expect(source).toContain('defaultValue: "SIN DATO",');
-  expect(source).toContain("password: false,");
-  expect(source).toContain("multiline: true,");
-  expect(source).toContain("comb: false,");
-  expect(source).toContain("editable: false,");
-  expect(source).toContain('align: "center",');
-  expect(source).toContain('tooltip: "Apellidos y nombres",');
-  expect(source).toContain('fontName: "Helv",');
-  expect(source).toContain("fontSize: 0,");
-  // Widget pages collapse to a deduplicated page tuple: a field repeated on the
-  // same page twice contributes that page once.
-  expect(source).toContain("pages: [0, 2] as const,");
-  expect(source).toContain("pages: [] as const,");
-});
-
-test("every FieldInfo property reaches the generated metadata", () => {
-  // Drift guard: FieldInfo has grown repeatedly (defaultValue, password, comb,
-  // DA font, widgets…) while typegen silently kept emitting the old subset.
-  // Every readable property must appear in the output, so adding one to
-  // FieldInfo without teaching typegen about it fails here.
-  const source = generateFormTypes(fields, { typeName: "AnexoForm" });
-  // Exhaustive by construction: a new FieldInfo property makes this object
-  // literal fail to typecheck until it is given a marker here.
-  const emittedAs: Record<keyof FieldInfo, string> = {
-    // `name` is the metadata object's key; `widgets` is projected to `pages`.
-    name: "beneficiario.apellidos_nombres",
-    widgets: "pages:",
-    type: "type:",
-    value: "value:",
-    defaultValue: "defaultValue:",
-    states: "states:",
-    options: "options:",
-    readOnly: "readOnly:",
-    required: "required:",
-    exported: "exported:",
-    maxLength: "maxLength:",
-    multiSelect: "multiSelect:",
-    password: "password:",
-    multiline: "multiline:",
-    comb: "comb:",
-    editable: "editable:",
-    align: "align:",
-    tooltip: "tooltip:",
-    fontName: "fontName:",
-    fontSize: "fontSize:",
-  };
-
-  for (const marker of Object.values(emittedAs)) {
+  // Every DeclaredField key is present…
+  for (const marker of ["type:", "readOnly:", "states:", "options:", "multiSelect:"]) {
     expect(source).toContain(marker);
   }
+  // …and every data-bearing key from the pre-1.16 output is absent.
+  for (const marker of [
+    "value:",
+    "defaultValue:",
+    "required:",
+    "exported:",
+    "maxLength:",
+    "password:",
+    "multiline:",
+    "comb:",
+    "editable:",
+    "align:",
+    "tooltip:",
+    "fontName:",
+    "fontSize:",
+    "pages:",
+  ]) {
+    expect(source).not.toContain(marker);
+  }
+});
+
+test("per-field block matches the minimal shape byte-for-byte", () => {
+  const source = generateFormTypes(fields, { typeName: "AnexoForm" });
+  expect(source).toContain(
+    `"beneficiario.apellidos_nombres": {
+    type: "text",
+    readOnly: false,
+    states: [] as const,
+    options: [] as const,
+    multiSelect: false,
+  },`,
+  );
 });
 
 test("FieldType covers every field type, not only the ones present", () => {

@@ -16,17 +16,12 @@ better-pdf-generate-types form.pdf src/form-types.ts --name EnrollmentForm
 Encrypted PDFs need a password — pass `--password s3cret`, or `--password ''`
 for owner-locked files that open without a user password.
 
-The generated module exports field-name unions and literal metadata for every
-readable property of a field: type, dropdown/listbox options, radio states,
-current and default values, the read-only/required/exported/multi-select flags,
-text flags (`password`, `multiline`, `comb`, `maxLength`), editable combo boxes,
-alignment, tooltip, the `/DA` font name and size, and the page indices the
-field's widgets sit on.
-
-```ts
-myFormFields["applicant.name"].pages;    // readonly [0]
-myFormFields["applicant.name"].maxLength; // 40
-```
+The generated module exports field-name unions and literal schema metadata for
+each field: its type, dropdown/listbox options, radio states, read-only flag,
+and multi-select flag. It carries no field *values*, so generating types from a
+filled form never bakes answers (or other PII) into source control. For runtime
+reads of anything else (`value`, `maxLength`, widget geometry, …) use
+`form.getFields()`.
 
 ## Use it
 
