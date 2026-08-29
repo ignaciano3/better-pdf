@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`generateFormTypes` accepts `includeValues`.** Off by default; set it (or
+  pass `--include-values` to `better-pdf-generate-types`) to emit each field's
+  current value alongside the schema. Use it when the input is a blank or
+  reference form and a snapshot of its contents is genuinely what you want.
+
 ### Changed
 
 - **`splitPages()` parses the source once instead of once per page.** Splitting
@@ -16,18 +23,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count). Output bytes are unchanged — verified hash-identical against the
   previous implementation for every page, with and without `objectStreams`.
 
-- **`generateFormTypes` emits schema, not data.** The generated metadata
-  objects now contain exactly what the typed-form layer narrows on — `type`,
-  `readOnly`, `states`, `options`, `multiSelect` — instead of every readable
-  field property. Field values (`value` / `defaultValue`) and read-side flags
-  (`required`, `exported`, `maxLength`, `password`, `multiline`, `comb`,
-  `editable`, `align`, `tooltip`, `fontName`, `fontSize`, widget `pages`) are no
-  longer baked into generated files: generating types from a filled form can no
-  longer leak answers into source control, and regeneration diffs only when the
-  schema actually changes. Read that data at runtime via `form.getFields()`.
-  Hand-written schemas and previously generated modules keep compiling (extra
-  properties were never consumed); the compile-time narrowing behavior of
-  `doc.getForm<typeof …>()` is unchanged.
+- **`generateFormTypes` emits schema, not answers.** Generated modules keep the
+  full description of each field — `type`, `readOnly`, `required`, `exported`,
+  `maxLength`, `multiSelect`, `password`, `multiline`, `comb`, `editable`,
+  `align`, `tooltip`, `fontName`, `fontSize`, `defaultValue` (`/DV`), widget
+  `pages`, `states`, `options` — so a generated file stands on its own as a
+  description of the form, readable without loading the PDF or using the rest of
+  the library. What is gone is the field *answer*: each field's current value
+  (`/V`) is no longer emitted by default, so generating types from a filled form
+  can no longer leak answers into source control and regeneration diffs only
+  when the schema actually changes. Read values at runtime via
+  `form.getFields()`, or opt them back in with `includeValues` (above). Hand-written schemas and
+  previously generated modules keep compiling; the compile-time narrowing
+  behavior of `doc.getForm<typeof …>()` is unchanged.
+
+- `DeclaredField` (from `@ignaciano3/better-pdf/forms`) no longer declares a
+  `value` property. It describes a field's schema; values are runtime data.
 
 ## [1.15.0] - 2026-08-18
 

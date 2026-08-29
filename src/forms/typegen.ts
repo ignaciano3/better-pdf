@@ -6,6 +6,17 @@ export interface GenerateFormTypesOptions {
    * identifier; defaults to `BetterPdfForm`.
    */
   typeName?: string;
+  /**
+   * Emit each field's current value (`/V`) as a `value` property. Off by
+   * default: generating from a filled form would otherwise bake the answers —
+   * potentially PII — into source control, and every re-fill would churn the
+   * diff. Turn it on only when the input is a blank or reference form and a
+   * snapshot of its contents is genuinely what you want.
+   *
+   * The author-declared default (`/DV`) is always emitted as `defaultValue`;
+   * it describes the form rather than an answer.
+   */
+  includeValues?: boolean;
 }
 
 const TYPE_SUFFIXES: Record<FieldType, string> = {
@@ -56,6 +67,7 @@ export function generateFormTypes(
 ): string {
   const typeName = options.typeName ?? "BetterPdfForm";
   assertIdentifier(typeName, "typeName");
+  const includeValues = options.includeValues ?? false;
 
   const sorted = [...fields].sort((a, b) => a.name.localeCompare(b.name));
   const names = sorted.map((field) => field.name);
@@ -74,16 +86,35 @@ export function generateFormTypes(
   ];
 
   for (const field of sorted) {
-    // Schema-only emission: the metadata object exists so TypeScript can
-    // narrow field names, accessors, and choice values. Field *data* (values,
-    // flags, appearance) is deliberately omitted so generating from a filled
-    // form never bakes answers — potentially PII — into source control.
+    // Schema emission: everything that describes the *shape* of the field is
+    // emitted, so the generated module stands on its own as a description of
+    // the form — readable without loading the PDF or using this library. The
+    // current answer (`/V`) is data rather than shape, so it is emitted only
+    // under `includeValues`; read it at runtime via `form.getFields()`.
     lines.push(`  ${quote(field.name)}: {`);
     lines.push(`    type: ${quote(field.type)},`);
     lines.push(`    readOnly: ${field.readOnly ? "true" : "false"},`);
+    lines.push(`    required: ${field.required ? "true" : "false"},`);
+    lines.push(`    exported: ${field.exported ? "true" : "false"},`);
+    lines.push(`    maxLength: ${field.maxLength === null ? "null" : field.maxLength},`);
+    lines.push(`    multiSelect: ${field.multiSelect ? "true" : "false"},`);
+    lines.push(`    password: ${field.password ? "true" : "false"},`);
+    lines.push(`    multiline: ${field.multiline ? "true" : "false"},`);
+    lines.push(`    comb: ${field.comb ? "true" : "false"},`);
+    lines.push(`    editable: ${field.editable ? "true" : "false"},`);
+    lines.push(`    align: ${quote(field.align)},`);
+    lines.push(`    tooltip: ${field.tooltip === null ? "null" : quote(field.tooltip)},`);
+    lines.push(`    fontName: ${field.fontName === null ? "null" : quote(field.fontName)},`);
+    lines.push(`    fontSize: ${field.fontSize === null ? "null" : field.fontSize},`);
+    lines.push(
+      `    defaultValue: ${field.defaultValue === null ? "null" : quote(field.defaultValue)},`,
+    );
+    if (includeValues) {
+      lines.push(`    value: ${field.value === null ? "null" : quote(field.value)},`);
+    }
+    lines.push(`    pages: ${readonlyNumberTuple([...new Set(field.widgets.map((w) => w.page))])},`);
     lines.push(`    states: ${readonlyTuple(field.states)},`);
     lines.push(`    options: ${readonlyTuple(field.options)},`);
-    lines.push(`    multiSelect: ${field.multiSelect ? "true" : "false"},`);
     lines.push("  },");
   }
 
@@ -136,6 +167,11 @@ function literalUnion(values: readonly string[]): string {
 function readonlyTuple(values: readonly string[]): string {
   if (values.length === 0) return "[] as const";
   return `[${values.map(quote).join(", ")}] as const`;
+}
+
+function readonlyNumberTuple(values: readonly number[]): string {
+  if (values.length === 0) return "[] as const";
+  return `[${values.join(", ")}] as const`;
 }
 
 function quote(value: string): string {

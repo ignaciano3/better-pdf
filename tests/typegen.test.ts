@@ -103,24 +103,21 @@ test("generates field name and typed metadata declarations", () => {
   );
 });
 
-test("emits exactly the FormSchema keys and no field data", () => {
-  // The metadata object exists only so TypeScript can narrow names, accessors,
-  // and choice values. Field *data* is deliberately omitted so generating from
-  // a filled form never bakes answers (potentially PII) into source control,
-  // and regeneration never churns on data unrelated to the schema.
+test("emits the descriptive schema but no field answers", () => {
+  // The generated module doubles as a standalone description of the form:
+  // everything that describes a field's *shape* is emitted, so it is readable
+  // without loading the PDF or using this library. Field *answers* are omitted
+  // so generating from a filled form never bakes data (potentially PII) into
+  // source control, and regeneration never churns on values.
   const source = generateFormTypes(fields, { typeName: "AnexoForm" });
 
-  // Every DeclaredField key is present…
-  for (const marker of ["type:", "readOnly:", "states:", "options:", "multiSelect:"]) {
-    expect(source).toContain(marker);
-  }
-  // …and every data-bearing key from the pre-1.16 output is absent.
   for (const marker of [
-    "value:",
-    "defaultValue:",
+    "type:",
+    "readOnly:",
     "required:",
     "exported:",
     "maxLength:",
+    "multiSelect:",
     "password:",
     "multiline:",
     "comb:",
@@ -130,20 +127,45 @@ test("emits exactly the FormSchema keys and no field data", () => {
     "fontName:",
     "fontSize:",
     "pages:",
+    "states:",
+    "options:",
   ]) {
-    expect(source).not.toContain(marker);
+    expect(source).toContain(marker);
   }
+
+  expect(source).toContain("defaultValue:");
+  expect(source).not.toContain("value:");
 });
 
-test("per-field block matches the minimal shape byte-for-byte", () => {
+test("includeValues opts the current values back in", () => {
+  const source = generateFormTypes(fields, { typeName: "AnexoForm", includeValues: true });
+
+  expect(source).toContain("value:");
+  expect(source).toContain("defaultValue:");
+});
+
+test("per-field block matches the emitted shape byte-for-byte", () => {
   const source = generateFormTypes(fields, { typeName: "AnexoForm" });
   expect(source).toContain(
     `"beneficiario.apellidos_nombres": {
     type: "text",
     readOnly: false,
+    required: false,
+    exported: true,
+    maxLength: 40,
+    multiSelect: false,
+    password: false,
+    multiline: true,
+    comb: false,
+    editable: false,
+    align: "center",
+    tooltip: "Apellidos y nombres",
+    fontName: "Helv",
+    fontSize: 0,
+    defaultValue: "SIN DATO",
+    pages: [0, 2] as const,
     states: [] as const,
     options: [] as const,
-    multiSelect: false,
   },`,
   );
 });
