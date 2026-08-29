@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-29
+
+Breaking: generated typed-form modules no longer contain each field's current
+value, and `DeclaredField` no longer declares a `value` property. Read values
+at runtime with `form.getFields()`, or re-enable emission with `includeValues`.
+Everything else in the public API is unchanged.
+
 ### Added
 
 - **`generateFormTypes` accepts `includeValues`.** Off by default; set it (or
@@ -850,7 +857,8 @@ WebAssembly with a fully-typed TypeScript API.
 - Text fields are single-line; multi-line wrapping is not generated.
 - PNG alpha is dropped rather than preserved as a soft mask.
 
-[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ignaciano3/better-pdf/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/ignaciano3/better-pdf/compare/v1.15.0...v2.0.0
 [1.1.0]: https://github.com/ignaciano3/better-pdf/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ignaciano3/better-pdf/compare/v0.21.0...v1.0.0
 [0.6.0]: https://github.com/ignaciano3/better-pdf/compare/v0.5.0...v0.6.0
