@@ -105,7 +105,10 @@ fn collect_fields(doc: &Document) -> Result<Vec<FieldInfo>, String> {
 /// or field is already accounted for by the normal `/Fields` traversal.
 fn reachable_field_ids(doc: &Document, entries: &[Object]) -> std::collections::HashSet<ObjectId> {
     let mut seen = std::collections::HashSet::new();
-    let mut stack: Vec<ObjectId> = entries.iter().filter_map(|o| o.as_reference().ok()).collect();
+    let mut stack: Vec<ObjectId> = entries
+        .iter()
+        .filter_map(|o| o.as_reference().ok())
+        .collect();
     while let Some(id) = stack.pop() {
         if !seen.insert(id) {
             continue;
@@ -162,7 +165,9 @@ fn append_orphan_widget_fields(
             if reachable.contains(&id) || !added.insert(id) {
                 continue;
             }
-            let Ok(d) = doc.get_dictionary(id) else { continue };
+            let Ok(d) = doc.get_dictionary(id) else {
+                continue;
+            };
             if d.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) != Some(b"Widget") {
                 continue;
             }
@@ -314,7 +319,8 @@ fn describe_field(
     // widget on-states are indices into it; surface the /Opt label instead.
     let map_opt = |v: Option<String>| -> Option<String> {
         let v = v?;
-        if field_type == "radio" && !options.is_empty()
+        if field_type == "radio"
+            && !options.is_empty()
             && let Ok(i) = v.parse::<usize>()
             && let Some(label) = options.get(i)
         {
@@ -678,7 +684,10 @@ mod tests {
         assert!(names.contains(&"customer.name"), "names: {names:?}");
         assert!(names.contains(&"company.name"), "names: {names:?}");
         // Parents are only name segments — never emitted as standalone fields.
-        assert!(!names.contains(&"customer"), "bare parent leaked: {names:?}");
+        assert!(
+            !names.contains(&"customer"),
+            "bare parent leaked: {names:?}"
+        );
         assert!(!names.contains(&"company"), "bare parent leaked: {names:?}");
         // The leaf is a real, typed field (not an "unknown" parent).
         let leaf = f
@@ -725,7 +734,11 @@ mod tests {
         let mut uniq: Vec<&str> = names.clone();
         uniq.sort_unstable();
         uniq.dedup();
-        assert_eq!(uniq.len(), names.len(), "orphan pass must not duplicate: {names:?}");
+        assert_eq!(
+            uniq.len(),
+            names.len(),
+            "orphan pass must not duplicate: {names:?}"
+        );
     }
 
     #[test]
@@ -911,7 +924,10 @@ mod tests {
         // …and the orphan duplicate the AcroForm /Fields points at.
         let orphan_field_id = doc.add_object(Object::Dictionary(make_widget()));
         if let Ok(p) = doc.get_object_mut(page_id).and_then(|o| o.as_dict_mut()) {
-            p.set("Annots", Object::Array(vec![Object::Reference(page_widget_id)]));
+            p.set(
+                "Annots",
+                Object::Array(vec![Object::Reference(page_widget_id)]),
+            );
         }
         doc.set_object(
             pages_id,
@@ -937,7 +953,11 @@ mod tests {
         assert_eq!(f.as_array().unwrap().len(), 1);
         assert_eq!(f[0]["name"], "dup_field");
         let widgets = f[0]["widgets"].as_array().unwrap();
-        assert_eq!(widgets.len(), 1, "widget should be recovered from page /Annots");
+        assert_eq!(
+            widgets.len(),
+            1,
+            "widget should be recovered from page /Annots"
+        );
         assert_eq!(widgets[0]["page"], 0);
     }
 
@@ -1311,4 +1331,3 @@ mod tests {
         std::fs::write(&dest, &out).expect("failed to write fixture");
     }
 }
-

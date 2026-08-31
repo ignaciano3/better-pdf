@@ -1634,7 +1634,10 @@ mod embedded_field_appearance_tests {
         // Two-byte big-endian GID per char, shown as a hex string operator.
         assert!(s.contains("<0001012c>"), "expected GID hex, got: {s}");
         assert!(s.contains("Tj"), "expected a show operator, got: {s}");
-        assert!(s.contains("/BPF0 12.00 Tf"), "expected the font op, got: {s}");
+        assert!(
+            s.contains("/BPF0 12.00 Tf"),
+            "expected the font op, got: {s}"
+        );
     }
 
     #[test]
@@ -1644,6 +1647,9 @@ mod embedded_field_appearance_tests {
         let out =
             text_appearance_content_embedded("AxA", 12.0, 100.0, 20.0, 0, "0 g", "BPF0", &b, FONT);
         let s = String::from_utf8_lossy(&out);
-        assert!(s.contains("<00010001>"), "expected the x to be skipped, got: {s}");
+        assert!(
+            s.contains("<00010001>"),
+            "expected the x to be skipped, got: {s}"
+        );
     }
 }

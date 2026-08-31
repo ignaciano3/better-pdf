@@ -552,7 +552,9 @@ fn resolve_reset(
         "checkbox" | "radio" => "Off".to_string(),
         _ => String::new(),
     });
-    let apply = value_apply(doc, field_id, dict, kind, ff, &op.name, &value, false, None, None)?;
+    let apply = value_apply(
+        doc, field_id, dict, kind, ff, &op.name, &value, false, None, None,
+    )?;
     Ok(Resolved { field_id, apply })
 }
 
@@ -695,7 +697,10 @@ fn value_apply(
             let is_radio = kind == "radio" && ff & (1 << 15) != 0;
             let (effective, widgets) = match button_widgets(doc, field_id, dict, value) {
                 Ok(w) => (value.to_string(), w),
-                Err(e) => match is_radio.then(|| opt_index_state(doc, dict, value)).flatten() {
+                Err(e) => match is_radio
+                    .then(|| opt_index_state(doc, dict, value))
+                    .flatten()
+                {
                     Some(idx) => {
                         let widgets = button_widgets(doc, field_id, dict, &idx)?;
                         (idx, widgets)
@@ -798,7 +803,10 @@ fn ap_inputs(
         None => match da_font_base(&da.font) {
             Some(base) => FontRef::Synth(base),
             None => {
-                return Err(format!("DA font '{}' not found in /DR for {}", da.font, name));
+                return Err(format!(
+                    "DA font '{}' not found in /DR for {}",
+                    da.font, name
+                ));
             }
         },
     };
@@ -1032,7 +1040,9 @@ fn has_opt(doc: &Document, dict: &Dictionary) -> bool {
 
 /// Index of `value` within /Opt (matching export value), if present.
 fn dropdown_index(doc: &Document, dict: &Dictionary, value: &str) -> Option<i64> {
-    let arr = forms::resolve(doc, dict.get(b"Opt").ok()?).as_array().ok()?;
+    let arr = forms::resolve(doc, dict.get(b"Opt").ok()?)
+        .as_array()
+        .ok()?;
     arr.iter()
         .position(|o| forms::opt_export(doc, o) == value)
         .map(|i| i as i64)
@@ -1041,7 +1051,9 @@ fn dropdown_index(doc: &Document, dict: &Dictionary, value: &str) -> Option<i64>
 /// When a radio group carries /Opt, its on-states are indices; translate an
 /// /Opt label to its index state ("Marcus Aurelius 🏛️" -> "0").
 fn opt_index_state(doc: &Document, dict: &Dictionary, label: &str) -> Option<String> {
-    let arr = forms::resolve(doc, dict.get(b"Opt").ok()?).as_array().ok()?;
+    let arr = forms::resolve(doc, dict.get(b"Opt").ok()?)
+        .as_array()
+        .ok()?;
     arr.iter()
         .position(|o| forms::opt_export(doc, o) == label)
         .map(|i| i.to_string())
@@ -1121,7 +1133,9 @@ pub(crate) fn find_fields<'a>(
         };
         for a in annots {
             let Ok(id) = a.as_reference() else { continue };
-            let Ok(d) = doc.get_dictionary(id) else { continue };
+            let Ok(d) = doc.get_dictionary(id) else {
+                continue;
+            };
             if d.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) != Some(b"Widget")
                 || !d.has(b"T")
             {
@@ -1438,7 +1452,15 @@ fn draw_embedded_appearances(
                 }
             };
             appearance::text_appearance_content_embedded(
-                value, size, w, h, ap.q, &ap.da.color, &alias, built, bytes,
+                value,
+                size,
+                w,
+                h,
+                ap.q,
+                &ap.da.color,
+                &alias,
+                built,
+                bytes,
             )
         };
         let xobj = appearance::build_appearance_xobject(content, w, h, &alias, type0_id);
@@ -1473,7 +1495,11 @@ fn write_embedded_da(
 /// and/or `/DR/Font` if the loaded doc lacks them. Mirrors the cloning
 /// pattern `clear_need_appearances` uses to reach whichever object holds the
 /// AcroForm (the Catalog inline, or the AcroForm's own indirect object).
-fn wire_dr_font(inc: &mut IncrementalDocument, alias: &str, type0_id: ObjectId) -> Result<(), String> {
+fn wire_dr_font(
+    inc: &mut IncrementalDocument,
+    alias: &str,
+    type0_id: ObjectId,
+) -> Result<(), String> {
     let prev = inc.get_prev_documents();
     let root = prev
         .trailer
@@ -1839,20 +1865,23 @@ mod tests {
         let with_dv = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{name}","defaultValue":"DEF"}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         let filled = fill_fields_json(
             &with_dv,
             &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_value(&filled, name).as_deref(), Some("OTHER"));
         let reset = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{name}","reset":true}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_value(&reset, name).as_deref(), Some("DEF"));
@@ -1864,10 +1893,7 @@ mod tests {
         let name = "beneficiario.apellidos_nombres";
         // Point the field's /DV at an indirect string object (as some writers do).
         let mut doc = Document::load_mem(FICHA).unwrap();
-        let dv_id = doc.add_object(Object::String(
-            b"DEF".to_vec(),
-            StringFormat::Literal,
-        ));
+        let dv_id = doc.add_object(Object::String(b"DEF".to_vec(), StringFormat::Literal));
         let (field_id, _) = find_field(&doc, name).unwrap();
         doc.get_dictionary_mut(field_id)
             .unwrap()
@@ -1878,14 +1904,16 @@ mod tests {
         let filled = fill_fields_json(
             &with_dv,
             &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_value(&filled, name).as_deref(), Some("OTHER"));
         let reset = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{name}","reset":true}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_value(&reset, name).as_deref(), Some("DEF"));
@@ -1898,13 +1926,15 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{name}","value":"OTHER"}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         let reset = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{name}","reset":true}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         let v = reparse_value(&reset, name);
@@ -1920,13 +1950,15 @@ mod tests {
         let with_dv = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{name}","defaultValue":"Titular"}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         let reset = fill_fields_json(
             &with_dv,
             &format!(r#"[{{"name":"{name}","reset":true}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_value(&reset, name).as_deref(), Some("Titular"));
@@ -2359,7 +2391,8 @@ mod tests {
         let on = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"readOnly":true}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_flag(&on, TEXT_FIELD, "readOnly"), Some(true));
@@ -2369,7 +2402,8 @@ mod tests {
         let off = fill_fields_json(
             &on,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"readOnly":false}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_flag(&off, TEXT_FIELD, "readOnly"), Some(false));
@@ -2380,7 +2414,8 @@ mod tests {
         let out = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"required":true,"noExport":true}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_flag(&out, TEXT_FIELD, "required"), Some(true));
@@ -2393,13 +2428,15 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"GARCIA"}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         let out = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"readOnly":true}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_value(&out, TEXT_FIELD).as_deref(), Some("GARCIA"));
@@ -2411,7 +2448,8 @@ mod tests {
         let hidden = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"hidden":true}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(
@@ -2422,7 +2460,8 @@ mod tests {
         let shown = fill_fields_json(
             &hidden,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"hidden":false}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(
@@ -2436,7 +2475,8 @@ mod tests {
         let out = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"print":true,"noView":true}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_widget_flag(&out, TEXT_FIELD, "print"), Some(true));
@@ -2452,13 +2492,15 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"GARCIA"}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         let on = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"multiline":true}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_flag(&on, TEXT_FIELD, "multiline"), Some(true));
@@ -2475,7 +2517,8 @@ mod tests {
         let off = fill_fields_json(
             &on,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"multiline":false}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_flag(&off, TEXT_FIELD, "multiline"), Some(false));
@@ -2494,7 +2537,8 @@ mod tests {
             &format!(
                 r#"[{{"name":"{TEXT_FIELD}","value":"AB","flags":{{"comb":true,"combMaxLen":5}}}}]"#
             ),
-            &[], false
+            &[],
+            false,
         );
         // A flags op cannot carry a value, so set value first, then toggle comb.
         assert!(on.is_err(), "value+flags must be rejected");
@@ -2502,13 +2546,15 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"AB"}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         let on = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"comb":true,"combMaxLen":5}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_flag(&on, TEXT_FIELD, "comb"), Some(true));
@@ -2530,7 +2576,8 @@ mod tests {
         let err = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"comb":true}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap_err();
         assert!(err.contains("comb requires a maxLen"), "got: {err}");
@@ -2541,13 +2588,15 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"SECRET"}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         let on = fill_fields_json(
             &filled,
             &format!(r#"[{{"name":"{TEXT_FIELD}","flags":{{"password":true}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
         assert_eq!(reparse_flag(&on, TEXT_FIELD, "password"), Some(true));
@@ -2569,7 +2618,8 @@ mod tests {
         let err = fill_fields_json(
             FICHA,
             r#"[{"name":"beneficiario.estado_civil","flags":{"multiline":true}}]"#,
-            &[], false
+            &[],
+            false,
         )
         .unwrap_err();
         assert!(err.contains("apply only to text fields"), "got: {err}");
@@ -2580,7 +2630,8 @@ mod tests {
         let err = fill_fields_json(
             FICHA,
             &format!(r#"[{{"name":"{TEXT_FIELD}","value":"X","flags":{{"readOnly":true}}}}]"#),
-            &[], false
+            &[],
+            false,
         )
         .unwrap_err();
         assert!(err.contains("cannot be combined"), "got: {err}");
@@ -2588,8 +2639,7 @@ mod tests {
 
     // -- Part C: embedded-font fill (fontId) ---------------------------------
 
-    const NOTO: &[u8] =
-        include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
+    const NOTO: &[u8] = include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
 
     /// Base doc: one page + the given field(s), no embedded font at creation
     /// time (that's what the fill op adds).
@@ -2622,7 +2672,10 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         // /V round-trips via the public reader (UTF-16BE under the hood).
         let v = crate::forms::read_fields_json(&out).unwrap();
-        assert!(v.contains(r#""value":"Añb""#), "round-trip via read_fields: {v}");
+        assert!(
+            v.contains(r#""value":"Añb""#),
+            "round-trip via read_fields: {v}"
+        );
         // DA references BPF0 and /DR has it as Type0.
         let field = doc
             .objects
@@ -2633,7 +2686,11 @@ mod tests {
             })
             .unwrap();
         let da = field.get(b"DA").unwrap().as_str().unwrap();
-        assert!(da.starts_with(b"/BPF0 "), "DA: {}", String::from_utf8_lossy(da));
+        assert!(
+            da.starts_with(b"/BPF0 "),
+            "DA: {}",
+            String::from_utf8_lossy(da)
+        );
     }
 
     #[test]
@@ -2651,10 +2708,7 @@ mod tests {
         // stable, so scanning all Form XObjects could hit an unrelated one).
         let ap = ap_content(&doc, "m").expect("AP/N present");
         let tj_count = ap.as_bytes().windows(2).filter(|w| w == b"Tj").count();
-        assert!(
-            tj_count >= 2,
-            "expected wrapped lines, got content: {ap}"
-        );
+        assert!(tj_count >= 2, "expected wrapped lines, got content: {ap}");
     }
 
     #[test]
@@ -2663,7 +2717,8 @@ mod tests {
             r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
         );
         let plan = fill_plan(r#"{"name":"n","value":"日本語","fontId":0}"#, NOTO.len()); // Latin subset font
-        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
+        let err =
+            crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
         assert!(
             crate::err_has_code(&err, crate::error_code::MISSING_GLYPHS),
             "got: {err}"
@@ -2677,8 +2732,12 @@ mod tests {
             r#"[{"type":"text","name":"c","page":0,"x":10,"y":10,"width":200,"height":20,"comb":true,"maxLength":4}]"#,
         );
         let plan = fill_plan(r#"{"name":"c","value":"ab","fontId":0}"#, NOTO.len());
-        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
-        assert!(err.contains("plain and multiline text fields only"), "got: {err}");
+        let err =
+            crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
+        assert!(
+            err.contains("plain and multiline text fields only"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -2690,7 +2749,8 @@ mod tests {
             r#"{"name":"n","defaultValue":"日本語","fontId":0}"#,
             NOTO.len(),
         ); // Latin subset font
-        let err = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
+        let err =
+            crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap_err();
         assert!(
             crate::err_has_code(&err, crate::error_code::MISSING_GLYPHS),
             "got: {err}"
@@ -2703,7 +2763,10 @@ mod tests {
         let base = base_with_field(
             r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
         );
-        let plan = fill_plan(r#"{"name":"n","defaultValue":"Añb","fontId":0}"#, NOTO.len());
+        let plan = fill_plan(
+            r#"{"name":"n","defaultValue":"Añb","fontId":0}"#,
+            NOTO.len(),
+        );
         let out = crate::apply::apply_all_json(&base, &plan, &[], &[], NOTO, &[], false).unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let field = doc
@@ -2715,7 +2778,11 @@ mod tests {
             })
             .unwrap();
         let da = field.get(b"DA").unwrap().as_str().unwrap();
-        assert!(da.starts_with(b"/BPF0 "), "DA: {}", String::from_utf8_lossy(da));
+        assert!(
+            da.starts_with(b"/BPF0 "),
+            "DA: {}",
+            String::from_utf8_lossy(da)
+        );
         let v = crate::forms::read_fields_json(&out).unwrap();
         assert!(
             v.contains(r#""defaultValue":"Añb""#),
@@ -2728,7 +2795,10 @@ mod tests {
             .and_then(|dr| dr.get(b"Font"))
             .and_then(|o| o.as_dict())
             .unwrap();
-        assert!(dr_fonts.has(b"BPF0"), "DR/Font must have BPF0: {dr_fonts:?}");
+        assert!(
+            dr_fonts.has(b"BPF0"),
+            "DR/Font must have BPF0: {dr_fonts:?}"
+        );
     }
 
     #[test]
@@ -2749,7 +2819,10 @@ mod tests {
             .and_then(|dr| dr.get(b"Font"))
             .and_then(|o| o.as_dict())
             .unwrap();
-        let bpf0_count = dr_fonts.iter().filter(|(k, _)| k.as_slice() == b"BPF0").count();
+        let bpf0_count = dr_fonts
+            .iter()
+            .filter(|(k, _)| k.as_slice() == b"BPF0")
+            .count();
         assert_eq!(bpf0_count, 1, "expected a single BPF0 entry: {dr_fonts:?}");
         let v = crate::forms::read_fields_json(&out).unwrap();
         assert!(v.contains(r#""value":"Añb""#), "value round-trip: {v}");
@@ -2926,8 +2999,13 @@ mod tests {
         // is fillable via find_field's page-annots fallback and round-trips.
         const ISS: &[u8] =
             include_bytes!("../../../tests/fixtures/pypdf/issues/iss2453-ExampleForm.pdf");
-        let out = fill_fields_json(ISS, r#"[{"name":"Contact Name","value":"Ada"}]"#, &[], false)
-            .unwrap();
+        let out = fill_fields_json(
+            ISS,
+            r#"[{"name":"Contact Name","value":"Ada"}]"#,
+            &[],
+            false,
+        )
+        .unwrap();
         assert_eq!(reparse_value(&out, "Contact Name").as_deref(), Some("Ada"));
     }
 
@@ -2989,7 +3067,8 @@ mod tests {
         );
         let base = strip_dr(&base);
         // Fill succeeds instead of erroring "DA font 'Helv' not found in /DR".
-        let out = fill_fields_json(&base, r#"[{"name":"n","value":"Brooks"}]"#, &[], false).unwrap();
+        let out =
+            fill_fields_json(&base, r#"[{"name":"n","value":"Brooks"}]"#, &[], false).unwrap();
         // Append-only save preserved.
         assert_eq!(&out[..base.len()], &base[..]);
         assert_eq!(reparse_value(&out, "n").as_deref(), Some("Brooks"));
@@ -2997,7 +3076,10 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         // The appearance draws the value...
         let content = ap_content(&doc, "n").expect("AP/N present");
-        assert!(content.contains("(Brooks) Tj"), "value not drawn: {content}");
+        assert!(
+            content.contains("(Brooks) Tj"),
+            "value not drawn: {content}"
+        );
         // ...and its /Resources/Font carries a synthesized Type1 Helvetica.
         let fd = ap_resource_font(&doc, "n").expect("AP font resource present");
         assert_eq!(

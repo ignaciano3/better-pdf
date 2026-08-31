@@ -446,7 +446,10 @@ mod tests {
         // still reject via was_encrypted(), or a later incremental save would
         // append plaintext onto the encrypted base and silently corrupt output.
         let err = load_pdf(FICHA_RC4).expect_err("auto-decrypted encrypted PDF must be rejected");
-        assert!(crate::err_has_code(&err, crate::error_code::ENCRYPTED), "got: {err}");
+        assert!(
+            crate::err_has_code(&err, crate::error_code::ENCRYPTED),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -552,8 +555,14 @@ mod tests {
     #[test]
     fn password_type_classifies_user_vs_owner() {
         // Genuinely distinct non-empty passwords (user=foo, owner=bar).
-        assert_eq!(password_type(&enc("r6-both-passwords.pdf"), "bar"), Some("owner"));
-        assert_eq!(password_type(&enc("r6-both-passwords.pdf"), "foo"), Some("user"));
+        assert_eq!(
+            password_type(&enc("r6-both-passwords.pdf"), "bar"),
+            Some("owner")
+        );
+        assert_eq!(
+            password_type(&enc("r6-both-passwords.pdf"), "foo"),
+            Some("user")
+        );
         // Wrong password authenticates neither role.
         assert_eq!(password_type(&enc("r6-both-passwords.pdf"), "nope"), None);
     }
@@ -561,12 +570,24 @@ mod tests {
     #[test]
     fn password_type_reports_owner_for_owner_password_and_user_for_user() {
         // owner="asdfzxcv", empty user: the owner password → owner, "" → user.
-        assert_eq!(password_type(&enc("r6-owner-password.pdf"), "asdfzxcv"), Some("owner"));
-        assert_eq!(password_type(&enc("r6-owner-password.pdf"), ""), Some("user"));
+        assert_eq!(
+            password_type(&enc("r6-owner-password.pdf"), "asdfzxcv"),
+            Some("owner")
+        );
+        assert_eq!(
+            password_type(&enc("r6-owner-password.pdf"), ""),
+            Some("user")
+        );
         // user="asdfzxcv", empty owner: the user password → user, "" → owner
         // (an empty owner password grants owner access to any opener).
-        assert_eq!(password_type(&enc("r6-user-password.pdf"), "asdfzxcv"), Some("user"));
-        assert_eq!(password_type(&enc("r6-user-password.pdf"), ""), Some("owner"));
+        assert_eq!(
+            password_type(&enc("r6-user-password.pdf"), "asdfzxcv"),
+            Some("user")
+        );
+        assert_eq!(
+            password_type(&enc("r6-user-password.pdf"), ""),
+            Some("owner")
+        );
     }
 
     #[test]
@@ -585,13 +606,19 @@ mod tests {
     #[test]
     fn wrong_password_yields_password_code() {
         let err = decrypt_pdf(FICHA_RC4_PW, "wrong").unwrap_err();
-        assert!(crate::err_has_code(&err, crate::error_code::PASSWORD), "got: {err}");
+        assert!(
+            crate::err_has_code(&err, crate::error_code::PASSWORD),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn empty_password_on_password_protected_yields_password_code() {
         let err = decrypt_pdf(FICHA_RC4_PW, "").unwrap_err();
-        assert!(crate::err_has_code(&err, crate::error_code::PASSWORD), "got: {err}");
+        assert!(
+            crate::err_has_code(&err, crate::error_code::PASSWORD),
+            "got: {err}"
+        );
     }
 
     // Wrong-password tests must use *password-protected* (non-empty user
@@ -602,13 +629,19 @@ mod tests {
     #[test]
     fn wrong_password_on_aes128_yields_password_code() {
         let err = decrypt_pdf(FICHA_AES128_PW, "wrong").unwrap_err();
-        assert!(crate::err_has_code(&err, crate::error_code::PASSWORD), "got: {err}");
+        assert!(
+            crate::err_has_code(&err, crate::error_code::PASSWORD),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn wrong_password_on_aes256_yields_password_code() {
         let err = decrypt_pdf(FICHA_AES256_PW, "wrong").unwrap_err();
-        assert!(crate::err_has_code(&err, crate::error_code::PASSWORD), "got: {err}");
+        assert!(
+            crate::err_has_code(&err, crate::error_code::PASSWORD),
+            "got: {err}"
+        );
     }
 
     // Sanity: the correct password decrypts the password-protected AES fixtures.

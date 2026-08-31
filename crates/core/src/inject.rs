@@ -51,7 +51,9 @@ pub fn inject_fields_json(
     for f in &fields {
         let name = field_name(f);
         if existing_names.contains(name) {
-            return Err(format!("field name '{name}' already exists in this document"));
+            return Err(format!(
+                "field name '{name}' already exists in this document"
+            ));
         }
     }
 
@@ -88,7 +90,14 @@ pub fn inject_fields_json(
     // Build each field and wire widgets onto pages.
     let mut acro_field_ids: Vec<ObjectId> = Vec::new();
     for f in &fields {
-        let font = field_font(f, &std_aliases, &emb_aliases, &embedded_fonts, &font_descs, fonts);
+        let font = field_font(
+            f,
+            &std_aliases,
+            &emb_aliases,
+            &embedded_fonts,
+            &font_descs,
+            fonts,
+        );
         let built: BuiltField = build_one_field(&mut inc.new_document, f, &page_ids, font)?;
         acro_field_ids.push(built.top_field_id);
         for (page_idx, widget_id) in built.widgets {
@@ -636,8 +645,7 @@ mod tests {
     fn merges_into_existing_acroform_preserving_fields() {
         let before = top_field_names(FICHA);
         assert!(!before.is_empty(), "fixture must already have fields");
-        let fields =
-            r#"[{"type":"text","name":"bpf_new_field","page":0,"x":10,"y":10,"width":80,"height":18}]"#;
+        let fields = r#"[{"type":"text","name":"bpf_new_field","page":0,"x":10,"y":10,"width":80,"height":18}]"#;
         let out = inject_fields_json(FICHA, fields, &[], "[]", false).unwrap();
         let after = top_field_names(&out);
         // Every pre-existing field survives, and our new one is present.
@@ -687,7 +695,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false, false
+            "[]",
+            false,
+            false,
         )
         .unwrap()
     }
@@ -699,8 +709,7 @@ mod tests {
         let base_doc = Document::load_mem(&base).unwrap();
         assert!(!base_doc.catalog().unwrap().has(b"AcroForm"));
 
-        let fields =
-            r#"[{"type":"text","name":"total","page":0,"x":10,"y":10,"width":100,"height":20,"value":"hi"}]"#;
+        let fields = r#"[{"type":"text","name":"total","page":0,"x":10,"y":10,"width":100,"height":20,"value":"hi"}]"#;
         let out = inject_fields_json(&base, fields, &[], "[]", false).unwrap();
 
         let doc = Document::load_mem(&out).unwrap();
@@ -727,7 +736,10 @@ mod tests {
         let base = blank_page_pdf();
         let fields = r#"[{"type":"text","name":"t","page":5,"x":1,"y":1,"width":10,"height":10}]"#;
         let err = inject_fields_json(&base, fields, &[], "[]", false).unwrap_err();
-        assert!(err.contains("page"), "expected page-range error, got: {err}");
+        assert!(
+            err.contains("page"),
+            "expected page-range error, got: {err}"
+        );
     }
 
     #[test]

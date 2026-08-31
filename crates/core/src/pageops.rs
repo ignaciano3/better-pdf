@@ -323,7 +323,11 @@ fn assemble_from_prepared(
         per_doc_pages.push(std::mem::take(&mut s.pages));
         moved_forms.push(std::mem::replace(
             &mut s.form,
-            SourceForm { dr: None, da: None, top_fields: Vec::new() },
+            SourceForm {
+                dr: None,
+                da: None,
+                top_fields: Vec::new(),
+            },
         ));
     }
 
@@ -537,7 +541,8 @@ mod tests {
     #[test]
     fn extract_single_page() {
         let (blob, docs) = pack(&[FICHA]);
-        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0}]"#, false, false).unwrap();
+        let out =
+            manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0}]"#, false, false).unwrap();
         assert_eq!(page_count(&out), 1);
         // MediaBox present on the extracted page (inherited attrs resolved)
         let doc = Document::load_mem(&out).unwrap();
@@ -553,9 +558,14 @@ mod tests {
         let n = page_count(FICHA);
         if n >= 2 {
             let (blob, docs) = pack(&[FICHA]);
-            let out =
-                manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":1},{"doc":0,"page":0}]"#, false, false)
-                    .unwrap();
+            let out = manipulate_pages_json(
+                &blob,
+                &docs,
+                r#"[{"doc":0,"page":1},{"doc":0,"page":0}]"#,
+                false,
+                false,
+            )
+            .unwrap();
             assert_eq!(page_count(&out), 2);
         }
     }
@@ -758,9 +768,11 @@ mod tests {
         let outs = unpack_docs(&split_pages_packed(FICHA, true, false).unwrap());
         let (blob, docs) = pack(&[FICHA]);
         for (p, out) in outs.iter().enumerate() {
-            let plan = format!(r#"[
+            let plan = format!(
+                r#"[
                 {{"doc":0,"page":{p}}}
-            ]"#);
+            ]"#
+            );
             let expected = manipulate_pages_json(&blob, &docs, &plan, true, false).unwrap();
             assert_eq!(out, &expected, "split output {p} must be byte-identical");
         }
@@ -779,8 +791,14 @@ mod tests {
     #[test]
     fn duplicate_page_selection_produces_two_distinct_pages() {
         let (blob, docs) = pack(&[FICHA]);
-        let out = manipulate_pages_json(&blob, &docs, r#"[{"doc":0,"page":0},{"doc":0,"page":0}]"#, false, false)
-            .unwrap();
+        let out = manipulate_pages_json(
+            &blob,
+            &docs,
+            r#"[{"doc":0,"page":0},{"doc":0,"page":0}]"#,
+            false,
+            false,
+        )
+        .unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let ids: Vec<_> = doc.get_pages().into_values().collect();
         assert_eq!(ids.len(), 2);
@@ -807,10 +825,8 @@ mod tests {
         // Select page 0 of each doc (both fixtures have at least one page).
         let plan_json = r#"[{"doc":0,"page":0},{"doc":1,"page":0}]"#;
 
-        let packed =
-            manipulate_pages_json(&blob, &docs_json, plan_json, true, true).unwrap();
-        let plain =
-            manipulate_pages_json(&blob, &docs_json, plan_json, true, false).unwrap();
+        let packed = manipulate_pages_json(&blob, &docs_json, plan_json, true, true).unwrap();
+        let plain = manipulate_pages_json(&blob, &docs_json, plan_json, true, false).unwrap();
 
         assert!(
             packed.len() < plain.len(),

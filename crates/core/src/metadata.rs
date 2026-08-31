@@ -153,8 +153,12 @@ mod tests {
 
     #[test]
     fn set_then_read_round_trips() {
-        let out =
-            set_metadata_json(FICHA, r#"{"title":"Quarterly Report","author":"ACME"}"#, false).unwrap();
+        let out = set_metadata_json(
+            FICHA,
+            r#"{"title":"Quarterly Report","author":"ACME"}"#,
+            false,
+        )
+        .unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental: original preserved
         let json = read_metadata_json(&out).unwrap();
         assert!(json.contains("Quarterly Report"), "json was {json}");
@@ -163,8 +167,12 @@ mod tests {
 
     #[test]
     fn non_ascii_metadata_round_trips() {
-        let out =
-            set_metadata_json(FICHA, r#"{"title":"日本語のタイトル","author":"Renée"}"#, false).unwrap();
+        let out = set_metadata_json(
+            FICHA,
+            r#"{"title":"日本語のタイトル","author":"Renée"}"#,
+            false,
+        )
+        .unwrap();
         let json = read_metadata_json(&out).unwrap();
         assert!(json.contains("日本語のタイトル"), "json: {json}");
         assert!(json.contains("Renée"), "json: {json}");
@@ -178,7 +186,8 @@ mod tests {
 
     #[test]
     fn reads_exotic_metadata_strings() {
-        const JUST_METADATA: &[u8] = include_bytes!("../../../tests/fixtures/pdf-lib/just_metadata.pdf");
+        const JUST_METADATA: &[u8] =
+            include_bytes!("../../../tests/fixtures/pdf-lib/just_metadata.pdf");
         let json = read_metadata_json(JUST_METADATA).unwrap();
         assert!(
             json.contains("some weird chars ˘•€"),

@@ -77,7 +77,10 @@ mod tests {
             Object::Stream(s) => s,
             _ => panic!("expected stream"),
         };
-        assert_eq!(stream.content, original, "filtered stream must be untouched");
+        assert_eq!(
+            stream.content, original,
+            "filtered stream must be untouched"
+        );
     }
 
     #[test]
@@ -91,7 +94,10 @@ mod tests {
             Object::Stream(s) => s,
             _ => panic!("expected stream"),
         };
-        assert!(stream.dict.get(b"Filter").is_err(), "must stay uncompressed");
+        assert!(
+            stream.dict.get(b"Filter").is_err(),
+            "must stay uncompressed"
+        );
     }
 
     #[test]
@@ -122,7 +128,10 @@ mod tests {
         let pages_id = doc.add_object(dictionary! { "Type" => "Pages" });
         let mut kids = Vec::new();
         for _ in 0..n {
-            let content = doc.add_object(Object::Stream(Stream::new(dictionary! {}, b"BT ET".to_vec())));
+            let content = doc.add_object(Object::Stream(Stream::new(
+                dictionary! {},
+                b"BT ET".to_vec(),
+            )));
             let page = doc.add_object(dictionary! {
                 "Type" => "Page",
                 "Parent" => Object::Reference(pages_id),
@@ -139,7 +148,9 @@ mod tests {
             p.set("Kids", Object::Array(kids));
             p.set("Count", Object::Integer(count));
         }
-        let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => Object::Reference(pages_id) });
+        let catalog = doc.add_object(
+            dictionary! { "Type" => "Catalog", "Pages" => Object::Reference(pages_id) },
+        );
         doc.trailer.set("Root", Object::Reference(catalog));
         doc
     }

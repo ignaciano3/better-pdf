@@ -247,9 +247,10 @@ fn stamp_widget(
     let tx = s.rect[0] - bbox[0] * sx;
     let ty = s.rect[1] - bbox[1] * sy;
     let draw = format!("q {sx:.4} 0 0 {sy:.4} {tx:.2} {ty:.2} cm /{name} Do Q");
-    let draw_id = inc.new_document.add_object(Object::Stream(
-        Stream::new(Dictionary::new(), draw.into_bytes()),
-    ));
+    let draw_id = inc.new_document.add_object(Object::Stream(Stream::new(
+        Dictionary::new(),
+        draw.into_bytes(),
+    )));
 
     inc.opt_clone_object_to_new_document(s.page_id)
         .map_err(|e| e.to_string())?;
@@ -316,7 +317,10 @@ fn remove_fields(inc: &mut IncrementalDocument, field_ids: &[ObjectId]) -> Resul
         .map_err(|e| e.to_string())?;
     let cat = prev.get_dictionary(root).map_err(|e| e.to_string())?;
     // Snapshot the top-level entries before mutating (the closure borrows `inc`).
-    let acro_ref = cat.get(b"AcroForm").ok().and_then(|o| o.as_reference().ok());
+    let acro_ref = cat
+        .get(b"AcroForm")
+        .ok()
+        .and_then(|o| o.as_reference().ok());
     let entries: Vec<Object> = match cat.get(b"AcroForm") {
         Ok(o) => forms::as_dict(prev, o)
             .ok()
@@ -495,10 +499,12 @@ mod tests {
         let filled = fill_fields_json(
             FICHA,
             r#"[{"name":"beneficiario.apellidos_nombres","value":"FLAT"}]"#,
-            &[], false
+            &[],
+            false,
         )
         .unwrap();
-        let out = flatten_fields_json(&filled, r#"["beneficiario.apellidos_nombres"]"#, false).unwrap();
+        let out =
+            flatten_fields_json(&filled, r#"["beneficiario.apellidos_nombres"]"#, false).unwrap();
 
         // Append-only over the filled bytes.
         assert!(out.len() > filled.len());
@@ -549,8 +555,8 @@ mod tests {
     #[test]
     fn rejects_xfa_forms_on_flatten() {
         const FICHA_XFA: &[u8] = include_bytes!("../../../tests/fixtures/generated/ficha-xfa.pdf");
-        let err =
-            flatten_fields_json(FICHA_XFA, r#"["beneficiario.apellidos_nombres"]"#, false).unwrap_err();
+        let err = flatten_fields_json(FICHA_XFA, r#"["beneficiario.apellidos_nombres"]"#, false)
+            .unwrap_err();
         assert!(err.contains("XFA"), "got: {err}");
     }
 }

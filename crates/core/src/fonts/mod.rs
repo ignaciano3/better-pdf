@@ -220,7 +220,10 @@ pub fn gids_per_line(
             "missing glyphs in font for {context}: {}{tail}",
             shown.join(", ")
         );
-        return Err(crate::coded_error(crate::error_code::MISSING_GLYPHS, detail));
+        return Err(crate::coded_error(
+            crate::error_code::MISSING_GLYPHS,
+            detail,
+        ));
     }
     Ok(lines)
 }
@@ -285,8 +288,13 @@ mod tests {
         let mut gid_for = std::collections::HashMap::new();
         gid_for.insert('A', 1u16);
         let built = BuiltFont { gid_for };
-        let err = gids_per_line(&built, "A㐀", MissingGlyphPolicy::Error, "drawText on page 0")
-            .unwrap_err();
+        let err = gids_per_line(
+            &built,
+            "A㐀",
+            MissingGlyphPolicy::Error,
+            "drawText on page 0",
+        )
+        .unwrap_err();
         assert!(
             crate::err_has_code(&err, crate::error_code::MISSING_GLYPHS),
             "got: {err}"

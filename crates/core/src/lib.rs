@@ -68,11 +68,7 @@ pub fn fill_fields(
 
 /// Flatten the named fields (JSON array of names) and return new PDF bytes.
 #[wasm_bindgen]
-pub fn flatten_fields(
-    data: &[u8],
-    names_json: &str,
-    compress: bool,
-) -> Result<Vec<u8>, JsError> {
+pub fn flatten_fields(data: &[u8], names_json: &str, compress: bool) -> Result<Vec<u8>, JsError> {
     flatten::flatten_fields_json(data, names_json, compress).map_err(|e| JsError::new(&e))
 }
 
@@ -169,7 +165,13 @@ pub fn create_document(
     object_streams: bool,
 ) -> Result<Vec<u8>, JsError> {
     create::create_document_json(
-        ops_json, images, fonts, fonts_json, fields_json, compress, object_streams,
+        ops_json,
+        images,
+        fonts,
+        fonts_json,
+        fields_json,
+        compress,
+        object_streams,
     )
     .map_err(|e| JsError::new(&e))
 }

@@ -104,7 +104,13 @@ pub(crate) struct AttachPlan {
 /// ASCII-safe fallback for /F: printable ASCII kept, everything else `_`.
 fn ascii_fallback(name: &str) -> Vec<u8> {
     name.chars()
-        .map(|c| if c.is_ascii() && !c.is_ascii_control() { c as u8 } else { b'_' })
+        .map(|c| {
+            if c.is_ascii() && !c.is_ascii_control() {
+                c as u8
+            } else {
+                b'_'
+            }
+        })
         .collect()
 }
 
@@ -181,11 +187,7 @@ pub(crate) fn attach_resolve(
 
 /// Build the /EmbeddedFile stream + /Filespec dict for one op; returns the
 /// filespec's object id.
-fn build_filespec(
-    new_doc: &mut Document,
-    op: &AttachOp,
-    blob: &[u8],
-) -> Result<ObjectId, String> {
+fn build_filespec(new_doc: &mut Document, op: &AttachOp, blob: &[u8]) -> Result<ObjectId, String> {
     let bytes = &blob[op.offset..op.offset + op.length];
 
     let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
@@ -224,7 +226,9 @@ fn build_filespec(
     let mut stream = Stream::new(sdict, compressed);
     // The content is already compressed; prevent lopdf/compress passes from
     // touching it.
-    stream.dict.set("Length", Object::Integer(stream.content.len() as i64));
+    stream
+        .dict
+        .set("Length", Object::Integer(stream.content.len() as i64));
     let stream_id = new_doc.add_object(Object::Stream(stream));
 
     let mut ef = Dictionary::new();
@@ -423,12 +427,20 @@ pub fn read_attachments_packed(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut metas = Vec::new();
     let mut blob = Vec::new();
     for (tree_name, spec_obj) in &entries {
-        let Ok(spec) = resolve_dict(&doc, spec_obj) else { continue };
+        let Ok(spec) = resolve_dict(&doc, spec_obj) else {
+            continue;
+        };
         // /EF /F preferred, /UF fallback.
-        let Ok(ef) = spec.get(b"EF").and_then(|o| o.as_dict()) else { continue };
+        let Ok(ef) = spec.get(b"EF").and_then(|o| o.as_dict()) else {
+            continue;
+        };
         let stream_ref = ef.get(b"F").or_else(|_| ef.get(b"UF"));
-        let Ok(stream_id) = stream_ref.and_then(|o| o.as_reference()) else { continue };
-        let Ok(stream) = doc.get_object(stream_id).and_then(|o| o.as_stream()) else { continue };
+        let Ok(stream_id) = stream_ref.and_then(|o| o.as_reference()) else {
+            continue;
+        };
+        let Ok(stream) = doc.get_object(stream_id).and_then(|o| o.as_stream()) else {
+            continue;
+        };
         let bytes = stream
             .decompressed_content()
             .unwrap_or_else(|_| stream.content.clone());
@@ -479,7 +491,12 @@ mod tests {
     fn blank_doc() -> Vec<u8> {
         crate::create::create_document_json(
             r#"[{"op":"addPage","width":300,"height":300}]"#,
-            &[], &[], "[]", "[]", false, false,
+            &[],
+            &[],
+            "[]",
+            "[]",
+            false,
+            false,
         )
         .unwrap()
     }
@@ -568,7 +585,10 @@ mod tests {
             payload.len() as i64
         );
         let expected_md5: [u8; 16] = Md5::digest(&payload).into();
-        assert_eq!(params.get(b"CheckSum").unwrap().as_str().unwrap(), &expected_md5);
+        assert_eq!(
+            params.get(b"CheckSum").unwrap().as_str().unwrap(),
+            &expected_md5
+        );
         // No dates were passed → none written
         assert!(params.get(b"CreationDate").is_err());
         assert!(params.get(b"ModDate").is_err());
@@ -599,8 +619,15 @@ mod tests {
         let ef = spec.get(b"EF").unwrap().as_dict().unwrap();
         let sid = ef.get(b"F").unwrap().as_reference().unwrap();
         let params = doc
-            .get_object(sid).unwrap().as_stream().unwrap()
-            .dict.get(b"Params").unwrap().as_dict().unwrap();
+            .get_object(sid)
+            .unwrap()
+            .as_stream()
+            .unwrap()
+            .dict
+            .get(b"Params")
+            .unwrap()
+            .as_dict()
+            .unwrap();
         assert_eq!(
             params.get(b"CreationDate").unwrap().as_str().unwrap(),
             b"D:20260101120000Z"
@@ -688,7 +715,10 @@ mod tests {
             ef.set("F", Object::Reference(stream_id));
             let mut spec = Dictionary::new();
             spec.set("Type", Object::Name(b"Filespec".to_vec()));
-            spec.set("F", Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal));
+            spec.set(
+                "F",
+                Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
+            );
             spec.set("EF", Object::Dictionary(ef));
             doc.add_object(Object::Dictionary(spec))
         };
@@ -697,21 +727,30 @@ mod tests {
 
         let leaf = |doc: &mut Document, name: &str, spec: ObjectId| -> ObjectId {
             let mut d = Dictionary::new();
-            d.set("Limits", Object::Array(vec![
-                Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
-                Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
-            ]));
-            d.set("Names", Object::Array(vec![
-                Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
-                Object::Reference(spec),
-            ]));
+            d.set(
+                "Limits",
+                Object::Array(vec![
+                    Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
+                    Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
+                ]),
+            );
+            d.set(
+                "Names",
+                Object::Array(vec![
+                    Object::String(name.as_bytes().to_vec(), lopdf::StringFormat::Literal),
+                    Object::Reference(spec),
+                ]),
+            );
             doc.add_object(Object::Dictionary(d))
         };
         let k1 = leaf(&mut doc, "alpha.txt", alpha);
         let k2 = leaf(&mut doc, "zeta.txt", zeta);
 
         let mut ef_root = Dictionary::new();
-        ef_root.set("Kids", Object::Array(vec![Object::Reference(k1), Object::Reference(k2)]));
+        ef_root.set(
+            "Kids",
+            Object::Array(vec![Object::Reference(k1), Object::Reference(k2)]),
+        );
         let ef_root_id = doc.add_object(Object::Dictionary(ef_root));
         let mut names = Dictionary::new();
         names.set("EmbeddedFiles", Object::Reference(ef_root_id));
@@ -779,10 +818,11 @@ mod tests {
         let catalog = doc.get_dictionary(root_id).unwrap();
         let af = catalog.get(b"AF").unwrap().as_array().unwrap();
         assert_eq!(af.len(), 1);
-        let af_spec = doc
-            .get_dictionary(af[0].as_reference().unwrap())
-            .unwrap();
-        assert_eq!(af_spec.get(b"F").unwrap().as_str().unwrap(), b"factur-x.xml");
+        let af_spec = doc.get_dictionary(af[0].as_reference().unwrap()).unwrap();
+        assert_eq!(
+            af_spec.get(b"F").unwrap().as_str().unwrap(),
+            b"factur-x.xml"
+        );
     }
 
     #[test]
@@ -791,20 +831,26 @@ mod tests {
         let first = attach_files_json(
             &base,
             r#"[{"name":"a.xml","afRelationship":"Data","offset":0,"length":1}]"#,
-            b"A", false,
+            b"A",
+            false,
         )
         .unwrap();
         let out = attach_files_json(
             &first,
             r#"[{"name":"b.xml","afRelationship":"Source","offset":0,"length":1}]"#,
-            b"B", false,
+            b"B",
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let root_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
         let af = doc
-            .get_dictionary(root_id).unwrap()
-            .get(b"AF").unwrap().as_array().unwrap();
+            .get_dictionary(root_id)
+            .unwrap()
+            .get(b"AF")
+            .unwrap()
+            .as_array()
+            .unwrap();
         assert_eq!(af.len(), 2, "existing /AF entry must be preserved");
     }
 
@@ -812,12 +858,20 @@ mod tests {
     fn second_attach_pass_merges_with_first() {
         // Two sequential standalone attaches (the chained-save scenario).
         let base = blank_doc();
-        let first =
-            attach_files_json(&base, r#"[{"name":"one.txt","offset":0,"length":3}]"#, b"ONE", false)
-                .unwrap();
-        let out =
-            attach_files_json(&first, r#"[{"name":"two.txt","offset":0,"length":3}]"#, b"TWO", false)
-                .unwrap();
+        let first = attach_files_json(
+            &base,
+            r#"[{"name":"one.txt","offset":0,"length":3}]"#,
+            b"ONE",
+            false,
+        )
+        .unwrap();
+        let out = attach_files_json(
+            &first,
+            r#"[{"name":"two.txt","offset":0,"length":3}]"#,
+            b"TWO",
+            false,
+        )
+        .unwrap();
         let doc = Document::load_mem(&out).unwrap();
         let names: Vec<String> = tree_entries(&doc).into_iter().map(|(n, _)| n).collect();
         assert_eq!(names, vec!["one.txt", "two.txt"]);
@@ -826,8 +880,7 @@ mod tests {
     /// Decode the packed read_attachments buffer into (json, blob).
     fn unpack(packed: &[u8]) -> (serde_json::Value, Vec<u8>) {
         let json_len = u32::from_le_bytes(packed[..4].try_into().unwrap()) as usize;
-        let json: serde_json::Value =
-            serde_json::from_slice(&packed[4..4 + json_len]).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&packed[4..4 + json_len]).unwrap();
         (json, packed[4 + json_len..].to_vec())
     }
 
@@ -851,7 +904,10 @@ mod tests {
         assert_eq!(a["creationDate"], "D:20260101120000Z");
         assert_eq!(a["afRelationship"], "Alternative");
         assert_eq!(a["size"], payload.len());
-        assert!(a.get("modificationDate").is_none(), "absent key must be omitted");
+        assert!(
+            a.get("modificationDate").is_none(),
+            "absent key must be omitted"
+        );
 
         let off = a["offset"].as_u64().unwrap() as usize;
         let len = a["length"].as_u64().unwrap() as usize;
@@ -867,20 +923,38 @@ mod tests {
         let mut doc = Document::load_mem(&base).unwrap();
         let mut spec = Dictionary::new();
         spec.set("Type", Object::Name(b"Filespec".to_vec()));
-        spec.set("F", Object::String(b"broken.txt".to_vec(), lopdf::StringFormat::Literal));
+        spec.set(
+            "F",
+            Object::String(b"broken.txt".to_vec(), lopdf::StringFormat::Literal),
+        );
         let broken = doc.add_object(Object::Dictionary(spec));
         // splice it into the first /Kids leaf's /Names array
         let root_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
-        let names_obj = doc.get_dictionary(root_id).unwrap().get(b"Names").unwrap().clone();
+        let names_obj = doc
+            .get_dictionary(root_id)
+            .unwrap()
+            .get(b"Names")
+            .unwrap()
+            .clone();
         let ef_root_id = match &names_obj {
             Object::Dictionary(d) => d.get(b"EmbeddedFiles").unwrap().as_reference().unwrap(),
             _ => panic!(),
         };
-        let kid0 = doc.get_dictionary(ef_root_id).unwrap()
-            .get(b"Kids").unwrap().as_array().unwrap()[0].as_reference().unwrap();
+        let kid0 = doc
+            .get_dictionary(ef_root_id)
+            .unwrap()
+            .get(b"Kids")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .as_reference()
+            .unwrap();
         let kid = doc.get_object_mut(kid0).unwrap().as_dict_mut().unwrap();
         let mut names = kid.get(b"Names").unwrap().as_array().unwrap().clone();
-        names.push(Object::String(b"broken.txt".to_vec(), lopdf::StringFormat::Literal));
+        names.push(Object::String(
+            b"broken.txt".to_vec(),
+            lopdf::StringFormat::Literal,
+        ));
         names.push(Object::Reference(broken));
         kid.set("Names", Object::Array(names));
         let mut bytes = Vec::new();
@@ -888,7 +962,9 @@ mod tests {
 
         let (json, blob) = unpack(&read_attachments_packed(&bytes).unwrap());
         let names: Vec<&str> = json
-            .as_array().unwrap().iter()
+            .as_array()
+            .unwrap()
+            .iter()
             .map(|a| a["name"].as_str().unwrap())
             .collect();
         // broken.txt skipped (no /EF), not fatal

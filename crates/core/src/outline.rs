@@ -206,7 +206,8 @@ mod tests {
     fn sets_outline_with_dest() {
         let out = set_outline_json(
             FICHA,
-            r#"[{"title":"Intro","page":0},{"title":"End","page":0}]"#, false
+            r#"[{"title":"Intro","page":0},{"title":"End","page":0}]"#,
+            false,
         )
         .unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental
@@ -223,7 +224,8 @@ mod tests {
     fn nested_outline_links_parent() {
         let out = set_outline_json(
             FICHA,
-            r#"[{"title":"Ch1","page":0,"children":[{"title":"1.1","page":0}]}]"#, false
+            r#"[{"title":"Ch1","page":0,"children":[{"title":"1.1","page":0}]}]"#,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();

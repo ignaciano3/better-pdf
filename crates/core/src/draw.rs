@@ -2098,7 +2098,8 @@ mod tests {
             r#"[{"op":"setRotation","page":0,"degrees":90}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2120,7 +2121,8 @@ mod tests {
             r#"[{"op":"setRotation","page":0,"degrees":-90}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2143,7 +2145,8 @@ mod tests {
             r#"[{"op":"setRotation","page":0,"degrees":45}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         assert!(r.unwrap_err().contains("90"));
     }
@@ -2155,7 +2158,8 @@ mod tests {
             r#"[{"op":"setMediaBox","page":0,"box":[0,0,200,300]}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2178,7 +2182,8 @@ mod tests {
             r#"[{"op":"setMediaBox","page":0,"box":[100,0,50,300]}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         assert!(r.is_err());
     }
@@ -2191,7 +2196,8 @@ mod tests {
             r#"[{"op":"setRotation","page":0,"degrees":180}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         )
         .unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental
@@ -2316,7 +2322,8 @@ mod tests {
             r#"[{"op":"text","page":999,"x":0,"y":0,"size":10,"font":"Helvetica","color":[0,0,0],"text":"x"}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         assert!(r.unwrap_err().contains("page"));
     }
@@ -2328,7 +2335,8 @@ mod tests {
             r#"[{"op":"text","page":0,"x":0,"y":0,"size":10,"font":"Comic Sans","color":[0,0,0],"text":"x"}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         assert!(r.unwrap_err().contains("font"));
     }
@@ -2621,7 +2629,8 @@ mod tests {
             r#"[{"op":"rectangle","page":0,"x":0,"y":0,"width":10,"height":10,"color":[0,0,0],"opacity":1.5}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         let err = r.unwrap_err();
         assert!(
@@ -2767,7 +2776,8 @@ mod tests {
             r#"[{"op":"ellipse","page":0,"x":100,"y":100,"xScale":0,"yScale":50,"color":[0,0,1]}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         let err = r.unwrap_err();
         assert!(
@@ -2784,7 +2794,8 @@ mod tests {
             r#"[{"op":"rectangle","page":0,"x":10,"y":10,"width":0,"height":30,"color":[0,0,1]}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         let err = r.unwrap_err();
         assert!(
@@ -2832,7 +2843,8 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[50,50,200,80],"uri":"https://example.com"}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2859,7 +2871,8 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[10,10,100,40],"goToPage":0}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2879,7 +2892,8 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[0,0,10,10],"uri":"x","goToPage":0}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         assert!(r.is_err());
     }
@@ -2891,7 +2905,8 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[0,0,10,10]}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         assert!(r.is_err());
     }
@@ -3002,7 +3017,8 @@ mod tests {
             r#"[{"op":"link","page":0,"rect":[10,10,100,30],"goToPage":99}]"#,
             &[],
             &[],
-            "[]", false
+            "[]",
+            false,
         );
         let err = r.unwrap_err();
         assert!(

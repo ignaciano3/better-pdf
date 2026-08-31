@@ -199,10 +199,10 @@ mod tests {
                 {"op":"text","page":0,"x":72,"y":72,"size":12,"font":"Helvetica","color":[0,0,0],"text":"The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog."}
             ] }
         }"#;
-        let compressed =
-            apply_all_json(FICHA, plan, &[], &[], &[], &[], true).expect("apply_all should succeed");
-        let raw =
-            apply_all_json(FICHA, plan, &[], &[], &[], &[], false).expect("apply_all should succeed");
+        let compressed = apply_all_json(FICHA, plan, &[], &[], &[], &[], true)
+            .expect("apply_all should succeed");
+        let raw = apply_all_json(FICHA, plan, &[], &[], &[], &[], false)
+            .expect("apply_all should succeed");
         assert!(
             compressed.len() < raw.len(),
             "compressed {} should be smaller than raw {}",
@@ -221,7 +221,8 @@ mod tests {
             "outline": [ {"title":"Section","page":0} ]
         }"#;
 
-        let out = apply_all_json(FICHA, plan, &[], &[], &[], &[], false).expect("apply_all should succeed");
+        let out = apply_all_json(FICHA, plan, &[], &[], &[], &[], false)
+            .expect("apply_all should succeed");
         let doc = Document::load_mem(&out).expect("output must be a valid PDF");
 
         // draw landed on page 0
@@ -263,7 +264,8 @@ mod tests {
             ] }
         }"#;
 
-        let out = apply_all_json(FICHA, plan, &[], &[], &[], &[], false).expect("apply_all should succeed");
+        let out = apply_all_json(FICHA, plan, &[], &[], &[], &[], false)
+            .expect("apply_all should succeed");
         let doc = Document::load_mem(&out).expect("output must be a valid PDF");
 
         assert!(
@@ -279,7 +281,8 @@ mod tests {
 
     #[test]
     fn apply_all_empty_plan_roundtrips() {
-        let out = apply_all_json(FICHA, "{}", &[], &[], &[], &[], false).expect("empty plan should succeed");
+        let out = apply_all_json(FICHA, "{}", &[], &[], &[], &[], false)
+            .expect("empty plan should succeed");
         Document::load_mem(&out).expect("output must be a valid PDF");
     }
 
@@ -292,7 +295,8 @@ mod tests {
             "fill": [ {"name":"beneficiario.apellidos_nombres","value":"BATCHFLAT"} ],
             "flatten": ["beneficiario.apellidos_nombres"]
         }"#;
-        let out = apply_all_json(FICHA, plan, &[], &[], &[], &[], false).expect("apply_all should succeed");
+        let out = apply_all_json(FICHA, plan, &[], &[], &[], &[], false)
+            .expect("apply_all should succeed");
         let doc = Document::load_mem(&out).expect("output must be a valid PDF");
 
         let content = page0_content(&doc);
@@ -382,8 +386,15 @@ mod tests {
             include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
         // Created base doc with one page, then apply two draw ops using the same font.
         let base = crate::create::create_document_json(
-            r#"[{"op":"addPage","width":300,"height":300}]"#, &[], &[], "[]", "[]", false, false,
-        ).unwrap();
+            r#"[{"op":"addPage","width":300,"height":300}]"#,
+            &[],
+            &[],
+            "[]",
+            "[]",
+            false,
+            false,
+        )
+        .unwrap();
         let plan = format!(
             r#"{{"draw":{{"ops":[
                 {{"op":"text","page":0,"x":10,"y":40,"size":12,"text":"Ab","fontId":0,"color":[0,0,0]}},
@@ -393,12 +404,17 @@ mod tests {
         );
         let out = apply_all_json(&base, &plan, &[], &[], FONT, &[], false).unwrap();
         let doc = lopdf::Document::load_mem(&out).unwrap();
-        let type0_count = doc.objects.values().filter(|o| {
-            o.as_dict().ok()
-                .and_then(|d| d.get(b"Subtype").ok())
-                .and_then(|s| s.as_name().ok())
-                == Some(b"Type0")
-        }).count();
+        let type0_count = doc
+            .objects
+            .values()
+            .filter(|o| {
+                o.as_dict()
+                    .ok()
+                    .and_then(|d| d.get(b"Subtype").ok())
+                    .and_then(|s| s.as_name().ok())
+                    == Some(b"Type0")
+            })
+            .count();
         assert_eq!(type0_count, 1, "font must build exactly once");
     }
 
@@ -407,8 +423,15 @@ mod tests {
         const FONT: &[u8] =
             include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
         let base = crate::create::create_document_json(
-            r#"[{"op":"addPage","width":300,"height":300}]"#, &[], &[], "[]", "[]", false, false,
-        ).unwrap();
+            r#"[{"op":"addPage","width":300,"height":300}]"#,
+            &[],
+            &[],
+            "[]",
+            "[]",
+            false,
+            false,
+        )
+        .unwrap();
         // Only one FontDesc (id 0) is provided, but the op references fontId 5.
         let plan = format!(
             r#"{{"draw":{{"ops":[
@@ -429,8 +452,15 @@ mod tests {
         const FONT: &[u8] =
             include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
         let base = crate::create::create_document_json(
-            r#"[{"op":"addPage","width":300,"height":300}]"#, &[], &[], "[]", "[]", false, false,
-        ).unwrap();
+            r#"[{"op":"addPage","width":300,"height":300}]"#,
+            &[],
+            &[],
+            "[]",
+            "[]",
+            false,
+            false,
+        )
+        .unwrap();
         // FontDesc's offset+length exceeds the fonts blob length.
         let plan = format!(
             r#"{{"draw":{{"ops":[
@@ -451,10 +481,15 @@ mod tests {
         const NOTO: &[u8] =
             include_bytes!("../../../tests/fixtures/fonts/NotoSans-Regular.subset.ttf");
         let base = crate::create::create_document_json(
-            r#"[{"op":"addPage","width":300,"height":300}]"#, &[], &[], "[]",
+            r#"[{"op":"addPage","width":300,"height":300}]"#,
+            &[],
+            &[],
+            "[]",
             r#"[{"type":"text","name":"n","page":0,"x":10,"y":10,"width":200,"height":20}]"#,
-            false, false,
-        ).unwrap();
+            false,
+            false,
+        )
+        .unwrap();
         let plan = format!(
             r#"{{"fill":[{{"name":"n","value":"Añb","fontId":0}}],"flatten":["n"],"draw":{{"ops":[],"fonts":[{{"offset":0,"length":{},"subset":true}}]}}}}"#,
             NOTO.len()
@@ -463,7 +498,10 @@ mod tests {
         let doc = lopdf::Document::load_mem(&out).unwrap();
         // Field is gone (flattened)...
         let fields = crate::forms::read_fields_json(&out).unwrap();
-        assert!(!fields.contains(r#""name":"n""#), "field should be flattened: {fields}");
+        assert!(
+            !fields.contains(r#""name":"n""#),
+            "field should be flattened: {fields}"
+        );
 
         // ...the page content actually invokes the stamped appearance XObject
         // (flatten's register_xobject names it "bpdfAp{n}" and inserts it into

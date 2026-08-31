@@ -199,8 +199,12 @@ mod tests {
     #[test]
     fn append_blank_adds_a_page() {
         let n = count(FICHA);
-        let out =
-            insert_pages_json(FICHA, r#"[{"op":"appendBlank","width":595,"height":842}]"#, false).unwrap();
+        let out = insert_pages_json(
+            FICHA,
+            r#"[{"op":"appendBlank","width":595,"height":842}]"#,
+            false,
+        )
+        .unwrap();
         assert_eq!(&out[..FICHA.len()], FICHA); // incremental
         assert_eq!(count(&out), n + 1);
         // the new last page has the requested MediaBox
@@ -220,7 +224,8 @@ mod tests {
         let n = count(FICHA);
         let out = insert_pages_json(
             FICHA,
-            r#"[{"op":"insertBlank","index":0,"width":100,"height":100}]"#, false
+            r#"[{"op":"insertBlank","index":0,"width":100,"height":100}]"#,
+            false,
         )
         .unwrap();
         assert_eq!(count(&out), n + 1);
@@ -242,7 +247,8 @@ mod tests {
     fn remove_page_drops_one() {
         let n = count(FICHA);
         if n >= 1 {
-            let out = insert_pages_json(FICHA, r#"[{"op":"removePage","index":0}]"#, false).unwrap();
+            let out =
+                insert_pages_json(FICHA, r#"[{"op":"removePage","index":0}]"#, false).unwrap();
             assert_eq!(count(&out), n - 1);
         }
     }
@@ -250,7 +256,8 @@ mod tests {
     fn move_page_reorders() {
         let n = count(FICHA);
         if n >= 2 {
-            let out = insert_pages_json(FICHA, r#"[{"op":"movePage","from":0,"to":1}]"#, false).unwrap();
+            let out =
+                insert_pages_json(FICHA, r#"[{"op":"movePage","from":0,"to":1}]"#, false).unwrap();
             assert_eq!(count(&out), n);
         }
     }
@@ -267,7 +274,8 @@ mod tests {
         let had_acroform = orig.catalog().unwrap().has(b"AcroForm");
         let out = insert_pages_json(
             FICHA,
-            r#"[{"op":"appendBlank","width":200,"height":300},{"op":"movePage","from":0,"to":1}]"#, false
+            r#"[{"op":"appendBlank","width":200,"height":300},{"op":"movePage","from":0,"to":1}]"#,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();

@@ -1039,7 +1039,10 @@ pub(crate) fn validate_fields(
                         return Err(format!("font id {i} out of range"));
                     }
                     if font_id.is_some() && *comb {
-                        return Err("embedded fonts are supported on plain and multiline text fields only".to_string());
+                        return Err(
+                            "embedded fonts are supported on plain and multiline text fields only"
+                                .to_string(),
+                        );
                     }
                     if !seen_names.insert(name.as_str()) {
                         return Err(format!("duplicate field name: {name}"));
@@ -2367,12 +2370,26 @@ mod tests {
     #[test]
     fn create_document_compresses_content_when_enabled() {
         let empty = Vec::new();
-        let compressed =
-            create_document_json(SIMPLE_TEXT_PAGE_OPS_JSON, &empty, &empty, "[]", "[]", true, false)
-                .unwrap();
-        let raw =
-            create_document_json(SIMPLE_TEXT_PAGE_OPS_JSON, &empty, &empty, "[]", "[]", false, false)
-                .unwrap();
+        let compressed = create_document_json(
+            SIMPLE_TEXT_PAGE_OPS_JSON,
+            &empty,
+            &empty,
+            "[]",
+            "[]",
+            true,
+            false,
+        )
+        .unwrap();
+        let raw = create_document_json(
+            SIMPLE_TEXT_PAGE_OPS_JSON,
+            &empty,
+            &empty,
+            "[]",
+            "[]",
+            false,
+            false,
+        )
+        .unwrap();
         assert!(
             compressed.len() < raw.len(),
             "compressed {} should be smaller than raw {}",
@@ -2620,7 +2637,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false, false
+            "[]",
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2636,7 +2655,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false, false
+            "[]",
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -2705,7 +2726,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false, false
+            "[]",
+            false,
+            false,
         );
         assert!(r.is_err());
     }
@@ -2717,7 +2740,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false, false
+            "[]",
+            false,
+            false,
         );
         assert!(r.unwrap_err().contains("page"));
     }
@@ -2729,7 +2754,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false, false
+            "[]",
+            false,
+            false,
         );
         assert!(r.unwrap_err().contains("font"));
     }
@@ -2741,7 +2768,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            "[]", false, false
+            "[]",
+            false,
+            false,
         )
         .unwrap();
         assert!(out.starts_with(b"%PDF-"));
@@ -3067,7 +3096,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            fields, false, false
+            fields,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3086,7 +3117,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            fields, false, false
+            fields,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3112,7 +3145,9 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false, false
+                f,
+                false,
+                false
             )
             .is_err()
         );
@@ -3127,7 +3162,9 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false, false
+                f,
+                false,
+                false
             )
             .is_err()
         );
@@ -3141,7 +3178,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
@@ -3157,7 +3196,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         assert!(crate::forms::read_fields_json(&out).unwrap().contains("On"));
@@ -3171,7 +3212,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
@@ -3201,7 +3244,9 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false, false
+                f,
+                false,
+                false
             )
             .is_err()
         );
@@ -3216,7 +3261,9 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false, false
+                f,
+                false,
+                false
             )
             .is_err()
         );
@@ -3230,7 +3277,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
@@ -3249,7 +3298,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         assert!(
@@ -3268,7 +3319,9 @@ mod tests {
                 &[],
                 &[],
                 "[]",
-                f, false, false
+                f,
+                false,
+                false
             )
             .is_err()
         );
@@ -3282,7 +3335,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let json = crate::forms::read_fields_json(&out).unwrap();
@@ -3365,7 +3420,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3388,7 +3445,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3406,7 +3465,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3422,7 +3483,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3442,7 +3505,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3462,7 +3527,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3487,7 +3554,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3507,7 +3576,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3528,7 +3599,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3553,7 +3626,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3571,7 +3646,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         );
         assert!(r.unwrap_err().contains("comb field requires maxLength"));
     }
@@ -3584,7 +3661,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         );
         assert!(r.unwrap_err().contains("comb field cannot be multiline"));
     }
@@ -3600,9 +3679,14 @@ mod tests {
             &[],
             FONT,
             &fonts_json,
-            f, false, false
+            f,
+            false,
+            false,
         );
-        assert!(r.unwrap_err().contains("plain and multiline text fields only"));
+        assert!(
+            r.unwrap_err()
+                .contains("plain and multiline text fields only")
+        );
     }
 
     #[test]
@@ -3614,7 +3698,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3633,7 +3719,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3651,7 +3739,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3669,7 +3759,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3688,7 +3780,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let s = String::from_utf8_lossy(&out);
@@ -3706,7 +3800,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3726,7 +3822,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3744,7 +3842,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3764,7 +3864,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3792,7 +3894,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3813,7 +3917,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3943,7 +4049,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -3980,7 +4088,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -4002,7 +4112,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -4022,7 +4134,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -4046,7 +4160,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         )
         .unwrap();
         let doc = Document::load_mem(&out).unwrap();
@@ -4080,7 +4196,9 @@ mod tests {
             &[],
             &[],
             "[]",
-            f, false, false
+            f,
+            false,
+            false,
         );
         assert!(r.is_err(), "unknown font must be rejected");
     }
@@ -4096,7 +4214,9 @@ mod tests {
             &[],
             FONT,
             &fonts_json,
-            f, false, false
+            f,
+            false,
+            false,
         );
         assert!(r.unwrap_err().contains("out of range"));
     }

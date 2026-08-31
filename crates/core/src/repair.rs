@@ -208,10 +208,7 @@ fn top_level_name_is(dict: &[u8], key: &[u8], name: &[u8]) -> bool {
     }
     // The value must be the whole name, not a prefix of a longer one
     // (`/XRefStm` must not match `/XRef`).
-    body[i..].starts_with(name)
-        && body
-            .get(i + name.len())
-            .is_none_or(|b| ends_name_token(*b))
+    body[i..].starts_with(name) && body.get(i + name.len()).is_none_or(|b| ends_name_token(*b))
 }
 
 /// True for the six PDF whitespace bytes.
@@ -330,7 +327,13 @@ pub(crate) fn inject_v4_length(data: &[u8]) -> Option<Vec<u8>> {
     patched.extend_from_slice(b" /Length 128");
     patched.extend_from_slice(&span[after_open..]);
 
-    Some(rebuild_preserving_trailer(data, &objs, encrypt_num, &patched, trailer))
+    Some(rebuild_preserving_trailer(
+        data,
+        &objs,
+        encrypt_num,
+        &patched,
+        trailer,
+    ))
 }
 
 /// The `<< … >>` byte range of the file's last `trailer` dictionary, or `None`
@@ -516,7 +519,11 @@ fn scan_objects(data: &[u8]) -> Vec<RawObj> {
         let end = find_keyword(&data[body_start..hard_end], b"endobj")
             .map(|p| body_start + p + b"endobj".len())
             .unwrap_or(hard_end);
-        out.push(RawObj { num, generation, span: start..end });
+        out.push(RawObj {
+            num,
+            generation,
+            span: start..end,
+        });
     }
     out
 }
@@ -543,7 +550,10 @@ fn parse_obj_header(data: &[u8], pos: usize) -> Option<(u32, u16, usize, usize)>
 }
 
 fn is_delim_or_ws(b: u8) -> bool {
-    matches!(b, b' ' | b'\t' | b'\r' | b'\n' | b'\x0c' | b'\0' | b'>' | b']' | b')' | b'%')
+    matches!(
+        b,
+        b' ' | b'\t' | b'\r' | b'\n' | b'\x0c' | b'\0' | b'>' | b']' | b')' | b'%'
+    )
 }
 
 fn read_uint(data: &[u8], i: &mut usize) -> Option<u64> {
@@ -668,7 +678,13 @@ fn rebuild(data: &[u8], objs: &[RawObj]) -> Result<Vec<u8>, String> {
         }
     }
     out.extend_from_slice(
-        format!("trailer\n<< /Size {} /Root {} {} R", max_num + 1, root.0, root.1).as_bytes(),
+        format!(
+            "trailer\n<< /Size {} /Root {} {} R",
+            max_num + 1,
+            root.0,
+            root.1
+        )
+        .as_bytes(),
     );
     if let Some((n, g)) = info {
         out.extend_from_slice(format!(" /Info {n} {g} R").as_bytes());
@@ -877,7 +893,10 @@ startxref\n0\n%%EOF\n";
         assert!(has_encrypt_marker(XREF_STREAM_ENCRYPTED));
         let err = repair_load(XREF_STREAM_ENCRYPTED)
             .expect_err("an encrypted xref-stream file must not be repaired");
-        assert!(crate::err_has_code(&err, crate::error_code::ENCRYPTED), "got: {err}");
+        assert!(
+            crate::err_has_code(&err, crate::error_code::ENCRYPTED),
+            "got: {err}"
+        );
     }
 
     #[test]
